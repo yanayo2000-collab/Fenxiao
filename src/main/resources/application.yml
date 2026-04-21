@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: fenxiao
+  datasource:
+    url: jdbc:mysql://localhost:3306/fenxiao?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+fenxiao:
+  distribution:
+    default-freeze-days: 7
+    max-level-depth: 3

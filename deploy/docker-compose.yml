@@ -1,0 +1,44 @@
+version: '3.9'
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: fenxiao
+      MYSQL_USER: fenxiao
+      MYSQL_PASSWORD: fenxiao123
+      MYSQL_ROOT_PASSWORD: root123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:mysql://mysql:3306/fenxiao?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+      DB_USERNAME: fenxiao
+      DB_PASSWORD: fenxiao123
+      INTERNAL_DISTRIBUTION_TOKEN: local-internal-token
+      WEB_ALLOWED_ORIGINS: http://localhost:8088,http://localhost:5173
+      SERVER_PORT: 8080
+    depends_on:
+      - mysql
+    ports:
+      - "8080:8080"
+
+  frontend:
+    image: nginx:1.27-alpine
+    volumes:
+      - ../frontend/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+    ports:
+      - "8088:80"
+
+volumes:
+  mysql-data:

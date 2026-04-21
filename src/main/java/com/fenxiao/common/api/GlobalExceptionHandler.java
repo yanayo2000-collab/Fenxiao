@@ -20,6 +20,15 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    @ExceptionHandler(ForbiddenException.class)
+    public Map<String, Object> handleForbiddenException(ForbiddenException exception) {
+        return Map.of(
+                "code", "FORBIDDEN",
+                "message", exception.getMessage()
+        );
+    }
+
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public Map<String, Object> handleValidationException(MethodArgumentNotValidException exception) {

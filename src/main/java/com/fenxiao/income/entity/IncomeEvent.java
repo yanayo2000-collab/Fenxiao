@@ -8,15 +8,10 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-@Getter
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "income_event")
 public class IncomeEvent extends BaseEntity {
@@ -55,6 +50,53 @@ public class IncomeEvent extends BaseEntity {
     @Lob
     @Column(name = "raw_payload")
     private String rawPayload;
+
+    protected IncomeEvent() {
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getSourceEventId() {
+        return sourceEventId;
+    }
+
+    public Long getUserId() {
+        return userId;
+    }
+
+    public String getCountryCode() {
+        return countryCode;
+    }
+
+    public String getIncomeType() {
+        return incomeType;
+    }
+
+    public BigDecimal getIncomeAmount() {
+        return incomeAmount;
+    }
+
+    public String getCurrencyCode() {
+        return currencyCode;
+    }
+
+    public LocalDateTime getEventTime() {
+        return eventTime;
+    }
+
+    public String getSyncBatchNo() {
+        return syncBatchNo;
+    }
+
+    public String getSyncStatus() {
+        return syncStatus;
+    }
+
+    public String getRawPayload() {
+        return rawPayload;
+    }
 
     public static IncomeEvent create(String sourceEventId,
                                      Long userId,

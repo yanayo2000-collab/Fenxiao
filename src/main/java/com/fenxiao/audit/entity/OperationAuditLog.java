@@ -8,13 +8,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
-@Getter
-@NoArgsConstructor
 @Entity
 @Table(name = "operation_audit_log")
 public class OperationAuditLog extends BaseEntity {
@@ -57,4 +53,55 @@ public class OperationAuditLog extends BaseEntity {
 
     @Column(name = "remark", length = 255)
     private String remark;
+
+    protected OperationAuditLog() {
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public Long getOperatorId() {
+        return operatorId;
+    }
+
+    public String getOperatorRole() {
+        return operatorRole;
+    }
+
+    public String getModuleName() {
+        return moduleName;
+    }
+
+    public String getTargetType() {
+        return targetType;
+    }
+
+    public Long getTargetId() {
+        return targetId;
+    }
+
+    public String getActionName() {
+        return actionName;
+    }
+
+    public String getBeforeData() {
+        return beforeData;
+    }
+
+    public String getAfterData() {
+        return afterData;
+    }
+
+    public String getRequestIp() {
+        return requestIp;
+    }
+
+    public LocalDateTime getOperatedAt() {
+        return operatedAt;
+    }
+
+    public String getRemark() {
+        return remark;
+    }
 }

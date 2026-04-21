@@ -10,15 +10,11 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
 
-@Getter
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "reward_record")
 public class RewardRecord extends BaseEntity {
@@ -70,6 +66,69 @@ public class RewardRecord extends BaseEntity {
     @Column(name = "risk_reason", length = 255)
     private String riskReason;
 
+    protected RewardRecord() {
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getSourceEventId() {
+        return sourceEventId;
+    }
+
+    public Long getBeneficiaryUserId() {
+        return beneficiaryUserId;
+    }
+
+    public Long getSourceUserId() {
+        return sourceUserId;
+    }
+
+    public Integer getRewardLevel() {
+        return rewardLevel;
+    }
+
+    public BigDecimal getIncomeAmount() {
+        return incomeAmount;
+    }
+
+    public BigDecimal getRewardRate() {
+        return rewardRate;
+    }
+
+    public BigDecimal getRewardAmount() {
+        return rewardAmount;
+    }
+
+    public String getCurrencyCode() {
+        return currencyCode;
+    }
+
+    public RewardStatus getRewardStatus() {
+        return rewardStatus;
+    }
+
+    public LocalDateTime getUnfreezeAt() {
+        return unfreezeAt;
+    }
+
+    public LocalDateTime getCalculatedAt() {
+        return calculatedAt;
+    }
+
+    public LocalDateTime getSettledAt() {
+        return settledAt;
+    }
+
+    public boolean isRiskFlag() {
+        return riskFlag;
+    }
+
+    public String getRiskReason() {
+        return riskReason;
+    }
+
     public static RewardRecord create(String sourceEventId,
                                       Long beneficiaryUserId,
                                       Long sourceUserId,
@@ -78,7 +137,8 @@ public class RewardRecord extends BaseEntity {
                                       BigDecimal rewardRate,
                                       BigDecimal rewardAmount,
                                       String currencyCode,
-                                      Integer freezeDays) {
+                                      Integer freezeDays,
+                                      LocalDateTime eventTime) {
         RewardRecord record = new RewardRecord();
         record.sourceEventId = sourceEventId;
         record.beneficiaryUserId = beneficiaryUserId;
@@ -89,8 +149,8 @@ public class RewardRecord extends BaseEntity {
         record.rewardAmount = rewardAmount;
         record.currencyCode = currencyCode;
         record.rewardStatus = RewardStatus.FROZEN;
-        record.calculatedAt = LocalDateTime.now();
-        record.unfreezeAt = record.calculatedAt.plusDays(freezeDays);
+        record.calculatedAt = LocalDateTime.now(Clock.systemUTC());
+        record.unfreezeAt = eventTime.plusDays(freezeDays);
         record.riskFlag = false;
         return record;
     }
@@ -99,5 +159,9 @@ public class RewardRecord extends BaseEntity {
         this.rewardStatus = RewardStatus.RISK_HOLD;
         this.riskFlag = true;
         this.riskReason = riskReason;
+    }
+
+    public void markAvailable() {
+        this.rewardStatus = RewardStatus.AVAILABLE;
     }
 }

@@ -7,6 +7,7 @@ import com.fenxiao.income.entity.IncomeEvent;
 import com.fenxiao.income.repository.IncomeEventRepository;
 import com.fenxiao.reward.api.dto.RewardListItem;
 import com.fenxiao.reward.api.dto.RewardListResponse;
+import com.fenxiao.reward.domain.IncomeProcessStatus;
 import com.fenxiao.reward.domain.RewardStatus;
 import com.fenxiao.reward.entity.RewardRecord;
 import com.fenxiao.reward.repository.RewardRecordRepository;
@@ -52,14 +53,14 @@ public class RewardCalculationService {
         this.riskEventRepository = riskEventRepository;
     }
 
-    public void processIncomeEvent(String sourceEventId,
-                                   Long userId,
-                                   BigDecimal incomeAmount,
-                                   String currencyCode,
-                                   LocalDateTime eventTime) {
+    public IncomeProcessStatus processIncomeEvent(String sourceEventId,
+                                                  Long userId,
+                                                  BigDecimal incomeAmount,
+                                                  String currencyCode,
+                                                  LocalDateTime eventTime) {
         Optional<IncomeEvent> existingEvent = incomeEventRepository.findBySourceEventId(sourceEventId);
         if (existingEvent.isPresent()) {
-            return;
+            return IncomeProcessStatus.DUPLICATE;
         }
 
         UserDistributionProfile sourceUser = userProfileRepository.findById(userId)
@@ -77,7 +78,7 @@ public class RewardCalculationService {
                     eventTime
             ));
         } catch (DataIntegrityViolationException exception) {
-            return;
+            return IncomeProcessStatus.DUPLICATE;
         }
 
         sourceUser.addConfirmedIncome(incomeAmount.setScale(6, RoundingMode.HALF_UP));
@@ -113,12 +114,15 @@ public class RewardCalculationService {
                             riskUser
                     )));
         }
+        return IncomeProcessStatus.PROCESSED;
     }
 
     public RewardListResponse getRecentRewards(Long beneficiaryUserId, RewardStatus status) {
         List<RewardListItem> items = new ArrayList<>();
         List<RewardRecord> records;
-        if (beneficiaryUserId != null) {
+        if (beneficiaryUserId != null && status != null) {
+            records = rewardRecordRepository.findByBeneficiaryUserIdAndRewardStatusOrderByIdDesc(beneficiaryUserId, status);
+        } else if (beneficiaryUserId != null) {
             records = rewardRecordRepository.findByBeneficiaryUserIdOrderByIdDesc(beneficiaryUserId);
         } else if (status != null) {
             records = rewardRecordRepository.findByRewardStatusOrderByIdDesc(status);
@@ -136,6 +140,13 @@ public class RewardCalculationService {
             ));
         }
         return new RewardListResponse(items, records.size());
+    }
+
+    public int unlockDueRewards(LocalDateTime now) {
+        List<RewardRecord> dueRecords = rewardRecordRepository.findByRewardStatusAndUnfreezeAtLessThanEqual(RewardStatus.FROZEN, now);
+        dueRecords.forEach(RewardRecord::markAvailable);
+        rewardRecordRepository.saveAll(dueRecords);
+        return dueRecords.size();
     }
 
     private RewardRecord buildRewardRecord(String sourceEventId,
@@ -165,7 +176,8 @@ public class RewardCalculationService {
                 rule.getRewardRate(),
                 rewardAmount,
                 currencyCode,
-                rule.getFreezeDays()
+                rule.getFreezeDays(),
+                eventTime
         );
         if (riskUser) {
             record.markRiskHold("source user marked as risk");

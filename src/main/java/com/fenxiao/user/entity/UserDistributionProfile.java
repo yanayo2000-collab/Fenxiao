@@ -9,15 +9,12 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
-@Getter
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "user_distribution_profile")
 public class UserDistributionProfile extends BaseEntity {
@@ -34,6 +31,9 @@ public class UserDistributionProfile extends BaseEntity {
 
     @Column(name = "invite_code", nullable = false, unique = true, length = 20)
     private String inviteCode;
+
+    @Column(name = "api_access_token", length = 64, unique = true)
+    private String apiAccessToken;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "distribution_role", nullable = false, length = 32)
@@ -52,17 +52,61 @@ public class UserDistributionProfile extends BaseEntity {
     @Column(name = "registered_at", nullable = false)
     private LocalDateTime registeredAt;
 
+    protected UserDistributionProfile() {
+    }
+
+    public Long getUserId() {
+        return userId;
+    }
+
+    public String getCountryCode() {
+        return countryCode;
+    }
+
+    public String getLanguageCode() {
+        return languageCode;
+    }
+
+    public String getInviteCode() {
+        return inviteCode;
+    }
+
+    public String getApiAccessToken() {
+        return apiAccessToken;
+    }
+
+    public DistributionRole getDistributionRole() {
+        return distributionRole;
+    }
+
+    public UserStatus getUserStatus() {
+        return userStatus;
+    }
+
+    public boolean isEffectiveUser() {
+        return effectiveUser;
+    }
+
+    public BigDecimal getConfirmedIncomeTotal() {
+        return confirmedIncomeTotal;
+    }
+
+    public LocalDateTime getRegisteredAt() {
+        return registeredAt;
+    }
+
     public static UserDistributionProfile create(Long userId, String countryCode, String languageCode, String inviteCode) {
         UserDistributionProfile profile = new UserDistributionProfile();
         profile.userId = userId;
         profile.countryCode = countryCode;
         profile.languageCode = languageCode;
         profile.inviteCode = inviteCode;
+        profile.apiAccessToken = UUID.randomUUID().toString().replace("-", "");
         profile.distributionRole = DistributionRole.NORMAL_USER;
         profile.userStatus = UserStatus.NORMAL;
         profile.effectiveUser = false;
         profile.confirmedIncomeTotal = BigDecimal.ZERO;
-        profile.registeredAt = LocalDateTime.now();
+        profile.registeredAt = LocalDateTime.now(Clock.systemUTC());
         return profile;
     }
 
@@ -77,4 +121,3 @@ public class UserDistributionProfile extends BaseEntity {
         this.userStatus = UserStatus.RISK;
     }
 }
-

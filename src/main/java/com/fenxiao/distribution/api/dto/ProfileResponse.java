@@ -4,6 +4,7 @@ public record ProfileResponse(
         Long userId,
         String inviteCode,
         String countryCode,
-        String languageCode
+        String languageCode,
+        String accessToken
 ) {
 }

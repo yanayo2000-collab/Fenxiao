@@ -7,15 +7,11 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
 
-@Getter
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "reward_rule")
 public class RewardRule extends BaseEntity {
@@ -51,13 +47,56 @@ public class RewardRule extends BaseEntity {
     @Column(name = "created_by")
     private Long createdBy;
 
+    protected RewardRule() {
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getCountryCode() {
+        return countryCode;
+    }
+
+    public String getRoleCode() {
+        return roleCode;
+    }
+
+    public Integer getRewardLevel() {
+        return rewardLevel;
+    }
+
+    public BigDecimal getRewardRate() {
+        return rewardRate;
+    }
+
+    public Integer getFreezeDays() {
+        return freezeDays;
+    }
+
+    public LocalDateTime getEffectiveFrom() {
+        return effectiveFrom;
+    }
+
+    public LocalDateTime getEffectiveTo() {
+        return effectiveTo;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public Long getCreatedBy() {
+        return createdBy;
+    }
+
     public static RewardRule create(String countryCode,
                                     String roleCode,
                                     Integer rewardLevel,
                                     BigDecimal rewardRate,
                                     Integer freezeDays,
                                     Long createdBy) {
-        return create(countryCode, roleCode, rewardLevel, rewardRate, freezeDays, createdBy, LocalDateTime.now().minusMinutes(1), null);
+        return create(countryCode, roleCode, rewardLevel, rewardRate, freezeDays, createdBy, LocalDateTime.now(Clock.systemUTC()).minusMinutes(1), null);
     }
 
     public static RewardRule create(String countryCode,

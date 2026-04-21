@@ -11,14 +11,10 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 
-@Getter
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "distribution_relation")
 public class DistributionRelation extends BaseEntity {
@@ -59,11 +55,58 @@ public class DistributionRelation extends BaseEntity {
     @Column(name = "cross_country", nullable = false)
     private boolean crossCountry;
 
+    protected DistributionRelation() {
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public Long getUserId() {
+        return userId;
+    }
+
+    public Long getLevel1InviterId() {
+        return level1InviterId;
+    }
+
+    public Long getLevel2InviterId() {
+        return level2InviterId;
+    }
+
+    public Long getLevel3InviterId() {
+        return level3InviterId;
+    }
+
+    public BindSource getBindSource() {
+        return bindSource;
+    }
+
+    public LocalDateTime getBindTime() {
+        return bindTime;
+    }
+
+    public LockStatus getLockStatus() {
+        return lockStatus;
+    }
+
+    public LocalDateTime getLockTime() {
+        return lockTime;
+    }
+
+    public String getCountryCode() {
+        return countryCode;
+    }
+
+    public boolean isCrossCountry() {
+        return crossCountry;
+    }
+
     public static DistributionRelation createRoot(Long userId, String countryCode) {
         DistributionRelation relation = new DistributionRelation();
         relation.userId = userId;
         relation.bindSource = BindSource.MANUAL;
-        relation.bindTime = LocalDateTime.now();
+        relation.bindTime = LocalDateTime.now(Clock.systemUTC());
         relation.lockStatus = LockStatus.UNLOCKED;
         relation.countryCode = countryCode;
         relation.crossCountry = false;
@@ -83,7 +126,7 @@ public class DistributionRelation extends BaseEntity {
         relation.level2InviterId = level2InviterId;
         relation.level3InviterId = level3InviterId;
         relation.bindSource = bindSource;
-        relation.bindTime = LocalDateTime.now();
+        relation.bindTime = LocalDateTime.now(Clock.systemUTC());
         relation.lockStatus = LockStatus.UNLOCKED;
         relation.countryCode = countryCode;
         relation.crossCountry = crossCountry;
@@ -92,6 +135,6 @@ public class DistributionRelation extends BaseEntity {
 
     public void lock() {
         this.lockStatus = LockStatus.LOCKED;
-        this.lockTime = LocalDateTime.now();
+        this.lockTime = LocalDateTime.now(Clock.systemUTC());
     }
 }

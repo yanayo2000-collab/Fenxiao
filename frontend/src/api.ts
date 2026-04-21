@@ -54,6 +54,28 @@ export type RewardListResponse = {
   total: number
 }
 
+export type OverviewReportResponse = {
+  invitedUsers: number
+  effectiveUsers: number
+  rewardTotal: number
+  frozenRewardTotal: number
+  availableRewardTotal: number
+  riskEventCount: number
+}
+
+export type RelationDetailResponse = {
+  userId: number
+  level1InviterId: number | null
+  level2InviterId: number | null
+  level3InviterId: number | null
+  bindSource: string
+  lockStatus: string
+  bindTime: string
+  lockTime: string | null
+  countryCode: string
+  crossCountry: boolean
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -73,9 +95,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export function createProfile(payload: CreateProfileRequest) {
+export function createProfile(profileCreateToken: string, payload: CreateProfileRequest) {
   return request<ProfileResponse>('/api/distribution/profiles', {
     method: 'POST',
+    headers: {
+      'X-Profile-Create-Token': profileCreateToken,
+    },
     body: JSON.stringify(payload),
   })
 }
@@ -100,6 +125,34 @@ export function getDistributionRewards(userId: number, accessToken: string) {
   return request<RewardListResponse>(`/api/distribution/rewards/${userId}`, {
     headers: {
       'X-Distribution-Token': accessToken,
+    },
+  })
+}
+
+export function getAdminOverview(adminToken: string) {
+  return request<OverviewReportResponse>('/admin/distribution/reports/overview', {
+    headers: {
+      'X-Admin-Token': adminToken,
+    },
+  })
+}
+
+export function getAdminRewards(adminToken: string, filters?: { beneficiaryUserId?: number; status?: string }) {
+  const params = new URLSearchParams()
+  if (filters?.beneficiaryUserId) params.set('beneficiaryUserId', String(filters.beneficiaryUserId))
+  if (filters?.status) params.set('status', filters.status)
+  const query = params.toString()
+  return request<RewardListResponse>(`/admin/distribution/rewards${query ? `?${query}` : ''}`, {
+    headers: {
+      'X-Admin-Token': adminToken,
+    },
+  })
+}
+
+export function getAdminRelation(adminToken: string, userId: number) {
+  return request<RelationDetailResponse>(`/admin/distribution/relation/${userId}`, {
+    headers: {
+      'X-Admin-Token': adminToken,
     },
   })
 }

@@ -1,19 +1,15 @@
 spring:
   datasource:
-    url: ${DB_URL:jdbc:mysql://mysql:3306/fenxiao?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
-    username: ${DB_USERNAME:fenxiao}
-    password: ${DB_PASSWORD:fenxiao123}
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:h2:mem:fenxiao-local;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: validate
-    properties:
-      hibernate:
-        format_sql: false
+      ddl-auto: create-drop
   flyway:
-    enabled: true
-    locations: classpath:db/migration
+    enabled: false
 
 server:
   port: ${SERVER_PORT:8080}

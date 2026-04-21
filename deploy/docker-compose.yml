@@ -22,8 +22,10 @@ services:
       DB_URL: jdbc:mysql://mysql:3306/fenxiao?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
       DB_USERNAME: fenxiao
       DB_PASSWORD: fenxiao123
-      INTERNAL_DISTRIBUTION_TOKEN: local-internal-token
-      WEB_ALLOWED_ORIGINS: http://localhost:8088,http://localhost:5173
+      PROFILE_CREATE_TOKEN: ${PROFILE_CREATE_TOKEN}
+      INTERNAL_DISTRIBUTION_TOKEN: ${INTERNAL_DISTRIBUTION_TOKEN}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      WEB_ALLOWED_ORIGINS: http://localhost:8088,http://localhost:5173,http://127.0.0.1:5173
       SERVER_PORT: 8080
     depends_on:
       - mysql

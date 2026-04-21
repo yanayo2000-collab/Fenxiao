@@ -14,15 +14,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
-@SpringBootTest
+@SpringBootTest(properties = "app.admin.token=test-admin-token")
 class DistributionAdminControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
 
     @Test
+    void shouldReturnForbiddenWithoutAdminToken() throws Exception {
+        mockMvc.perform(get("/admin/distribution/rewards")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
     void shouldReturnRewardListEndpointPayload() throws Exception {
         mockMvc.perform(get("/admin/distribution/rewards")
+                        .header("X-Admin-Token", "test-admin-token")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items").isArray())

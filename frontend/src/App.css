@@ -1,5 +1,5 @@
 .page-shell {
-  max-width: 1200px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 32px 20px 64px;
 }
@@ -25,9 +25,13 @@ h1 {
   font-size: 34px;
 }
 
+h2 {
+  margin-top: 0;
+}
+
 .subtext {
   color: #5f6f89;
-  max-width: 720px;
+  max-width: 760px;
 }
 
 .card {
@@ -36,6 +40,10 @@ h1 {
   padding: 20px;
   margin-bottom: 20px;
   box-shadow: 0 12px 30px rgba(28, 45, 80, 0.08);
+}
+
+.admin-section {
+  border: 1px solid #dde7ff;
 }
 
 .section-head {
@@ -51,6 +59,18 @@ h1 {
   gap: 14px;
 }
 
+.compact-form {
+  margin-bottom: 16px;
+}
+
+.single-line {
+  grid-template-columns: minmax(180px, 280px);
+}
+
+.wide-line {
+  grid-template-columns: minmax(320px, 1fr);
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -59,11 +79,18 @@ label {
   color: #42506a;
 }
 
-input {
+input,
+select {
   border: 1px solid #d6ddeb;
   border-radius: 10px;
   padding: 10px 12px;
   background: #fbfcfe;
+}
+
+button,
+input,
+select {
+  font: inherit;
 }
 
 .primary-btn,
@@ -90,7 +117,8 @@ input {
 }
 
 .session-box,
-.error-box {
+.error-box,
+.empty-card {
   margin-top: 16px;
   padding: 14px;
   border-radius: 12px;
@@ -103,27 +131,31 @@ input {
   color: #a12a2a;
 }
 
-.stats-grid {
+.stats-grid,
+.relation-grid {
   margin-top: 16px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
 }
 
-.metric-card {
+.metric-card,
+.relation-item {
   border: 1px solid #e4eaf4;
   border-radius: 14px;
   padding: 16px;
   background: #fbfcff;
 }
 
-.metric-card span {
+.metric-card span,
+.relation-item span {
   display: block;
   color: #607089;
   margin-bottom: 8px;
 }
 
-.metric-card strong {
+.metric-card strong,
+.relation-item strong {
   font-size: 24px;
 }
 
@@ -159,6 +191,10 @@ code {
 
   h1 {
     font-size: 28px;
+  }
+
+  .single-line {
+    grid-template-columns: 1fr;
   }
 
   table {

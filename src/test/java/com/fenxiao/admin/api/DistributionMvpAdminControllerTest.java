@@ -25,7 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
 @Transactional
-@SpringBootTest
+@SpringBootTest(properties = "app.admin.token=test-admin-token")
 class DistributionMvpAdminControllerTest {
 
     @Autowired
@@ -49,7 +49,9 @@ class DistributionMvpAdminControllerTest {
         String level1Code = distributionBindingService.createProfile(10002L, "ID", "id", rootCode).getInviteCode();
         distributionBindingService.createProfile(10003L, "ID", "id", level1Code);
 
-        mockMvc.perform(get("/admin/distribution/relation/10003").contentType(MediaType.APPLICATION_JSON))
+        mockMvc.perform(get("/admin/distribution/relation/10003")
+                        .header("X-Admin-Token", "test-admin-token")
+                        .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value(10003))
                 .andExpect(jsonPath("$.level1InviterId").value(10002))
@@ -65,13 +67,16 @@ class DistributionMvpAdminControllerTest {
         rewardCalculationService.processIncomeEvent("evt-report-1", 11002L, new BigDecimal("80.00"), "USD", LocalDateTime.now());
 
         mockMvc.perform(get("/admin/distribution/rewards")
+                        .header("X-Admin-Token", "test-admin-token")
                         .param("beneficiaryUserId", "11001")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].beneficiaryUserId").value(11001))
                 .andExpect(jsonPath("$.total").value(1));
 
-        mockMvc.perform(get("/admin/distribution/reports/overview").contentType(MediaType.APPLICATION_JSON))
+        mockMvc.perform(get("/admin/distribution/reports/overview")
+                        .header("X-Admin-Token", "test-admin-token")
+                        .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.invitedUsers").value(1))
                 .andExpect(jsonPath("$.effectiveUsers").value(1))
@@ -92,6 +97,7 @@ class DistributionMvpAdminControllerTest {
         rewardCalculationService.processIncomeEvent("evt-risk-1", 12002L, new BigDecimal("50.00"), "USD", LocalDateTime.now());
 
         mockMvc.perform(get("/admin/distribution/rewards")
+                        .header("X-Admin-Token", "test-admin-token")
                         .param("status", "RISK_HOLD")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())

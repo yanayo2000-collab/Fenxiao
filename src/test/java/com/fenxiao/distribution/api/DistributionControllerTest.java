@@ -17,7 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
-@SpringBootTest
+@SpringBootTest(properties = "app.distribution.profile-create-token=test-create-token")
 class DistributionControllerTest {
 
     @Autowired
@@ -27,8 +27,22 @@ class DistributionControllerTest {
     private ObjectMapper objectMapper;
 
     @Test
+    void shouldRejectProfileCreationWithoutCreateToken() throws Exception {
+        mockMvc.perform(post("/api/distribution/profiles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "userId", 5009,
+                                "countryCode", "ID",
+                                "languageCode", "id"
+                        ))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
     void shouldCreateProfileAndReturnInviteCode() throws Exception {
         mockMvc.perform(post("/api/distribution/profiles")
+                        .header("X-Profile-Create-Token", "test-create-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "userId", 5001,
@@ -44,6 +58,7 @@ class DistributionControllerTest {
     @Test
     void shouldRejectInvalidProfileRequest() throws Exception {
         mockMvc.perform(post("/api/distribution/profiles")
+                        .header("X-Profile-Create-Token", "test-create-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "userId", 0,
@@ -54,8 +69,33 @@ class DistributionControllerTest {
     }
 
     @Test
+    void shouldRejectDuplicateProfileCreation() throws Exception {
+        mockMvc.perform(post("/api/distribution/profiles")
+                        .header("X-Profile-Create-Token", "test-create-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "userId", 5003,
+                                "countryCode", "ID",
+                                "languageCode", "id"
+                        ))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/distribution/profiles")
+                        .header("X-Profile-Create-Token", "test-create-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "userId", 5003,
+                                "countryCode", "ID",
+                                "languageCode", "id"
+                        ))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("user profile already exists"));
+    }
+
+    @Test
     void shouldReturnBadRequestForUnknownInviteCode() throws Exception {
         mockMvc.perform(post("/api/distribution/profiles")
+                        .header("X-Profile-Create-Token", "test-create-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "userId", 5002,

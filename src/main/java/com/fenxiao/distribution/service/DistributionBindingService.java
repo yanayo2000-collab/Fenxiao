@@ -31,7 +31,7 @@ public class DistributionBindingService {
 
     public UserDistributionProfile createProfile(Long userId, String countryCode, String languageCode, String inviteCode) {
         if (userProfileRepository.existsById(userId)) {
-            return userProfileRepository.findById(userId).orElseThrow();
+            throw new IllegalStateException("user profile already exists");
         }
 
         UserDistributionProfile profile = UserDistributionProfile.create(

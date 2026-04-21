@@ -38,9 +38,14 @@
 
 ## 本地开发
 
-### 1. 启动后端
+### 1. 启动后端（MySQL）
 ```bash
 mvn spring-boot:run
+```
+
+### 2. 启动后端（本地演示 / H2）
+```bash
+ADMIN_TOKEN=your-admin-token INTERNAL_DISTRIBUTION_TOKEN=your-internal-token PROFILE_CREATE_TOKEN=your-profile-create-token mvn spring-boot:run -Dspring-boot.run.arguments=--spring.profiles.active=local
 ```
 
 默认后端地址：
@@ -81,6 +86,8 @@ DB_URL=jdbc:mysql://mysql:3306/fenxiao?useUnicode=true&characterEncoding=utf8&se
 DB_USERNAME=fenxiao
 DB_PASSWORD=fenxiao123
 INTERNAL_DISTRIBUTION_TOKEN=change-me
+ADMIN_TOKEN=change-me-admin
+PROFILE_CREATE_TOKEN=change-me-profile-create
 WEB_ALLOWED_ORIGINS=http://localhost:8088
 SERVER_PORT=8080
 ```
@@ -104,7 +111,10 @@ npm run build
 ### 2. 启动整套服务
 ```bash
 cd deploy
-docker compose up --build
+export ADMIN_TOKEN=your-admin-token
+export INTERNAL_DISTRIBUTION_TOKEN=your-internal-token
+export PROFILE_CREATE_TOKEN=your-profile-create-token
+docker-compose up --build
 ```
 
 启动后默认地址：

@@ -48,7 +48,9 @@ public class DistributionController {
     }
 
     @PostMapping("/profiles")
-    public ProfileResponse createProfile(@Valid @RequestBody CreateProfileRequest request) {
+    public ProfileResponse createProfile(@RequestHeader(value = "X-Profile-Create-Token", required = false) String profileCreateToken,
+                                         @Valid @RequestBody CreateProfileRequest request) {
+        distributionAccessGuard.assertProfileCreateToken(profileCreateToken);
         UserDistributionProfile profile = distributionBindingService.createProfile(
                 request.userId(),
                 request.countryCode(),

@@ -2,11 +2,16 @@ import { useMemo, useState } from 'react'
 import './App.css'
 import {
   createProfile,
+  getAdminOverview,
+  getAdminRelation,
+  getAdminRewards,
   getDistributionHome,
   getDistributionRewards,
   getDistributionTeam,
   type DistributionHomeResponse,
+  type OverviewReportResponse,
   type ProfileResponse,
+  type RelationDetailResponse,
   type RewardListResponse,
   type TeamListResponse,
 } from './api'
@@ -20,6 +25,8 @@ type SessionState = {
 }
 
 const STORAGE_KEY = 'fenxiao-web-session'
+const ADMIN_TOKEN_KEY = 'fenxiao-admin-token'
+const PROFILE_CREATE_TOKEN_KEY = 'fenxiao-profile-create-token'
 
 function loadSession(): SessionState | null {
   const raw = localStorage.getItem(STORAGE_KEY)
@@ -50,21 +57,30 @@ function App() {
   const [home, setHome] = useState<DistributionHomeResponse | null>(null)
   const [team, setTeam] = useState<TeamListResponse | null>(null)
   const [rewards, setRewards] = useState<RewardListResponse | null>(null)
+  const [adminOverview, setAdminOverview] = useState<OverviewReportResponse | null>(null)
+  const [adminRewards, setAdminRewards] = useState<RewardListResponse | null>(null)
+  const [adminRelation, setAdminRelation] = useState<RelationDetailResponse | null>(null)
   const [form, setForm] = useState({
     userId: session?.userId?.toString() ?? '',
     countryCode: session?.countryCode ?? 'ID',
     languageCode: session?.languageCode ?? 'id',
     inviteCode: '',
   })
+  const [adminRewardQuery, setAdminRewardQuery] = useState({ beneficiaryUserId: '', status: '' })
+  const [relationQueryUserId, setRelationQueryUserId] = useState('')
+  const [adminToken, setAdminToken] = useState(() => localStorage.getItem(ADMIN_TOKEN_KEY) || '')
+  const [profileCreateToken, setProfileCreateToken] = useState(() => localStorage.getItem(PROFILE_CREATE_TOKEN_KEY) || '')
 
   const canLoadData = useMemo(() => Boolean(session?.userId && session?.accessToken), [session])
+  const canLoadAdmin = useMemo(() => Boolean(adminToken.trim()), [adminToken])
+  const canCreateProfile = useMemo(() => Boolean(profileCreateToken.trim()), [profileCreateToken])
 
   async function handleCreateProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setLoading(true)
     setError('')
     try {
-      const profile = await createProfile({
+      const profile = await createProfile(profileCreateToken, {
         userId: Number(form.userId),
         countryCode: form.countryCode.trim().toUpperCase(),
         languageCode: form.languageCode.trim(),
@@ -102,6 +118,49 @@ function App() {
     }
   }
 
+  async function handleLoadAdminOverview() {
+    setLoading(true)
+    setError('')
+    try {
+      const overview = await getAdminOverview(adminToken)
+      setAdminOverview(overview)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载后台概览失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleLoadAdminRewards() {
+    setLoading(true)
+    setError('')
+    try {
+      const result = await getAdminRewards(adminToken, {
+        beneficiaryUserId: adminRewardQuery.beneficiaryUserId ? Number(adminRewardQuery.beneficiaryUserId) : undefined,
+        status: adminRewardQuery.status || undefined,
+      })
+      setAdminRewards(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载后台奖励失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleLoadRelation() {
+    if (!relationQueryUserId) return
+    setLoading(true)
+    setError('')
+    try {
+      const relation = await getAdminRelation(adminToken, Number(relationQueryUserId))
+      setAdminRelation(relation)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载关系链失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   function handleLogout() {
     localStorage.removeItem(STORAGE_KEY)
     setSession(null)
@@ -110,13 +169,21 @@ function App() {
     setRewards(null)
   }
 
+  function handleAdminTokenSave() {
+    localStorage.setItem(ADMIN_TOKEN_KEY, adminToken)
+  }
+
+  function handleProfileCreateTokenSave() {
+    localStorage.setItem(PROFILE_CREATE_TOKEN_KEY, profileCreateToken)
+  }
+
   return (
     <div className="page-shell">
       <header className="hero-block">
         <div>
           <p className="eyebrow">Fenxiao Web MVP</p>
           <h1>三级分销网页端演示台</h1>
-          <p className="subtext">当前这版直接对接现有 Spring Boot API，先把网页端最小闭环跑起来。</p>
+          <p className="subtext">这版已经包含前台分销页面 + 后台基础运营页面，可直接作为网页端 MVP 演示入口。</p>
         </div>
         {session ? (
           <button className="ghost-btn" onClick={handleLogout}>退出当前会话</button>
@@ -124,7 +191,20 @@ function App() {
       </header>
 
       <section className="card">
-        <h2>1. 接入 / 创建分销档案</h2>
+        <div className="section-head">
+          <h2>1. 前台接入令牌</h2>
+          <button className="primary-btn" onClick={handleProfileCreateTokenSave}>保存接入令牌</button>
+        </div>
+        <div className="grid-form compact-form single-line wide-line">
+          <label>
+            Profile Create Token
+            <input value={profileCreateToken} onChange={(e) => setProfileCreateToken(e.target.value)} placeholder="请输入创建分销档案的接入令牌" />
+          </label>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>2. 接入 / 创建分销档案</h2>
         <form className="grid-form" onSubmit={handleCreateProfile}>
           <label>
             用户 ID
@@ -142,7 +222,7 @@ function App() {
             邀请码（可选）
             <input value={form.inviteCode} onChange={(e) => setForm({ ...form, inviteCode: e.target.value })} placeholder="ABCD1234" />
           </label>
-          <button className="primary-btn" type="submit" disabled={loading}>创建 / 进入</button>
+          <button className="primary-btn" type="submit" disabled={loading || !canCreateProfile}>创建 / 进入</button>
         </form>
 
         {session ? (
@@ -156,8 +236,8 @@ function App() {
 
       <section className="card">
         <div className="section-head">
-          <h2>2. 分销数据面板</h2>
-          <button className="primary-btn" onClick={handleLoadDashboard} disabled={!canLoadData || loading}>加载面板数据</button>
+          <h2>3. 前台分销数据</h2>
+          <button className="primary-btn" onClick={handleLoadDashboard} disabled={!canLoadData || loading}>加载前台数据</button>
         </div>
         {error ? <pre className="error-box">{error}</pre> : null}
 
@@ -172,63 +252,126 @@ function App() {
       </section>
 
       <section className="card">
-        <h2>3. 直属团队</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>用户ID</th>
-              <th>邀请码</th>
-              <th>国家</th>
-              <th>有效用户</th>
-              <th>确认收益</th>
-              <th>锁定状态</th>
-              <th>绑定时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            {team?.items?.length ? team.items.map((item) => (
-              <tr key={item.userId}>
-                <td>{item.userId}</td>
-                <td>{item.inviteCode}</td>
-                <td>{item.countryCode}</td>
-                <td>{item.effectiveUser ? '是' : '否'}</td>
-                <td>{item.confirmedIncomeTotal}</td>
-                <td>{item.lockStatus}</td>
-                <td>{item.bindTime}</td>
-              </tr>
-            )) : (
-              <tr><td colSpan={7}>暂无数据</td></tr>
-            )}
-          </tbody>
-        </table>
+        <h2>4. 直属团队</h2>
+        <DataTable
+          headers={['用户ID', '邀请码', '国家', '有效用户', '确认收益', '锁定状态', '绑定时间']}
+          emptyText="暂无团队数据"
+          rows={team?.items?.map((item) => [
+            item.userId,
+            item.inviteCode,
+            item.countryCode,
+            item.effectiveUser ? '是' : '否',
+            item.confirmedIncomeTotal,
+            item.lockStatus,
+            item.bindTime,
+          ])}
+        />
       </section>
 
       <section className="card">
-        <h2>4. 奖励明细</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>来源用户</th>
-              <th>层级</th>
-              <th>奖励金额</th>
-              <th>状态</th>
-              <th>计算时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rewards?.items?.length ? rewards.items.map((item, index) => (
-              <tr key={`${item.sourceUserId}-${index}`}>
-                <td>{item.sourceUserId}</td>
-                <td>{item.rewardLevel}</td>
-                <td>{item.rewardAmount}</td>
-                <td>{item.rewardStatus}</td>
-                <td>{item.calculatedAt}</td>
-              </tr>
-            )) : (
-              <tr><td colSpan={5}>暂无数据</td></tr>
-            )}
-          </tbody>
-        </table>
+        <h2>5. 奖励明细</h2>
+        <DataTable
+          headers={['来源用户', '层级', '奖励金额', '状态', '计算时间']}
+          emptyText="暂无奖励数据"
+          rows={rewards?.items?.map((item) => [
+            item.sourceUserId,
+            item.rewardLevel,
+            item.rewardAmount,
+            item.rewardStatus,
+            item.calculatedAt,
+          ])}
+        />
+      </section>
+
+      <section className="card admin-section">
+        <div className="section-head">
+          <h2>6. 后台访问凭证</h2>
+          <button className="primary-btn" onClick={handleAdminTokenSave}>保存 Admin Token</button>
+        </div>
+        <div className="grid-form compact-form single-line wide-line">
+          <label>
+            Admin Token
+            <input value={adminToken} onChange={(e) => setAdminToken(e.target.value)} placeholder="请输入后台管理 token" />
+          </label>
+        </div>
+      </section>
+
+      <section className="card admin-section">
+        <div className="section-head">
+          <h2>7. 后台概览报表</h2>
+          <button className="primary-btn" onClick={handleLoadAdminOverview} disabled={loading || !canLoadAdmin}>加载后台概览</button>
+        </div>
+        <div className="stats-grid">
+          <Metric label="累计邀请用户" value={adminOverview?.invitedUsers} />
+          <Metric label="有效用户数" value={adminOverview?.effectiveUsers} />
+          <Metric label="奖励总额" value={adminOverview?.rewardTotal} />
+          <Metric label="冻结奖励总额" value={adminOverview?.frozenRewardTotal} />
+          <Metric label="可用奖励总额" value={adminOverview?.availableRewardTotal} />
+          <Metric label="风险事件数" value={adminOverview?.riskEventCount} />
+        </div>
+      </section>
+
+      <section className="card admin-section">
+        <div className="section-head">
+          <h2>8. 后台奖励筛选</h2>
+          <button className="primary-btn" onClick={handleLoadAdminRewards} disabled={loading || !canLoadAdmin}>查询后台奖励</button>
+        </div>
+        <div className="grid-form compact-form">
+          <label>
+            受益用户ID
+            <input value={adminRewardQuery.beneficiaryUserId} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, beneficiaryUserId: e.target.value })} placeholder="例如 11001" />
+          </label>
+          <label>
+            状态
+            <select value={adminRewardQuery.status} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, status: e.target.value })}>
+              <option value="">全部</option>
+              <option value="FROZEN">FROZEN</option>
+              <option value="AVAILABLE">AVAILABLE</option>
+              <option value="RISK_HOLD">RISK_HOLD</option>
+            </select>
+          </label>
+        </div>
+        <DataTable
+          headers={['受益用户', '来源用户', '层级', '奖励金额', '状态', '计算时间']}
+          emptyText="暂无后台奖励数据"
+          rows={adminRewards?.items?.map((item) => [
+            item.beneficiaryUserId,
+            item.sourceUserId,
+            item.rewardLevel,
+            item.rewardAmount,
+            item.rewardStatus,
+            item.calculatedAt,
+          ])}
+        />
+      </section>
+
+      <section className="card admin-section">
+        <div className="section-head">
+          <h2>9. 关系链查询</h2>
+          <button className="primary-btn" onClick={handleLoadRelation} disabled={loading || !relationQueryUserId || !canLoadAdmin}>查询关系链</button>
+        </div>
+        <div className="grid-form compact-form single-line">
+          <label>
+            用户ID
+            <input value={relationQueryUserId} onChange={(e) => setRelationQueryUserId(e.target.value)} placeholder="例如 10003" />
+          </label>
+        </div>
+        {adminRelation ? (
+          <div className="relation-grid">
+            <RelationItem label="用户ID" value={adminRelation.userId} />
+            <RelationItem label="一级上级" value={adminRelation.level1InviterId} />
+            <RelationItem label="二级上级" value={adminRelation.level2InviterId} />
+            <RelationItem label="三级上级" value={adminRelation.level3InviterId} />
+            <RelationItem label="绑定来源" value={adminRelation.bindSource} />
+            <RelationItem label="锁定状态" value={adminRelation.lockStatus} />
+            <RelationItem label="绑定时间" value={adminRelation.bindTime} />
+            <RelationItem label="锁定时间" value={adminRelation.lockTime || '-'} />
+            <RelationItem label="国家" value={adminRelation.countryCode} />
+            <RelationItem label="跨国家" value={adminRelation.crossCountry ? '是' : '否'} />
+          </div>
+        ) : (
+          <div className="empty-card">暂无关系链数据</div>
+        )}
       </section>
     </div>
   )
@@ -240,6 +383,36 @@ function Metric({ label, value }: { label: string; value?: number }) {
       <span>{label}</span>
       <strong>{value ?? '-'}</strong>
     </div>
+  )
+}
+
+function RelationItem({ label, value }: { label: string; value: string | number | null }) {
+  return (
+    <div className="relation-item">
+      <span>{label}</span>
+      <strong>{value ?? '-'}</strong>
+    </div>
+  )
+}
+
+function DataTable({ headers, rows, emptyText }: { headers: string[]; rows?: Array<Array<string | number>>; emptyText: string }) {
+  return (
+    <table>
+      <thead>
+        <tr>
+          {headers.map((header) => <th key={header}>{header}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {rows?.length ? rows.map((row, index) => (
+          <tr key={`${row[0]}-${index}`}>
+            {row.map((cell, cellIndex) => <td key={`${index}-${cellIndex}`}>{cell}</td>)}
+          </tr>
+        )) : (
+          <tr><td colSpan={headers.length}>{emptyText}</td></tr>
+        )}
+      </tbody>
+    </table>
   )
 }
 

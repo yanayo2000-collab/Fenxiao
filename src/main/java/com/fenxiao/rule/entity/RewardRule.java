@@ -7,6 +7,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -14,7 +15,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Getter
-@NoArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "reward_rule")
 public class RewardRule extends BaseEntity {
@@ -49,4 +50,34 @@ public class RewardRule extends BaseEntity {
 
     @Column(name = "created_by")
     private Long createdBy;
+
+    public static RewardRule create(String countryCode,
+                                    String roleCode,
+                                    Integer rewardLevel,
+                                    BigDecimal rewardRate,
+                                    Integer freezeDays,
+                                    Long createdBy) {
+        return create(countryCode, roleCode, rewardLevel, rewardRate, freezeDays, createdBy, LocalDateTime.now().minusMinutes(1), null);
+    }
+
+    public static RewardRule create(String countryCode,
+                                    String roleCode,
+                                    Integer rewardLevel,
+                                    BigDecimal rewardRate,
+                                    Integer freezeDays,
+                                    Long createdBy,
+                                    LocalDateTime effectiveFrom,
+                                    LocalDateTime effectiveTo) {
+        RewardRule rule = new RewardRule();
+        rule.countryCode = countryCode;
+        rule.roleCode = roleCode;
+        rule.rewardLevel = rewardLevel;
+        rule.rewardRate = rewardRate;
+        rule.freezeDays = freezeDays;
+        rule.effectiveFrom = effectiveFrom;
+        rule.effectiveTo = effectiveTo;
+        rule.status = "ACTIVE";
+        rule.createdBy = createdBy;
+        return rule;
+    }
 }

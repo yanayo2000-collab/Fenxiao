@@ -10,6 +10,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -17,7 +18,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Getter
-@NoArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "reward_record")
 public class RewardRecord extends BaseEntity {
@@ -68,4 +69,29 @@ public class RewardRecord extends BaseEntity {
 
     @Column(name = "risk_reason", length = 255)
     private String riskReason;
+
+    public static RewardRecord create(String sourceEventId,
+                                      Long beneficiaryUserId,
+                                      Long sourceUserId,
+                                      Integer rewardLevel,
+                                      BigDecimal incomeAmount,
+                                      BigDecimal rewardRate,
+                                      BigDecimal rewardAmount,
+                                      String currencyCode,
+                                      Integer freezeDays) {
+        RewardRecord record = new RewardRecord();
+        record.sourceEventId = sourceEventId;
+        record.beneficiaryUserId = beneficiaryUserId;
+        record.sourceUserId = sourceUserId;
+        record.rewardLevel = rewardLevel;
+        record.incomeAmount = incomeAmount;
+        record.rewardRate = rewardRate;
+        record.rewardAmount = rewardAmount;
+        record.currencyCode = currencyCode;
+        record.rewardStatus = RewardStatus.FROZEN;
+        record.calculatedAt = LocalDateTime.now();
+        record.unfreezeAt = record.calculatedAt.plusDays(freezeDays);
+        record.riskFlag = false;
+        return record;
+    }
 }

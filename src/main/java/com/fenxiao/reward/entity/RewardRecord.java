@@ -94,4 +94,10 @@ public class RewardRecord extends BaseEntity {
         record.riskFlag = false;
         return record;
     }
+
+    public void markRiskHold(String riskReason) {
+        this.rewardStatus = RewardStatus.RISK_HOLD;
+        this.riskFlag = true;
+        this.riskReason = riskReason;
+    }
 }

@@ -1,9 +1,16 @@
 package com.fenxiao.admin.api;
 
+import com.fenxiao.admin.api.dto.OverviewReportResponse;
+import com.fenxiao.admin.api.dto.RelationDetailResponse;
+import com.fenxiao.admin.service.DistributionReportService;
+import com.fenxiao.distribution.service.DistributionQueryService;
 import com.fenxiao.reward.api.dto.RewardListResponse;
+import com.fenxiao.reward.domain.RewardStatus;
 import com.fenxiao.reward.service.RewardCalculationService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
@@ -13,9 +20,15 @@ import java.util.Map;
 public class DistributionAdminController {
 
     private final RewardCalculationService rewardCalculationService;
+    private final DistributionQueryService distributionQueryService;
+    private final DistributionReportService distributionReportService;
 
-    public DistributionAdminController(RewardCalculationService rewardCalculationService) {
+    public DistributionAdminController(RewardCalculationService rewardCalculationService,
+                                       DistributionQueryService distributionQueryService,
+                                       DistributionReportService distributionReportService) {
         this.rewardCalculationService = rewardCalculationService;
+        this.distributionQueryService = distributionQueryService;
+        this.distributionReportService = distributionReportService;
     }
 
     @GetMapping("/health")
@@ -27,8 +40,19 @@ public class DistributionAdminController {
         );
     }
 
+    @GetMapping("/relation/{userId}")
+    public RelationDetailResponse relationDetail(@PathVariable Long userId) {
+        return distributionQueryService.getRelationDetail(userId);
+    }
+
     @GetMapping("/rewards")
-    public RewardListResponse listRewards() {
-        return rewardCalculationService.getRecentRewards();
+    public RewardListResponse listRewards(@RequestParam(required = false) Long beneficiaryUserId,
+                                          @RequestParam(required = false) RewardStatus status) {
+        return rewardCalculationService.getRecentRewards(beneficiaryUserId, status);
+    }
+
+    @GetMapping("/reports/overview")
+    public OverviewReportResponse overview() {
+        return distributionReportService.getOverview();
     }
 }

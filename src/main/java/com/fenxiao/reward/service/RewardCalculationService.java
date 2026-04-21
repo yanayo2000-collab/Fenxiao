@@ -1,13 +1,17 @@
 package com.fenxiao.reward.service;
 
+import com.fenxiao.distribution.domain.UserStatus;
 import com.fenxiao.distribution.entity.DistributionRelation;
 import com.fenxiao.distribution.repository.DistributionRelationRepository;
 import com.fenxiao.income.entity.IncomeEvent;
 import com.fenxiao.income.repository.IncomeEventRepository;
 import com.fenxiao.reward.api.dto.RewardListItem;
 import com.fenxiao.reward.api.dto.RewardListResponse;
+import com.fenxiao.reward.domain.RewardStatus;
 import com.fenxiao.reward.entity.RewardRecord;
 import com.fenxiao.reward.repository.RewardRecordRepository;
+import com.fenxiao.risk.entity.RiskEvent;
+import com.fenxiao.risk.repository.RiskEventRepository;
 import com.fenxiao.rule.entity.RewardRule;
 import com.fenxiao.rule.repository.RewardRuleRepository;
 import com.fenxiao.user.entity.UserDistributionProfile;
@@ -32,17 +36,20 @@ public class RewardCalculationService {
     private final RewardRuleRepository rewardRuleRepository;
     private final DistributionRelationRepository relationRepository;
     private final UserDistributionProfileRepository userProfileRepository;
+    private final RiskEventRepository riskEventRepository;
 
     public RewardCalculationService(IncomeEventRepository incomeEventRepository,
                                     RewardRecordRepository rewardRecordRepository,
                                     RewardRuleRepository rewardRuleRepository,
                                     DistributionRelationRepository relationRepository,
-                                    UserDistributionProfileRepository userProfileRepository) {
+                                    UserDistributionProfileRepository userProfileRepository,
+                                    RiskEventRepository riskEventRepository) {
         this.incomeEventRepository = incomeEventRepository;
         this.rewardRecordRepository = rewardRecordRepository;
         this.rewardRuleRepository = rewardRuleRepository;
         this.relationRepository = relationRepository;
         this.userProfileRepository = userProfileRepository;
+        this.riskEventRepository = riskEventRepository;
     }
 
     public void processIncomeEvent(String sourceEventId,
@@ -73,6 +80,16 @@ public class RewardCalculationService {
             return;
         }
 
+        sourceUser.addConfirmedIncome(incomeAmount.setScale(6, RoundingMode.HALF_UP));
+        userProfileRepository.save(sourceUser);
+        relation.lock();
+        relationRepository.save(relation);
+
+        boolean riskUser = sourceUser.getUserStatus() == UserStatus.RISK;
+        if (riskUser) {
+            riskEventRepository.save(RiskEvent.create(userId, "USER_STATUS_RISK", 2, "source user marked as risk"));
+        }
+
         List<Long> beneficiaries = new ArrayList<>();
         beneficiaries.add(relation.getLevel1InviterId());
         beneficiaries.add(relation.getLevel2InviterId());
@@ -92,14 +109,22 @@ public class RewardCalculationService {
                             incomeAmount,
                             currencyCode,
                             rewardLevel,
-                            eventTime
+                            eventTime,
+                            riskUser
                     )));
         }
     }
 
-    public RewardListResponse getRecentRewards() {
+    public RewardListResponse getRecentRewards(Long beneficiaryUserId, RewardStatus status) {
         List<RewardListItem> items = new ArrayList<>();
-        List<RewardRecord> records = rewardRecordRepository.findTop50ByOrderByIdDesc();
+        List<RewardRecord> records;
+        if (beneficiaryUserId != null) {
+            records = rewardRecordRepository.findByBeneficiaryUserIdOrderByIdDesc(beneficiaryUserId);
+        } else if (status != null) {
+            records = rewardRecordRepository.findByRewardStatusOrderByIdDesc(status);
+        } else {
+            records = rewardRecordRepository.findTop50ByOrderByIdDesc();
+        }
         for (RewardRecord record : records) {
             items.add(new RewardListItem(
                     record.getBeneficiaryUserId(),
@@ -119,7 +144,8 @@ public class RewardCalculationService {
                                            BigDecimal incomeAmount,
                                            String currencyCode,
                                            int rewardLevel,
-                                           LocalDateTime eventTime) {
+                                           LocalDateTime eventTime,
+                                           boolean riskUser) {
         RewardRule rule = rewardRuleRepository.findEffectiveRule(
                         sourceUser.getCountryCode(),
                         sourceUser.getDistributionRole().name(),
@@ -130,7 +156,7 @@ public class RewardCalculationService {
                 .orElseThrow(() -> new IllegalStateException("reward rule not found"));
 
         BigDecimal rewardAmount = incomeAmount.multiply(rule.getRewardRate()).setScale(6, RoundingMode.HALF_UP);
-        return RewardRecord.create(
+        RewardRecord record = RewardRecord.create(
                 sourceEventId,
                 beneficiaryId,
                 sourceUser.getUserId(),
@@ -141,6 +167,10 @@ public class RewardCalculationService {
                 currencyCode,
                 rule.getFreezeDays()
         );
+        if (riskUser) {
+            record.markRiskHold("source user marked as risk");
+        }
+        return record;
     }
 
     private RewardRecord saveRewardSafely(RewardRecord record) {

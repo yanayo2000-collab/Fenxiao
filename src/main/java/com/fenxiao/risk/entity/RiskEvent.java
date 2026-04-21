@@ -11,13 +11,14 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
 @Getter
-@NoArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "risk_event")
 public class RiskEvent extends BaseEntity {
@@ -54,4 +55,15 @@ public class RiskEvent extends BaseEntity {
 
     @Column(name = "result_note", length = 255)
     private String resultNote;
+
+    public static RiskEvent create(Long userId, String riskType, Integer riskLevel, String detailJson) {
+        RiskEvent event = new RiskEvent();
+        event.userId = userId;
+        event.riskType = riskType;
+        event.riskLevel = riskLevel;
+        event.riskStatus = RiskStatus.PENDING;
+        event.detailJson = detailJson;
+        event.detectedAt = LocalDateTime.now();
+        return event;
+    }
 }

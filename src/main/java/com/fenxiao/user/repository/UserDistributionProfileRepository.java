@@ -8,4 +8,5 @@ import java.util.Optional;
 public interface UserDistributionProfileRepository extends JpaRepository<UserDistributionProfile, Long> {
     Optional<UserDistributionProfile> findByInviteCode(String inviteCode);
     boolean existsByInviteCode(String inviteCode);
+    long countByEffectiveUserTrue();
 }

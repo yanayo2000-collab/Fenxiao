@@ -65,4 +65,16 @@ public class UserDistributionProfile extends BaseEntity {
         profile.registeredAt = LocalDateTime.now();
         return profile;
     }
+
+    public void addConfirmedIncome(BigDecimal incomeAmount) {
+        this.confirmedIncomeTotal = this.confirmedIncomeTotal.add(incomeAmount);
+        if (this.confirmedIncomeTotal.compareTo(BigDecimal.ZERO) > 0) {
+            this.effectiveUser = true;
+        }
+    }
+
+    public void markAsRiskUser() {
+        this.userStatus = UserStatus.RISK;
+    }
 }
+

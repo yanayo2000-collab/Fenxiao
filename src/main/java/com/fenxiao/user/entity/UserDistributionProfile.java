@@ -9,6 +9,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -16,7 +17,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Getter
-@NoArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "user_distribution_profile")
 public class UserDistributionProfile extends BaseEntity {
@@ -50,4 +51,18 @@ public class UserDistributionProfile extends BaseEntity {
 
     @Column(name = "registered_at", nullable = false)
     private LocalDateTime registeredAt;
+
+    public static UserDistributionProfile create(Long userId, String countryCode, String languageCode, String inviteCode) {
+        UserDistributionProfile profile = new UserDistributionProfile();
+        profile.userId = userId;
+        profile.countryCode = countryCode;
+        profile.languageCode = languageCode;
+        profile.inviteCode = inviteCode;
+        profile.distributionRole = DistributionRole.NORMAL_USER;
+        profile.userStatus = UserStatus.NORMAL;
+        profile.effectiveUser = false;
+        profile.confirmedIncomeTotal = BigDecimal.ZERO;
+        profile.registeredAt = LocalDateTime.now();
+        return profile;
+    }
 }

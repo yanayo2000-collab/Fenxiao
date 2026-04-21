@@ -11,13 +11,14 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
 @Getter
-@NoArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "distribution_relation")
 public class DistributionRelation extends BaseEntity {
@@ -57,4 +58,40 @@ public class DistributionRelation extends BaseEntity {
 
     @Column(name = "cross_country", nullable = false)
     private boolean crossCountry;
+
+    public static DistributionRelation createRoot(Long userId, String countryCode) {
+        DistributionRelation relation = new DistributionRelation();
+        relation.userId = userId;
+        relation.bindSource = BindSource.MANUAL;
+        relation.bindTime = LocalDateTime.now();
+        relation.lockStatus = LockStatus.UNLOCKED;
+        relation.countryCode = countryCode;
+        relation.crossCountry = false;
+        return relation;
+    }
+
+    public static DistributionRelation createBound(Long userId,
+                                                   String countryCode,
+                                                   BindSource bindSource,
+                                                   Long level1InviterId,
+                                                   Long level2InviterId,
+                                                   Long level3InviterId,
+                                                   boolean crossCountry) {
+        DistributionRelation relation = new DistributionRelation();
+        relation.userId = userId;
+        relation.level1InviterId = level1InviterId;
+        relation.level2InviterId = level2InviterId;
+        relation.level3InviterId = level3InviterId;
+        relation.bindSource = bindSource;
+        relation.bindTime = LocalDateTime.now();
+        relation.lockStatus = LockStatus.UNLOCKED;
+        relation.countryCode = countryCode;
+        relation.crossCountry = crossCountry;
+        return relation;
+    }
+
+    public void lock() {
+        this.lockStatus = LockStatus.LOCKED;
+        this.lockTime = LocalDateTime.now();
+    }
 }

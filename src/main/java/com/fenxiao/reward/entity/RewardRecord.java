@@ -149,7 +149,7 @@ public class RewardRecord extends BaseEntity {
         record.rewardAmount = rewardAmount;
         record.currencyCode = currencyCode;
         record.rewardStatus = RewardStatus.FROZEN;
-        record.calculatedAt = LocalDateTime.now(Clock.systemUTC());
+        record.calculatedAt = eventTime;
         record.unfreezeAt = eventTime.plusDays(freezeDays);
         record.riskFlag = false;
         return record;

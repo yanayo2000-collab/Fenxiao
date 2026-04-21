@@ -6,6 +6,7 @@ import {
   getAdminOverview,
   getAdminRelation,
   getAdminRewards,
+  getAdminRiskEvents,
   getDistributionHome,
   getDistributionRewards,
   getDistributionTeam,
@@ -14,6 +15,7 @@ import {
   type ProfileResponse,
   type RelationDetailResponse,
   type RewardListResponse,
+  type RiskEventListResponse,
   type TeamListResponse,
 } from './api'
 
@@ -69,6 +71,7 @@ function App() {
   const [rewards, setRewards] = useState<RewardListResponse | null>(null)
   const [adminOverview, setAdminOverview] = useState<OverviewReportResponse | null>(null)
   const [adminRewards, setAdminRewards] = useState<RewardListResponse | null>(null)
+  const [riskEvents, setRiskEvents] = useState<RiskEventListResponse | null>(null)
   const [adminRelation, setAdminRelation] = useState<RelationDetailResponse | null>(null)
   const [form, setForm] = useState({
     userId: session?.userId?.toString() ?? '',
@@ -76,7 +79,22 @@ function App() {
     languageCode: session?.languageCode ?? 'id',
     inviteCode: '',
   })
-  const [adminRewardQuery, setAdminRewardQuery] = useState({ beneficiaryUserId: '', status: '' })
+  const [adminRewardQuery, setAdminRewardQuery] = useState({
+    beneficiaryUserId: '',
+    status: '',
+    startAt: '',
+    endAt: '',
+    page: '0',
+    size: '10',
+  })
+  const [riskQuery, setRiskQuery] = useState({
+    userId: '',
+    riskStatus: '',
+    startAt: '',
+    endAt: '',
+    page: '0',
+    size: '10',
+  })
   const [relationQueryUserId, setRelationQueryUserId] = useState('')
   const [profileCreateToken, setProfileCreateToken] = useState(() => localStorage.getItem(PROFILE_CREATE_TOKEN_KEY) || '')
 
@@ -128,6 +146,7 @@ function App() {
     setAdminSession(null)
     setAdminOverview(null)
     setAdminRewards(null)
+    setRiskEvents(null)
     setAdminRelation(null)
   }
 
@@ -173,10 +192,35 @@ function App() {
       const result = await getAdminRewards(adminSession.sessionToken, {
         beneficiaryUserId: adminRewardQuery.beneficiaryUserId ? Number(adminRewardQuery.beneficiaryUserId) : undefined,
         status: adminRewardQuery.status || undefined,
+        startAt: adminRewardQuery.startAt || undefined,
+        endAt: adminRewardQuery.endAt || undefined,
+        page: Number(adminRewardQuery.page || 0),
+        size: Number(adminRewardQuery.size || 10),
       })
       setAdminRewards(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载奖励列表失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleLoadRiskEvents() {
+    if (!adminSession) return
+    setLoading(true)
+    setError('')
+    try {
+      const result = await getAdminRiskEvents(adminSession.sessionToken, {
+        userId: riskQuery.userId ? Number(riskQuery.userId) : undefined,
+        riskStatus: riskQuery.riskStatus || undefined,
+        startAt: riskQuery.startAt || undefined,
+        endAt: riskQuery.endAt || undefined,
+        page: Number(riskQuery.page || 0),
+        size: Number(riskQuery.size || 10),
+      })
+      setRiskEvents(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载风险事件失败')
     } finally {
       setLoading(false)
     }
@@ -235,7 +279,7 @@ function App() {
     {
       label: '概览数据',
       value: adminOverview ? '已加载' : '未加载',
-      hint: adminOverview ? '报表已获取，可继续查奖励与关系' : '先拉取运营概览',
+      hint: adminOverview ? '报表已获取，可继续查奖励、风险和关系' : '先拉取运营概览',
     },
     {
       label: '安全模式',
@@ -243,6 +287,13 @@ function App() {
       hint: '后台接口不再接受直接 Admin Token 访问',
     },
   ]
+
+  const rewardPageLabel = adminRewards
+    ? `第 ${adminRewards.page + 1} 页 / 每页 ${adminRewards.size} 条 / 共 ${adminRewards.total} 条`
+    : '先执行一次奖励查询'
+  const riskPageLabel = riskEvents
+    ? `第 ${riskEvents.page + 1} 页 / 每页 ${riskEvents.size} 条 / 共 ${riskEvents.total} 条`
+    : '先执行一次风险事件查询'
 
   return (
     <div className="page-shell">
@@ -420,7 +471,7 @@ function App() {
               <PanelSection
                 eyebrow="Operations"
                 title="运营概览"
-                description="给运营或风控一个全局入口，先看规模，再决定看奖励或查关系。"
+                description="给运营或风控一个全局入口，先看规模，再决定看奖励、风险或查关系。"
                 action={<button className="primary-btn" onClick={handleLoadAdminOverview} disabled={loading || !canLoadAdmin}>拉取运营概览</button>}
               >
                 <div className="stats-grid">
@@ -437,7 +488,7 @@ function App() {
                 <PanelSection
                   eyebrow="Query"
                   title="奖励筛选"
-                  description="按受益用户和状态筛奖励，适合运营排查。"
+                  description="按受益用户、状态、时间区间分页查奖励，适合运营排查。"
                   action={<button className="primary-btn" onClick={handleLoadAdminRewards} disabled={loading || !canLoadAdmin}>查询奖励</button>}
                 >
                   <div className="grid-form compact-form">
@@ -454,7 +505,24 @@ function App() {
                         <option value="RISK_HOLD">RISK_HOLD</option>
                       </select>
                     </label>
+                    <label>
+                      开始时间
+                      <input type="datetime-local" value={adminRewardQuery.startAt} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, startAt: e.target.value })} />
+                    </label>
+                    <label>
+                      结束时间
+                      <input type="datetime-local" value={adminRewardQuery.endAt} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, endAt: e.target.value })} />
+                    </label>
+                    <label>
+                      页码
+                      <input type="number" min="0" value={adminRewardQuery.page} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, page: e.target.value })} placeholder="0" />
+                    </label>
+                    <label>
+                      每页条数
+                      <input type="number" min="1" max="100" value={adminRewardQuery.size} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, size: e.target.value })} placeholder="10" />
+                    </label>
                   </div>
+                  <InlineHint text={rewardPageLabel} />
                   {adminRewards?.items?.length ? (
                     <DataTable
                       headers={['受益用户', '来源用户', '层级', '奖励金额', '状态', '计算时间']}
@@ -503,6 +571,63 @@ function App() {
                   )}
                 </PanelSection>
               </div>
+
+              <PanelSection
+                eyebrow="Risk"
+                title="风险事件运营页"
+                description="按用户、状态、时间区间分页查看风险事件，快速定位风险冻结来源。"
+                action={<button className="primary-btn" onClick={handleLoadRiskEvents} disabled={loading || !canLoadAdmin}>查询风险事件</button>}
+              >
+                <div className="grid-form compact-form">
+                  <label>
+                    用户 ID
+                    <input value={riskQuery.userId} onChange={(e) => setRiskQuery({ ...riskQuery, userId: e.target.value })} placeholder="例如 13002" />
+                  </label>
+                  <label>
+                    风险状态
+                    <select value={riskQuery.riskStatus} onChange={(e) => setRiskQuery({ ...riskQuery, riskStatus: e.target.value })}>
+                      <option value="">全部</option>
+                      <option value="PENDING">PENDING</option>
+                      <option value="HANDLED">HANDLED</option>
+                      <option value="IGNORED">IGNORED</option>
+                    </select>
+                  </label>
+                  <label>
+                    开始时间
+                    <input type="datetime-local" value={riskQuery.startAt} onChange={(e) => setRiskQuery({ ...riskQuery, startAt: e.target.value })} />
+                  </label>
+                  <label>
+                    结束时间
+                    <input type="datetime-local" value={riskQuery.endAt} onChange={(e) => setRiskQuery({ ...riskQuery, endAt: e.target.value })} />
+                  </label>
+                  <label>
+                    页码
+                    <input type="number" min="0" value={riskQuery.page} onChange={(e) => setRiskQuery({ ...riskQuery, page: e.target.value })} placeholder="0" />
+                  </label>
+                  <label>
+                    每页条数
+                    <input type="number" min="1" max="100" value={riskQuery.size} onChange={(e) => setRiskQuery({ ...riskQuery, size: e.target.value })} placeholder="10" />
+                  </label>
+                </div>
+                <InlineHint text={riskPageLabel} />
+                {riskEvents?.items?.length ? (
+                  <DataTable
+                    headers={['事件ID', '用户ID', '风险类型', '等级', '状态', '检测时间', '详情']}
+                    rows={riskEvents.items.map((item) => [
+                      item.id,
+                      item.userId,
+                      item.riskType,
+                      item.riskLevel,
+                      item.riskStatus,
+                      item.detectedAt,
+                      item.detailJson,
+                    ])}
+                    emptyText="暂无风险事件"
+                  />
+                ) : (
+                  <EmptyState title="暂无风险事件结果" description="这里会展示风控冻结、风险用户等运营需要跟进的事件。" />
+                )}
+              </PanelSection>
             </>
           )}
         </main>
@@ -514,7 +639,7 @@ function App() {
                 '接入流程更清楚，不让用户猜步骤',
                 '用户台和运营台信息分区更明确',
                 '空态、错误态、状态提示更自然',
-                '下一步继续补风险事件页和分页筛选',
+                '现在已补风险事件页和分页筛选基础能力',
               ]}
             />
           </PanelSection>
@@ -522,8 +647,8 @@ function App() {
           <PanelSection eyebrow="Next" title="下一批最值得补" description="如果你继续让我做，我会按这个顺序往下推。">
             <RoadmapList
               items={[
-                { title: '风险事件运营页', desc: '让运营能看到风险冻结来源和原因。' },
-                { title: '奖励列表分页 / 时间筛选', desc: '避免数据一多就只能全量刷。' },
+                { title: '风险事件处理动作', desc: '让运营不仅能看，还能处理、备注、流转。' },
+                { title: '奖励列表分页器优化', desc: '补上一页/下一页和快捷页码操作。' },
                 { title: '前台邀请链路优化', desc: '把接入、邀请、首页串成更完整的产品流。' },
                 { title: '后台视觉与导航体系', desc: '继续把控制台感做出来。' },
               ]}
@@ -632,6 +757,10 @@ function RoadmapList({ items }: { items: Array<{ title: string; desc: string }> 
       ))}
     </div>
   )
+}
+
+function InlineHint({ text }: { text: string }) {
+  return <p className="inline-hint">{text}</p>
 }
 
 function DataTable({ headers, rows, emptyText }: { headers: string[]; rows?: Array<Array<string | number>>; emptyText: string }) {

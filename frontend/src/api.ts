@@ -57,6 +57,25 @@ export type RewardListItem = {
 export type RewardListResponse = {
   items: RewardListItem[]
   total: number
+  page: number
+  size: number
+}
+
+export type RiskEventListItem = {
+  id: number
+  userId: number
+  riskType: string
+  riskLevel: number
+  riskStatus: string
+  detailJson: string
+  detectedAt: string
+}
+
+export type RiskEventListResponse = {
+  items: RiskEventListItem[]
+  total: number
+  page: number
+  size: number
 }
 
 export type OverviewReportResponse = {
@@ -149,12 +168,46 @@ export function getAdminOverview(adminSessionToken: string) {
   })
 }
 
-export function getAdminRewards(adminSessionToken: string, filters?: { beneficiaryUserId?: number; status?: string }) {
+export function getAdminRewards(adminSessionToken: string, filters?: {
+  beneficiaryUserId?: number
+  status?: string
+  startAt?: string
+  endAt?: string
+  page?: number
+  size?: number
+}) {
   const params = new URLSearchParams()
   if (filters?.beneficiaryUserId) params.set('beneficiaryUserId', String(filters.beneficiaryUserId))
   if (filters?.status) params.set('status', filters.status)
+  if (filters?.startAt) params.set('startAt', filters.startAt)
+  if (filters?.endAt) params.set('endAt', filters.endAt)
+  if (filters?.page !== undefined) params.set('page', String(filters.page))
+  if (filters?.size !== undefined) params.set('size', String(filters.size))
   const query = params.toString()
   return request<RewardListResponse>(`/admin/distribution/rewards${query ? `?${query}` : ''}`, {
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+  })
+}
+
+export function getAdminRiskEvents(adminSessionToken: string, filters?: {
+  userId?: number
+  riskStatus?: string
+  startAt?: string
+  endAt?: string
+  page?: number
+  size?: number
+}) {
+  const params = new URLSearchParams()
+  if (filters?.userId) params.set('userId', String(filters.userId))
+  if (filters?.riskStatus) params.set('riskStatus', filters.riskStatus)
+  if (filters?.startAt) params.set('startAt', filters.startAt)
+  if (filters?.endAt) params.set('endAt', filters.endAt)
+  if (filters?.page !== undefined) params.set('page', String(filters.page))
+  if (filters?.size !== undefined) params.set('size', String(filters.size))
+  const query = params.toString()
+  return request<RiskEventListResponse>(`/admin/distribution/risk-events${query ? `?${query}` : ''}`, {
     headers: {
       'X-Admin-Session': adminSessionToken,
     },

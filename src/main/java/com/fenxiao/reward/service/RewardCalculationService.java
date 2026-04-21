@@ -19,6 +19,8 @@ import com.fenxiao.user.entity.UserDistributionProfile;
 import com.fenxiao.user.repository.UserDistributionProfileRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -117,19 +119,23 @@ public class RewardCalculationService {
         return IncomeProcessStatus.PROCESSED;
     }
 
-    public RewardListResponse getRecentRewards(Long beneficiaryUserId, RewardStatus status) {
+    public RewardListResponse getRecentRewards(Long beneficiaryUserId,
+                                               RewardStatus status,
+                                               LocalDateTime startAt,
+                                               LocalDateTime endAt,
+                                               int page,
+                                               int size) {
+        validatePageRequest(page, size);
+        Page<RewardRecord> rewardPage = rewardRecordRepository.findAdminRewards(
+                beneficiaryUserId,
+                status,
+                startAt,
+                endAt,
+                PageRequest.of(page, size)
+        );
+
         List<RewardListItem> items = new ArrayList<>();
-        List<RewardRecord> records;
-        if (beneficiaryUserId != null && status != null) {
-            records = rewardRecordRepository.findByBeneficiaryUserIdAndRewardStatusOrderByIdDesc(beneficiaryUserId, status);
-        } else if (beneficiaryUserId != null) {
-            records = rewardRecordRepository.findByBeneficiaryUserIdOrderByIdDesc(beneficiaryUserId);
-        } else if (status != null) {
-            records = rewardRecordRepository.findByRewardStatusOrderByIdDesc(status);
-        } else {
-            records = rewardRecordRepository.findTop50ByOrderByIdDesc();
-        }
-        for (RewardRecord record : records) {
+        for (RewardRecord record : rewardPage.getContent()) {
             items.add(new RewardListItem(
                     record.getBeneficiaryUserId(),
                     record.getSourceUserId(),
@@ -139,7 +145,7 @@ public class RewardCalculationService {
                     record.getCalculatedAt()
             ));
         }
-        return new RewardListResponse(items, records.size());
+        return new RewardListResponse(items, rewardPage.getTotalElements(), page, size);
     }
 
     public int unlockDueRewards(LocalDateTime now) {
@@ -147,6 +153,15 @@ public class RewardCalculationService {
         dueRecords.forEach(RewardRecord::markAvailable);
         rewardRecordRepository.saveAll(dueRecords);
         return dueRecords.size();
+    }
+
+    private void validatePageRequest(int page, int size) {
+        if (page < 0) {
+            throw new IllegalArgumentException("page must be greater than or equal to 0");
+        }
+        if (size < 1 || size > 100) {
+            throw new IllegalArgumentException("size must be between 1 and 100");
+        }
     }
 
     private RewardRecord buildRewardRecord(String sourceEventId,

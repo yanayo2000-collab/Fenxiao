@@ -107,6 +107,35 @@ class DistributionAdminControllerTest {
     }
 
     @Test
+    void shouldRejectInvalidRewardPaginationParameters() throws Exception {
+        String response = mockMvc.perform(post("/admin/auth/session")
+                        .with(request -> {
+                            request.setRemoteAddr("10.0.0.5");
+                            return request;
+                        })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "password": "test-admin-token"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        String sessionToken = response.replaceAll(".*\"sessionToken\":\"([^\"]+)\".*", "$1");
+
+        mockMvc.perform(get("/admin/distribution/rewards")
+                        .header("X-Admin-Session", sessionToken)
+                        .param("page", "-1")
+                        .param("size", "1000")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
+    }
+
+    @Test
     void shouldReturnRewardListEndpointPayloadWithSessionToken() throws Exception {
         String response = mockMvc.perform(post("/admin/auth/session")
                         .with(request -> {

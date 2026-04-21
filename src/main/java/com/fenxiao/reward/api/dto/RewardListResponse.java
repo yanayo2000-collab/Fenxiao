@@ -4,6 +4,8 @@ import java.util.List;
 
 public record RewardListResponse(
         List<RewardListItem> items,
-        long total
+        long total,
+        int page,
+        int size
 ) {
 }

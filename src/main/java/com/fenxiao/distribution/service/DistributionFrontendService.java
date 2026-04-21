@@ -100,7 +100,7 @@ public class DistributionFrontendService {
                     record.getCalculatedAt()
             ));
         }
-        return new RewardListResponse(items, items.size());
+        return new RewardListResponse(items, items.size(), 0, items.size());
     }
 
     private long resolveEffectiveUsers(List<DistributionRelation> directRelations) {

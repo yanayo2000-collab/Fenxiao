@@ -45,16 +45,25 @@ mvn spring-boot:run
 
 ### 2. 启动后端（本地演示 / H2）
 ```bash
-ADMIN_TOKEN=your-admin-token INTERNAL_DISTRIBUTION_TOKEN=your-internal-token PROFILE_CREATE_TOKEN=your-profile-create-token mvn spring-boot:run -Dspring-boot.run.arguments=--spring.profiles.active=local
+ADMIN_TOKEN=change-this-admin-token \
+INTERNAL_DISTRIBUTION_TOKEN=change-this-internal-token \
+PROFILE_CREATE_TOKEN=change-this-profile-create-token \
+mvn spring-boot:run -Dspring-boot.run.arguments=--spring.profiles.active=local
 ```
 
 默认后端地址：
 - `http://localhost:8080`
 
-### 2. 启动前端
+### 3. 启动前端
 ```bash
 cd frontend
 npm install
+cp .env.example .env.local
+npm run dev
+```
+
+如果不使用 `.env.local`，也可以直接临时传入：
+```bash
 VITE_API_BASE_URL=http://localhost:8080 npm run dev
 ```
 
@@ -84,13 +93,17 @@ VITE_API_BASE_URL=http://localhost:8080 npm run dev
 ```bash
 DB_URL=jdbc:mysql://mysql:3306/fenxiao?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
 DB_USERNAME=fenxiao
-DB_PASSWORD=fenxiao123
-INTERNAL_DISTRIBUTION_TOKEN=change-me
-ADMIN_TOKEN=change-me-admin
-PROFILE_CREATE_TOKEN=change-me-profile-create
-WEB_ALLOWED_ORIGINS=http://localhost:8088
+DB_PASSWORD=change-this-db-password
+INTERNAL_DISTRIBUTION_TOKEN=change-this-internal-token
+ADMIN_TOKEN=change-this-admin-token
+PROFILE_CREATE_TOKEN=change-this-profile-create-token
+WEB_ALLOWED_ORIGINS=http://localhost:8088,http://localhost:5173,http://127.0.0.1:5173
 SERVER_PORT=8080
 ```
+
+说明：
+- `prod` 环境不再内置数据库默认值，部署时必须显式注入。
+- 后台 / 内部接入 / profile 创建三个 token 也都必须显式配置。
 
 ---
 
@@ -99,6 +112,7 @@ SERVER_PORT=8080
 部署文件目录：
 - `deploy/Dockerfile.backend`
 - `deploy/docker-compose.yml`
+- `deploy/.env.example`
 - `deploy/nginx.conf`
 
 ### 1. 构建前端
@@ -108,12 +122,27 @@ npm install
 npm run build
 ```
 
-### 2. 启动整套服务
+### 2. 准备部署环境变量
+```bash
+cd /tmp/Fenxiao
+cp deploy/.env.example deploy/.env
+```
+
+按实际环境修改 `deploy/.env`，至少要改：
+- `MYSQL_PASSWORD`
+- `MYSQL_ROOT_PASSWORD`
+- `ADMIN_TOKEN`
+- `INTERNAL_DISTRIBUTION_TOKEN`
+- `PROFILE_CREATE_TOKEN`
+
+### 3. 启动整套服务
 ```bash
 cd deploy
-export ADMIN_TOKEN=your-admin-token
-export INTERNAL_DISTRIBUTION_TOKEN=your-internal-token
-export PROFILE_CREATE_TOKEN=your-profile-create-token
+docker compose up --build
+```
+
+如果你的环境只有旧命令，也可以用：
+```bash
 docker-compose up --build
 ```
 

@@ -13,6 +13,11 @@ export type ProfileResponse = {
   accessToken: string
 }
 
+export type AdminSessionResponse = {
+  sessionToken: string
+  expiresAt: string
+}
+
 export type DistributionHomeResponse = {
   userId: number
   inviteCode: string
@@ -105,6 +110,13 @@ export function createProfile(profileCreateToken: string, payload: CreateProfile
   })
 }
 
+export function createAdminSession(password: string) {
+  return request<AdminSessionResponse>('/admin/auth/session', {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  })
+}
+
 export function getDistributionHome(userId: number, accessToken: string) {
   return request<DistributionHomeResponse>(`/api/distribution/home/${userId}`, {
     headers: {
@@ -129,30 +141,30 @@ export function getDistributionRewards(userId: number, accessToken: string) {
   })
 }
 
-export function getAdminOverview(adminToken: string) {
+export function getAdminOverview(adminSessionToken: string) {
   return request<OverviewReportResponse>('/admin/distribution/reports/overview', {
     headers: {
-      'X-Admin-Token': adminToken,
+      'X-Admin-Session': adminSessionToken,
     },
   })
 }
 
-export function getAdminRewards(adminToken: string, filters?: { beneficiaryUserId?: number; status?: string }) {
+export function getAdminRewards(adminSessionToken: string, filters?: { beneficiaryUserId?: number; status?: string }) {
   const params = new URLSearchParams()
   if (filters?.beneficiaryUserId) params.set('beneficiaryUserId', String(filters.beneficiaryUserId))
   if (filters?.status) params.set('status', filters.status)
   const query = params.toString()
   return request<RewardListResponse>(`/admin/distribution/rewards${query ? `?${query}` : ''}`, {
     headers: {
-      'X-Admin-Token': adminToken,
+      'X-Admin-Session': adminSessionToken,
     },
   })
 }
 
-export function getAdminRelation(adminToken: string, userId: number) {
+export function getAdminRelation(adminSessionToken: string, userId: number) {
   return request<RelationDetailResponse>(`/admin/distribution/relation/${userId}`, {
     headers: {
-      'X-Admin-Token': adminToken,
+      'X-Admin-Session': adminSessionToken,
     },
   })
 }

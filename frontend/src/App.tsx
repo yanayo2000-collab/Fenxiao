@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import './App.css'
 import {
+  createAdminSession,
   createProfile,
   getAdminOverview,
   getAdminRelation,
@@ -24,21 +25,25 @@ type SessionState = {
   accessToken: string
 }
 
+type AdminAuthState = {
+  sessionToken: string
+  expiresAt: string
+}
+
 const STORAGE_KEY = 'fenxiao-web-session'
-const ADMIN_TOKEN_KEY = 'fenxiao-admin-token'
 const PROFILE_CREATE_TOKEN_KEY = 'fenxiao-profile-create-token'
 
-function loadSession(): SessionState | null {
-  const raw = localStorage.getItem(STORAGE_KEY)
+function loadJsonState<T>(key: string): T | null {
+  const raw = localStorage.getItem(key)
   if (!raw) return null
   try {
-    return JSON.parse(raw) as SessionState
+    return JSON.parse(raw) as T
   } catch {
     return null
   }
 }
 
-function saveSession(profile: ProfileResponse) {
+function saveUserSession(profile: ProfileResponse) {
   const session: SessionState = {
     userId: profile.userId,
     inviteCode: profile.inviteCode,
@@ -51,7 +56,9 @@ function saveSession(profile: ProfileResponse) {
 }
 
 function App() {
-  const [session, setSession] = useState<SessionState | null>(() => loadSession())
+  const [session, setSession] = useState<SessionState | null>(() => loadJsonState<SessionState>(STORAGE_KEY))
+  const [adminSession, setAdminSession] = useState<AdminAuthState | null>(null)
+  const [adminPassword, setAdminPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [home, setHome] = useState<DistributionHomeResponse | null>(null)
@@ -68,11 +75,10 @@ function App() {
   })
   const [adminRewardQuery, setAdminRewardQuery] = useState({ beneficiaryUserId: '', status: '' })
   const [relationQueryUserId, setRelationQueryUserId] = useState('')
-  const [adminToken, setAdminToken] = useState(() => localStorage.getItem(ADMIN_TOKEN_KEY) || '')
   const [profileCreateToken, setProfileCreateToken] = useState(() => localStorage.getItem(PROFILE_CREATE_TOKEN_KEY) || '')
 
   const canLoadData = useMemo(() => Boolean(session?.userId && session?.accessToken), [session])
-  const canLoadAdmin = useMemo(() => Boolean(adminToken.trim()), [adminToken])
+  const canLoadAdmin = useMemo(() => Boolean(adminSession?.sessionToken), [adminSession])
   const canCreateProfile = useMemo(() => Boolean(profileCreateToken.trim()), [profileCreateToken])
 
   async function handleCreateProfile(event: React.FormEvent<HTMLFormElement>) {
@@ -86,7 +92,7 @@ function App() {
         languageCode: form.languageCode.trim(),
         inviteCode: form.inviteCode.trim() || undefined,
       })
-      const nextSession = saveSession(profile)
+      const nextSession = saveUserSession(profile)
       setSession(nextSession)
       setHome(null)
       setTeam(null)
@@ -96,6 +102,28 @@ function App() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleAdminLogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setLoading(true)
+    setError('')
+    try {
+      const nextSession = await createAdminSession(adminPassword)
+      setAdminSession(nextSession)
+      setAdminPassword('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '后台登录失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleAdminLogout() {
+    setAdminSession(null)
+    setAdminOverview(null)
+    setAdminRewards(null)
+    setAdminRelation(null)
   }
 
   async function handleLoadDashboard() {
@@ -119,10 +147,11 @@ function App() {
   }
 
   async function handleLoadAdminOverview() {
+    if (!adminSession) return
     setLoading(true)
     setError('')
     try {
-      const overview = await getAdminOverview(adminToken)
+      const overview = await getAdminOverview(adminSession.sessionToken)
       setAdminOverview(overview)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载后台概览失败')
@@ -132,10 +161,11 @@ function App() {
   }
 
   async function handleLoadAdminRewards() {
+    if (!adminSession) return
     setLoading(true)
     setError('')
     try {
-      const result = await getAdminRewards(adminToken, {
+      const result = await getAdminRewards(adminSession.sessionToken, {
         beneficiaryUserId: adminRewardQuery.beneficiaryUserId ? Number(adminRewardQuery.beneficiaryUserId) : undefined,
         status: adminRewardQuery.status || undefined,
       })
@@ -148,11 +178,11 @@ function App() {
   }
 
   async function handleLoadRelation() {
-    if (!relationQueryUserId) return
+    if (!adminSession || !relationQueryUserId) return
     setLoading(true)
     setError('')
     try {
-      const relation = await getAdminRelation(adminToken, Number(relationQueryUserId))
+      const relation = await getAdminRelation(adminSession.sessionToken, Number(relationQueryUserId))
       setAdminRelation(relation)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载关系链失败')
@@ -169,10 +199,6 @@ function App() {
     setRewards(null)
   }
 
-  function handleAdminTokenSave() {
-    localStorage.setItem(ADMIN_TOKEN_KEY, adminToken)
-  }
-
   function handleProfileCreateTokenSave() {
     localStorage.setItem(PROFILE_CREATE_TOKEN_KEY, profileCreateToken)
   }
@@ -183,10 +209,10 @@ function App() {
         <div>
           <p className="eyebrow">Fenxiao Web MVP</p>
           <h1>三级分销网页端演示台</h1>
-          <p className="subtext">这版已经包含前台分销页面 + 后台基础运营页面，可直接作为网页端 MVP 演示入口。</p>
+          <p className="subtext">这版已经包含前台分销页面 + 后台基础运营页面，并升级为后台登录态，不需要再手填 Admin Token。</p>
         </div>
         {session ? (
-          <button className="ghost-btn" onClick={handleLogout}>退出当前会话</button>
+          <button className="ghost-btn" onClick={handleLogout}>退出当前前台会话</button>
         ) : null}
       </header>
 
@@ -285,15 +311,32 @@ function App() {
 
       <section className="card admin-section">
         <div className="section-head">
-          <h2>6. 后台访问凭证</h2>
-          <button className="primary-btn" onClick={handleAdminTokenSave}>保存 Admin Token</button>
+          <h2>6. 后台登录</h2>
+          {adminSession ? (
+            <button className="ghost-btn" onClick={handleAdminLogout} disabled={loading}>退出后台</button>
+          ) : null}
         </div>
-        <div className="grid-form compact-form single-line wide-line">
-          <label>
-            Admin Token
-            <input value={adminToken} onChange={(e) => setAdminToken(e.target.value)} placeholder="请输入后台管理 token" />
-          </label>
-        </div>
+
+        {adminSession ? (
+          <div className="session-box">
+            <div><strong>后台状态：</strong>已登录</div>
+            <div><strong>会话到期：</strong>{adminSession.expiresAt}</div>
+            <div><strong>安全说明：</strong>后台会话仅保存在当前页面内存，刷新页面后需重新登录。</div>
+          </div>
+        ) : (
+          <form className="grid-form compact-form single-line wide-line" onSubmit={handleAdminLogin}>
+            <label>
+              后台登录口令
+              <input
+                type="password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                placeholder="请输入后台登录口令"
+              />
+            </label>
+            <button className="primary-btn" type="submit" disabled={loading || !adminPassword.trim()}>登录后台</button>
+          </form>
+        )}
       </section>
 
       <section className="card admin-section">

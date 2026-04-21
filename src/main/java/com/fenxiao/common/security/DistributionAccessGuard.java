@@ -1,5 +1,6 @@
 package com.fenxiao.common.security;
 
+import com.fenxiao.admin.service.AdminSessionService;
 import com.fenxiao.common.api.ForbiddenException;
 import com.fenxiao.user.entity.UserDistributionProfile;
 import com.fenxiao.user.repository.UserDistributionProfileRepository;
@@ -16,15 +17,18 @@ public class DistributionAccessGuard {
     private final String adminToken;
     private final String profileCreateToken;
     private final UserDistributionProfileRepository userDistributionProfileRepository;
+    private final AdminSessionService adminSessionService;
 
     public DistributionAccessGuard(@Value("${app.distribution.internal-token:}") String internalToken,
                                    @Value("${app.admin.token:}") String adminToken,
                                    @Value("${app.distribution.profile-create-token:}") String profileCreateToken,
-                                   UserDistributionProfileRepository userDistributionProfileRepository) {
+                                   UserDistributionProfileRepository userDistributionProfileRepository,
+                                   AdminSessionService adminSessionService) {
         this.internalToken = internalToken;
         this.adminToken = adminToken;
         this.profileCreateToken = profileCreateToken;
         this.userDistributionProfileRepository = userDistributionProfileRepository;
+        this.adminSessionService = adminSessionService;
     }
 
     public void assertUserAccess(Long targetUserId, String accessToken) {
@@ -45,6 +49,10 @@ public class DistributionAccessGuard {
         if (internalToken == null || internalToken.isBlank() || token == null || !MessageDigest.isEqual(internalToken.getBytes(StandardCharsets.UTF_8), token.getBytes(StandardCharsets.UTF_8))) {
             throw new ForbiddenException("internal token invalid");
         }
+    }
+
+    public void assertAdminAccess(String token, String sessionToken) {
+        adminSessionService.assertSession(sessionToken);
     }
 
     public void assertAdminToken(String token) {

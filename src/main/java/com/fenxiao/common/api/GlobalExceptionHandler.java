@@ -29,6 +29,15 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
+    @ExceptionHandler(TooManyRequestsException.class)
+    public Map<String, Object> handleTooManyRequestsException(TooManyRequestsException exception) {
+        return Map.of(
+                "code", "TOO_MANY_REQUESTS",
+                "message", exception.getMessage()
+        );
+    }
+
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public Map<String, Object> handleValidationException(MethodArgumentNotValidException exception) {

@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -50,7 +51,7 @@ class DistributionMvpAdminControllerTest {
         distributionBindingService.createProfile(10003L, "ID", "id", level1Code);
 
         mockMvc.perform(get("/admin/distribution/relation/10003")
-                        .header("X-Admin-Token", "test-admin-token")
+                        .header("X-Admin-Session", loginAsAdmin())
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value(10003))
@@ -66,8 +67,10 @@ class DistributionMvpAdminControllerTest {
         distributionBindingService.createProfile(11002L, "ID", "id", rootCode);
         rewardCalculationService.processIncomeEvent("evt-report-1", 11002L, new BigDecimal("80.00"), "USD", LocalDateTime.now());
 
+        String adminSessionToken = loginAsAdmin();
+
         mockMvc.perform(get("/admin/distribution/rewards")
-                        .header("X-Admin-Token", "test-admin-token")
+                        .header("X-Admin-Session", adminSessionToken)
                         .param("beneficiaryUserId", "11001")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -75,7 +78,7 @@ class DistributionMvpAdminControllerTest {
                 .andExpect(jsonPath("$.total").value(1));
 
         mockMvc.perform(get("/admin/distribution/reports/overview")
-                        .header("X-Admin-Token", "test-admin-token")
+                        .header("X-Admin-Session", adminSessionToken)
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.invitedUsers").value(1))
@@ -97,12 +100,28 @@ class DistributionMvpAdminControllerTest {
         rewardCalculationService.processIncomeEvent("evt-risk-1", 12002L, new BigDecimal("50.00"), "USD", LocalDateTime.now());
 
         mockMvc.perform(get("/admin/distribution/rewards")
-                        .header("X-Admin-Token", "test-admin-token")
+                        .header("X-Admin-Session", loginAsAdmin())
                         .param("status", "RISK_HOLD")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].rewardStatus").value("RISK_HOLD"))
                 .andExpect(jsonPath("$.total").value(1));
+    }
+
+    private String loginAsAdmin() throws Exception {
+        String response = mockMvc.perform(post("/admin/auth/session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "password": "test-admin-token"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        return response.replaceAll(".*\"sessionToken\":\"([^\"]+)\".*", "$1");
     }
 
     private void seedRules() {

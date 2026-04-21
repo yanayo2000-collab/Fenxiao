@@ -37,8 +37,9 @@ public class DistributionAdminController {
     }
 
     @GetMapping("/health")
-    public Map<String, Object> health(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken) {
-        distributionAccessGuard.assertAdminToken(adminToken);
+    public Map<String, Object> health(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                      @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
         return Map.of(
                 "module", "distribution-admin",
                 "status", "ok",
@@ -48,22 +49,25 @@ public class DistributionAdminController {
 
     @GetMapping("/relation/{userId}")
     public RelationDetailResponse relationDetail(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                 @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                  @PathVariable Long userId) {
-        distributionAccessGuard.assertAdminToken(adminToken);
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
         return distributionQueryService.getRelationDetail(userId);
     }
 
     @GetMapping("/rewards")
     public RewardListResponse listRewards(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                          @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                           @RequestParam(required = false) Long beneficiaryUserId,
                                           @RequestParam(required = false) RewardStatus status) {
-        distributionAccessGuard.assertAdminToken(adminToken);
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
         return rewardCalculationService.getRecentRewards(beneficiaryUserId, status);
     }
 
     @GetMapping("/reports/overview")
-    public OverviewReportResponse overview(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken) {
-        distributionAccessGuard.assertAdminToken(adminToken);
+    public OverviewReportResponse overview(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                           @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
         return distributionReportService.getOverview();
     }
 }

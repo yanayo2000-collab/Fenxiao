@@ -30,6 +30,8 @@ type AdminAuthState = {
   expiresAt: string
 }
 
+type ViewMode = 'user' | 'admin'
+
 const STORAGE_KEY = 'fenxiao-web-session'
 const PROFILE_CREATE_TOKEN_KEY = 'fenxiao-profile-create-token'
 
@@ -58,6 +60,7 @@ function saveUserSession(profile: ProfileResponse) {
 function App() {
   const [session, setSession] = useState<SessionState | null>(() => loadJsonState<SessionState>(STORAGE_KEY))
   const [adminSession, setAdminSession] = useState<AdminAuthState | null>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>('user')
   const [adminPassword, setAdminPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -79,7 +82,7 @@ function App() {
 
   const canLoadData = useMemo(() => Boolean(session?.userId && session?.accessToken), [session])
   const canLoadAdmin = useMemo(() => Boolean(adminSession?.sessionToken), [adminSession])
-  const canCreateProfile = useMemo(() => Boolean(profileCreateToken.trim()), [profileCreateToken])
+  const canCreateProfile = useMemo(() => Boolean(profileCreateToken.trim() && form.userId.trim()), [profileCreateToken, form.userId])
 
   async function handleCreateProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -97,6 +100,7 @@ function App() {
       setHome(null)
       setTeam(null)
       setRewards(null)
+      setViewMode('user')
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建分销档案失败')
     } finally {
@@ -112,6 +116,7 @@ function App() {
       const nextSession = await createAdminSession(adminPassword)
       setAdminSession(nextSession)
       setAdminPassword('')
+      setViewMode('admin')
     } catch (err) {
       setError(err instanceof Error ? err.message : '后台登录失败')
     } finally {
@@ -119,7 +124,7 @@ function App() {
     }
   }
 
-  async function handleAdminLogout() {
+  function handleAdminLogout() {
     setAdminSession(null)
     setAdminOverview(null)
     setAdminRewards(null)
@@ -140,7 +145,7 @@ function App() {
       setTeam(teamData)
       setRewards(rewardData)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载数据失败')
+      setError(err instanceof Error ? err.message : '加载用户工作台失败')
     } finally {
       setLoading(false)
     }
@@ -154,7 +159,7 @@ function App() {
       const overview = await getAdminOverview(adminSession.sessionToken)
       setAdminOverview(overview)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载后台概览失败')
+      setError(err instanceof Error ? err.message : '加载运营概览失败')
     } finally {
       setLoading(false)
     }
@@ -171,7 +176,7 @@ function App() {
       })
       setAdminRewards(result)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载后台奖励失败')
+      setError(err instanceof Error ? err.message : '加载奖励列表失败')
     } finally {
       setLoading(false)
     }
@@ -203,228 +208,365 @@ function App() {
     localStorage.setItem(PROFILE_CREATE_TOKEN_KEY, profileCreateToken)
   }
 
+  const userSummaryItems = [
+    {
+      label: '当前身份',
+      value: session ? `用户 #${session.userId}` : '未接入',
+      hint: session ? `邀请码 ${session.inviteCode}` : '先创建或接入分销档案',
+    },
+    {
+      label: '国家 / 语言',
+      value: session ? `${session.countryCode} / ${session.languageCode}` : '-',
+      hint: '用于规则匹配与前台展示',
+    },
+    {
+      label: '数据状态',
+      value: home ? '已同步' : '待加载',
+      hint: home ? '前台工作台已拿到最新数据' : '点击“刷新用户工作台”拉取最新数据',
+    },
+  ]
+
+  const adminSummaryItems = [
+    {
+      label: '运营登录状态',
+      value: adminSession ? '已登录' : '未登录',
+      hint: adminSession ? `到期 ${formatDateTime(adminSession.expiresAt)}` : '使用后台登录口令进入运营台',
+    },
+    {
+      label: '概览数据',
+      value: adminOverview ? '已加载' : '未加载',
+      hint: adminOverview ? '报表已获取，可继续查奖励与关系' : '先拉取运营概览',
+    },
+    {
+      label: '安全模式',
+      value: 'Session Only',
+      hint: '后台接口不再接受直接 Admin Token 访问',
+    },
+  ]
+
   return (
     <div className="page-shell">
-      <header className="hero-block">
-        <div>
-          <p className="eyebrow">Fenxiao Web MVP</p>
-          <h1>三级分销网页端演示台</h1>
-          <p className="subtext">这版已经包含前台分销页面 + 后台基础运营页面，并升级为后台登录态，不需要再手填 Admin Token。</p>
+      <header className="hero-card">
+        <div className="hero-copy">
+          <div className="hero-badges">
+            <Badge label="Fenxiao" tone="primary" />
+            <Badge label="Web Console" tone="neutral" />
+            <Badge label="MVP+" tone="success" />
+          </div>
+          <p className="eyebrow">Distribution Console</p>
+          <h1>三级分销产品控制台</h1>
+          <p className="subtext">
+            这版不再只是接口演示页，而是把「用户工作台」和「运营工作台」拆清楚，方便你继续往产品化、可运营、可上线方向推进。
+          </p>
         </div>
-        {session ? (
-          <button className="ghost-btn" onClick={handleLogout}>退出当前前台会话</button>
-        ) : null}
+        <div className="hero-actions">
+          <button className={`switch-chip ${viewMode === 'user' ? 'active' : ''}`} onClick={() => setViewMode('user')}>用户工作台</button>
+          <button className={`switch-chip ${viewMode === 'admin' ? 'active' : ''}`} onClick={() => setViewMode('admin')}>运营工作台</button>
+          {session ? <button className="ghost-btn" onClick={handleLogout}>退出用户会话</button> : null}
+        </div>
       </header>
 
-      <section className="card">
-        <div className="section-head">
-          <h2>1. 前台接入令牌</h2>
-          <button className="primary-btn" onClick={handleProfileCreateTokenSave}>保存接入令牌</button>
-        </div>
-        <div className="grid-form compact-form single-line wide-line">
-          <label>
-            Profile Create Token
-            <input value={profileCreateToken} onChange={(e) => setProfileCreateToken(e.target.value)} placeholder="请输入创建分销档案的接入令牌" />
-          </label>
-        </div>
+      {error ? (
+        <section className="alert-banner error">
+          <strong>操作失败</strong>
+          <span>{error}</span>
+        </section>
+      ) : (
+        <section className="alert-banner info">
+          <strong>当前建议</strong>
+          <span>{viewMode === 'user' ? '先完成用户接入，再刷新用户工作台。' : '先登录后台，再拉取运营概览和查询数据。'}</span>
+        </section>
+      )}
+
+      <section className="overview-grid">
+        {viewMode === 'user'
+          ? userSummaryItems.map((item) => <SummaryCard key={item.label} {...item} />)
+          : adminSummaryItems.map((item) => <SummaryCard key={item.label} {...item} />)}
       </section>
 
-      <section className="card">
-        <h2>2. 接入 / 创建分销档案</h2>
-        <form className="grid-form" onSubmit={handleCreateProfile}>
-          <label>
-            用户 ID
-            <input value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} placeholder="例如 5001" />
-          </label>
-          <label>
-            国家码
-            <input value={form.countryCode} onChange={(e) => setForm({ ...form, countryCode: e.target.value })} placeholder="ID" />
-          </label>
-          <label>
-            语言码
-            <input value={form.languageCode} onChange={(e) => setForm({ ...form, languageCode: e.target.value })} placeholder="id" />
-          </label>
-          <label>
-            邀请码（可选）
-            <input value={form.inviteCode} onChange={(e) => setForm({ ...form, inviteCode: e.target.value })} placeholder="ABCD1234" />
-          </label>
-          <button className="primary-btn" type="submit" disabled={loading || !canCreateProfile}>创建 / 进入</button>
-        </form>
+      <div className="console-layout">
+        <main className="console-main">
+          {viewMode === 'user' ? (
+            <>
+              <PanelSection
+                eyebrow="Onboarding"
+                title="分销接入"
+                description="先保存 profile 创建令牌，再创建或接入用户分销档案。"
+                action={<button className="primary-btn" onClick={handleProfileCreateTokenSave}>保存接入令牌</button>}
+              >
+                <div className="stack-gap">
+                  <div className="grid-form compact-form single-line wide-line">
+                    <label>
+                      Profile Create Token
+                      <input value={profileCreateToken} onChange={(e) => setProfileCreateToken(e.target.value)} placeholder="请输入创建分销档案的接入令牌" />
+                    </label>
+                  </div>
+                  <form className="grid-form" onSubmit={handleCreateProfile}>
+                    <label>
+                      用户 ID
+                      <input value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} placeholder="例如 5001" />
+                    </label>
+                    <label>
+                      国家码
+                      <input value={form.countryCode} onChange={(e) => setForm({ ...form, countryCode: e.target.value })} placeholder="ID" />
+                    </label>
+                    <label>
+                      语言码
+                      <input value={form.languageCode} onChange={(e) => setForm({ ...form, languageCode: e.target.value })} placeholder="id" />
+                    </label>
+                    <label>
+                      邀请码（可选）
+                      <input value={form.inviteCode} onChange={(e) => setForm({ ...form, inviteCode: e.target.value })} placeholder="ABCD1234" />
+                    </label>
+                    <button className="primary-btn" type="submit" disabled={loading || !canCreateProfile}>创建 / 接入</button>
+                  </form>
+                  {session ? (
+                    <InfoCard title="已接入用户会话" tone="success">
+                      <InfoRow label="用户 ID" value={session.userId} />
+                      <InfoRow label="邀请码" value={session.inviteCode} />
+                      <InfoRow label="国家 / 语言" value={`${session.countryCode} / ${session.languageCode}`} />
+                      <InfoRow label="Access Token" value={session.accessToken} code />
+                    </InfoCard>
+                  ) : (
+                    <EmptyState
+                      title="还没有用户会话"
+                      description="完成一次接入后，这里会显示当前用户身份、邀请码和令牌信息。"
+                    />
+                  )}
+                </div>
+              </PanelSection>
 
-        {session ? (
-          <div className="session-box">
-            <div><strong>当前用户：</strong>{session.userId}</div>
-            <div><strong>邀请码：</strong>{session.inviteCode}</div>
-            <div><strong>Access Token：</strong><code>{session.accessToken}</code></div>
-          </div>
-        ) : null}
-      </section>
+              <PanelSection
+                eyebrow="Workspace"
+                title="用户工作台"
+                description="集中看邀请规模、有效用户和奖励状态。"
+                action={<button className="primary-btn" onClick={handleLoadDashboard} disabled={!canLoadData || loading}>刷新用户工作台</button>}
+              >
+                <div className="stats-grid">
+                  <Metric label="邀请人数" value={home?.invitedUsers} hint="直属与裂变邀请总量" tone="neutral" />
+                  <Metric label="有效用户" value={home?.effectiveUsers} hint="已满足锁定条件的用户" tone="success" />
+                  <Metric label="总奖励" value={home?.totalReward} hint="累计奖励规模" tone="primary" />
+                  <Metric label="可用奖励" value={home?.availableReward} hint="可进入后续提现流程" tone="success" />
+                  <Metric label="冻结奖励" value={home?.frozenReward} hint="仍在冻结周期内" tone="warning" />
+                  <Metric label="风险冻结" value={home?.riskHoldReward} hint="因风控暂时冻结" tone="danger" />
+                </div>
+              </PanelSection>
 
-      <section className="card">
-        <div className="section-head">
-          <h2>3. 前台分销数据</h2>
-          <button className="primary-btn" onClick={handleLoadDashboard} disabled={!canLoadData || loading}>加载前台数据</button>
-        </div>
-        {error ? <pre className="error-box">{error}</pre> : null}
+              <div className="content-grid two-columns">
+                <PanelSection eyebrow="Team" title="直属团队" description="看当前用户的一度团队关系和锁定状态。">
+                  {team?.items?.length ? (
+                    <DataTable
+                      headers={['用户ID', '邀请码', '国家', '有效用户', '确认收益', '锁定状态', '绑定时间']}
+                      rows={team.items.map((item) => [
+                        item.userId,
+                        item.inviteCode,
+                        item.countryCode,
+                        item.effectiveUser ? '是' : '否',
+                        item.confirmedIncomeTotal,
+                        item.lockStatus,
+                        item.bindTime,
+                      ])}
+                      emptyText="暂无团队数据"
+                    />
+                  ) : (
+                    <EmptyState title="暂无直属团队数据" description="创建用户后并产生下级绑定，这里会出现一度团队成员。" />
+                  )}
+                </PanelSection>
 
-        <div className="stats-grid">
-          <Metric label="邀请人数" value={home?.invitedUsers} />
-          <Metric label="有效用户" value={home?.effectiveUsers} />
-          <Metric label="总奖励" value={home?.totalReward} />
-          <Metric label="可用奖励" value={home?.availableReward} />
-          <Metric label="冻结奖励" value={home?.frozenReward} />
-          <Metric label="风险冻结" value={home?.riskHoldReward} />
-        </div>
-      </section>
+                <PanelSection eyebrow="Rewards" title="奖励明细" description="快速看来源用户、奖励层级和当前奖励状态。">
+                  {rewards?.items?.length ? (
+                    <DataTable
+                      headers={['来源用户', '层级', '奖励金额', '状态', '计算时间']}
+                      rows={rewards.items.map((item) => [
+                        item.sourceUserId,
+                        item.rewardLevel,
+                        item.rewardAmount,
+                        item.rewardStatus,
+                        item.calculatedAt,
+                      ])}
+                      emptyText="暂无奖励数据"
+                    />
+                  ) : (
+                    <EmptyState title="暂无奖励记录" description="当用户链路产生收益事件后，这里会显示对应奖励明细。" />
+                  )}
+                </PanelSection>
+              </div>
+            </>
+          ) : (
+            <>
+              <PanelSection
+                eyebrow="Security"
+                title="运营登录"
+                description="后台已经改成 session-only，登录后才能访问报表、奖励和关系链。"
+                action={adminSession ? <button className="ghost-btn" onClick={handleAdminLogout}>退出后台</button> : undefined}
+              >
+                {adminSession ? (
+                  <InfoCard title="后台会话已建立" tone="success">
+                    <InfoRow label="登录状态" value="已登录" />
+                    <InfoRow label="会话到期" value={formatDateTime(adminSession.expiresAt)} />
+                    <InfoRow label="安全说明" value="后台会话仅保存在当前页面内存，刷新页面后需重新登录。" />
+                  </InfoCard>
+                ) : (
+                  <form className="grid-form compact-form single-line wide-line" onSubmit={handleAdminLogin}>
+                    <label>
+                      后台登录口令
+                      <input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="请输入后台登录口令" />
+                    </label>
+                    <button className="primary-btn" type="submit" disabled={loading || !adminPassword.trim()}>登录后台</button>
+                  </form>
+                )}
+              </PanelSection>
 
-      <section className="card">
-        <h2>4. 直属团队</h2>
-        <DataTable
-          headers={['用户ID', '邀请码', '国家', '有效用户', '确认收益', '锁定状态', '绑定时间']}
-          emptyText="暂无团队数据"
-          rows={team?.items?.map((item) => [
-            item.userId,
-            item.inviteCode,
-            item.countryCode,
-            item.effectiveUser ? '是' : '否',
-            item.confirmedIncomeTotal,
-            item.lockStatus,
-            item.bindTime,
-          ])}
-        />
-      </section>
+              <PanelSection
+                eyebrow="Operations"
+                title="运营概览"
+                description="给运营或风控一个全局入口，先看规模，再决定看奖励或查关系。"
+                action={<button className="primary-btn" onClick={handleLoadAdminOverview} disabled={loading || !canLoadAdmin}>拉取运营概览</button>}
+              >
+                <div className="stats-grid">
+                  <Metric label="累计邀请用户" value={adminOverview?.invitedUsers} hint="系统范围总邀请量" tone="neutral" />
+                  <Metric label="有效用户数" value={adminOverview?.effectiveUsers} hint="已锁定有效关系用户" tone="success" />
+                  <Metric label="奖励总额" value={adminOverview?.rewardTotal} hint="累计奖励总额" tone="primary" />
+                  <Metric label="冻结奖励" value={adminOverview?.frozenRewardTotal} hint="待解冻奖励池" tone="warning" />
+                  <Metric label="可用奖励" value={adminOverview?.availableRewardTotal} hint="当前已可用奖励" tone="success" />
+                  <Metric label="风险事件数" value={adminOverview?.riskEventCount} hint="已被风控标记的事件量" tone="danger" />
+                </div>
+              </PanelSection>
 
-      <section className="card">
-        <h2>5. 奖励明细</h2>
-        <DataTable
-          headers={['来源用户', '层级', '奖励金额', '状态', '计算时间']}
-          emptyText="暂无奖励数据"
-          rows={rewards?.items?.map((item) => [
-            item.sourceUserId,
-            item.rewardLevel,
-            item.rewardAmount,
-            item.rewardStatus,
-            item.calculatedAt,
-          ])}
-        />
-      </section>
+              <div className="content-grid two-columns">
+                <PanelSection
+                  eyebrow="Query"
+                  title="奖励筛选"
+                  description="按受益用户和状态筛奖励，适合运营排查。"
+                  action={<button className="primary-btn" onClick={handleLoadAdminRewards} disabled={loading || !canLoadAdmin}>查询奖励</button>}
+                >
+                  <div className="grid-form compact-form">
+                    <label>
+                      受益用户 ID
+                      <input value={adminRewardQuery.beneficiaryUserId} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, beneficiaryUserId: e.target.value })} placeholder="例如 11001" />
+                    </label>
+                    <label>
+                      状态
+                      <select value={adminRewardQuery.status} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, status: e.target.value })}>
+                        <option value="">全部</option>
+                        <option value="FROZEN">FROZEN</option>
+                        <option value="AVAILABLE">AVAILABLE</option>
+                        <option value="RISK_HOLD">RISK_HOLD</option>
+                      </select>
+                    </label>
+                  </div>
+                  {adminRewards?.items?.length ? (
+                    <DataTable
+                      headers={['受益用户', '来源用户', '层级', '奖励金额', '状态', '计算时间']}
+                      rows={adminRewards.items.map((item) => [
+                        item.beneficiaryUserId,
+                        item.sourceUserId,
+                        item.rewardLevel,
+                        item.rewardAmount,
+                        item.rewardStatus,
+                        item.calculatedAt,
+                      ])}
+                      emptyText="暂无后台奖励数据"
+                    />
+                  ) : (
+                    <EmptyState title="暂无奖励查询结果" description="先登录后台并执行一次筛选查询，结果会显示在这里。" />
+                  )}
+                </PanelSection>
 
-      <section className="card admin-section">
-        <div className="section-head">
-          <h2>6. 后台登录</h2>
-          {adminSession ? (
-            <button className="ghost-btn" onClick={handleAdminLogout} disabled={loading}>退出后台</button>
-          ) : null}
-        </div>
+                <PanelSection
+                  eyebrow="Relation"
+                  title="关系链查询"
+                  description="适合运营、客服或风控定位单个用户的上下游关系。"
+                  action={<button className="primary-btn" onClick={handleLoadRelation} disabled={loading || !relationQueryUserId || !canLoadAdmin}>查询关系链</button>}
+                >
+                  <div className="grid-form compact-form single-line">
+                    <label>
+                      用户 ID
+                      <input value={relationQueryUserId} onChange={(e) => setRelationQueryUserId(e.target.value)} placeholder="例如 10003" />
+                    </label>
+                  </div>
+                  {adminRelation ? (
+                    <div className="relation-grid">
+                      <RelationItem label="用户ID" value={adminRelation.userId} />
+                      <RelationItem label="一级上级" value={adminRelation.level1InviterId} />
+                      <RelationItem label="二级上级" value={adminRelation.level2InviterId} />
+                      <RelationItem label="三级上级" value={adminRelation.level3InviterId} />
+                      <RelationItem label="绑定来源" value={adminRelation.bindSource} />
+                      <RelationItem label="锁定状态" value={adminRelation.lockStatus} />
+                      <RelationItem label="绑定时间" value={adminRelation.bindTime} />
+                      <RelationItem label="锁定时间" value={adminRelation.lockTime || '-'} />
+                      <RelationItem label="国家" value={adminRelation.countryCode} />
+                      <RelationItem label="跨国家" value={adminRelation.crossCountry ? '是' : '否'} />
+                    </div>
+                  ) : (
+                    <EmptyState title="暂无关系链结果" description="输入用户 ID 后查询，这里会显示完整三级关系与锁定状态。" />
+                  )}
+                </PanelSection>
+              </div>
+            </>
+          )}
+        </main>
 
-        {adminSession ? (
-          <div className="session-box">
-            <div><strong>后台状态：</strong>已登录</div>
-            <div><strong>会话到期：</strong>{adminSession.expiresAt}</div>
-            <div><strong>安全说明：</strong>后台会话仅保存在当前页面内存，刷新页面后需重新登录。</div>
-          </div>
-        ) : (
-          <form className="grid-form compact-form single-line wide-line" onSubmit={handleAdminLogin}>
-            <label>
-              后台登录口令
-              <input
-                type="password"
-                value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                placeholder="请输入后台登录口令"
-              />
-            </label>
-            <button className="primary-btn" type="submit" disabled={loading || !adminPassword.trim()}>登录后台</button>
-          </form>
-        )}
-      </section>
+        <aside className="console-side">
+          <PanelSection eyebrow="Guide" title="本阶段产品优先级" description="先把产品体验做完整，固定域名放在下一阶段。">
+            <Checklist
+              items={[
+                '接入流程更清楚，不让用户猜步骤',
+                '用户台和运营台信息分区更明确',
+                '空态、错误态、状态提示更自然',
+                '下一步继续补风险事件页和分页筛选',
+              ]}
+            />
+          </PanelSection>
 
-      <section className="card admin-section">
-        <div className="section-head">
-          <h2>7. 后台概览报表</h2>
-          <button className="primary-btn" onClick={handleLoadAdminOverview} disabled={loading || !canLoadAdmin}>加载后台概览</button>
-        </div>
-        <div className="stats-grid">
-          <Metric label="累计邀请用户" value={adminOverview?.invitedUsers} />
-          <Metric label="有效用户数" value={adminOverview?.effectiveUsers} />
-          <Metric label="奖励总额" value={adminOverview?.rewardTotal} />
-          <Metric label="冻结奖励总额" value={adminOverview?.frozenRewardTotal} />
-          <Metric label="可用奖励总额" value={adminOverview?.availableRewardTotal} />
-          <Metric label="风险事件数" value={adminOverview?.riskEventCount} />
-        </div>
-      </section>
-
-      <section className="card admin-section">
-        <div className="section-head">
-          <h2>8. 后台奖励筛选</h2>
-          <button className="primary-btn" onClick={handleLoadAdminRewards} disabled={loading || !canLoadAdmin}>查询后台奖励</button>
-        </div>
-        <div className="grid-form compact-form">
-          <label>
-            受益用户ID
-            <input value={adminRewardQuery.beneficiaryUserId} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, beneficiaryUserId: e.target.value })} placeholder="例如 11001" />
-          </label>
-          <label>
-            状态
-            <select value={adminRewardQuery.status} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, status: e.target.value })}>
-              <option value="">全部</option>
-              <option value="FROZEN">FROZEN</option>
-              <option value="AVAILABLE">AVAILABLE</option>
-              <option value="RISK_HOLD">RISK_HOLD</option>
-            </select>
-          </label>
-        </div>
-        <DataTable
-          headers={['受益用户', '来源用户', '层级', '奖励金额', '状态', '计算时间']}
-          emptyText="暂无后台奖励数据"
-          rows={adminRewards?.items?.map((item) => [
-            item.beneficiaryUserId,
-            item.sourceUserId,
-            item.rewardLevel,
-            item.rewardAmount,
-            item.rewardStatus,
-            item.calculatedAt,
-          ])}
-        />
-      </section>
-
-      <section className="card admin-section">
-        <div className="section-head">
-          <h2>9. 关系链查询</h2>
-          <button className="primary-btn" onClick={handleLoadRelation} disabled={loading || !relationQueryUserId || !canLoadAdmin}>查询关系链</button>
-        </div>
-        <div className="grid-form compact-form single-line">
-          <label>
-            用户ID
-            <input value={relationQueryUserId} onChange={(e) => setRelationQueryUserId(e.target.value)} placeholder="例如 10003" />
-          </label>
-        </div>
-        {adminRelation ? (
-          <div className="relation-grid">
-            <RelationItem label="用户ID" value={adminRelation.userId} />
-            <RelationItem label="一级上级" value={adminRelation.level1InviterId} />
-            <RelationItem label="二级上级" value={adminRelation.level2InviterId} />
-            <RelationItem label="三级上级" value={adminRelation.level3InviterId} />
-            <RelationItem label="绑定来源" value={adminRelation.bindSource} />
-            <RelationItem label="锁定状态" value={adminRelation.lockStatus} />
-            <RelationItem label="绑定时间" value={adminRelation.bindTime} />
-            <RelationItem label="锁定时间" value={adminRelation.lockTime || '-'} />
-            <RelationItem label="国家" value={adminRelation.countryCode} />
-            <RelationItem label="跨国家" value={adminRelation.crossCountry ? '是' : '否'} />
-          </div>
-        ) : (
-          <div className="empty-card">暂无关系链数据</div>
-        )}
-      </section>
+          <PanelSection eyebrow="Next" title="下一批最值得补" description="如果你继续让我做，我会按这个顺序往下推。">
+            <RoadmapList
+              items={[
+                { title: '风险事件运营页', desc: '让运营能看到风险冻结来源和原因。' },
+                { title: '奖励列表分页 / 时间筛选', desc: '避免数据一多就只能全量刷。' },
+                { title: '前台邀请链路优化', desc: '把接入、邀请、首页串成更完整的产品流。' },
+                { title: '后台视觉与导航体系', desc: '继续把控制台感做出来。' },
+              ]}
+            />
+          </PanelSection>
+        </aside>
+      </div>
     </div>
   )
 }
 
-function Metric({ label, value }: { label: string; value?: number }) {
+function PanelSection({ eyebrow, title, description, action, children }: { eyebrow: string; title: string; description: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="metric-card">
+    <section className="panel-card">
+      <div className="panel-head">
+        <div>
+          <p className="panel-eyebrow">{eyebrow}</p>
+          <h2>{title}</h2>
+          <p className="panel-desc">{description}</p>
+        </div>
+        {action ? <div className="panel-action">{action}</div> : null}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function SummaryCard({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="summary-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <p>{hint}</p>
+    </div>
+  )
+}
+
+function Metric({ label, value, hint, tone }: { label: string; value?: number; hint: string; tone: 'neutral' | 'primary' | 'success' | 'warning' | 'danger' }) {
+  return (
+    <div className={`metric-card tone-${tone}`}>
       <span>{label}</span>
       <strong>{value ?? '-'}</strong>
+      <p>{hint}</p>
     </div>
   )
 }
@@ -438,25 +580,88 @@ function RelationItem({ label, value }: { label: string; value: string | number 
   )
 }
 
+function Badge({ label, tone }: { label: string; tone: 'primary' | 'neutral' | 'success' }) {
+  return <span className={`badge badge-${tone}`}>{label}</span>
+}
+
+function InfoCard({ title, tone, children }: { title: string; tone: 'success' | 'neutral'; children: React.ReactNode }) {
+  return (
+    <div className={`info-card ${tone}`}>
+      <h3>{title}</h3>
+      <div className="stack-gap small">{children}</div>
+    </div>
+  )
+}
+
+function InfoRow({ label, value, code = false }: { label: string; value: string | number; code?: boolean }) {
+  return (
+    <div className="info-row">
+      <span>{label}</span>
+      {code ? <code>{value}</code> : <strong>{value}</strong>}
+    </div>
+  )
+}
+
+function EmptyState({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="empty-card">
+      <strong>{title}</strong>
+      <p>{description}</p>
+    </div>
+  )
+}
+
+function Checklist({ items }: { items: string[] }) {
+  return (
+    <ul className="checklist">
+      {items.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  )
+}
+
+function RoadmapList({ items }: { items: Array<{ title: string; desc: string }> }) {
+  return (
+    <div className="roadmap-list">
+      {items.map((item) => (
+        <div className="roadmap-item" key={item.title}>
+          <strong>{item.title}</strong>
+          <p>{item.desc}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function DataTable({ headers, rows, emptyText }: { headers: string[]; rows?: Array<Array<string | number>>; emptyText: string }) {
   return (
-    <table>
-      <thead>
-        <tr>
-          {headers.map((header) => <th key={header}>{header}</th>)}
-        </tr>
-      </thead>
-      <tbody>
-        {rows?.length ? rows.map((row, index) => (
-          <tr key={`${row[0]}-${index}`}>
-            {row.map((cell, cellIndex) => <td key={`${index}-${cellIndex}`}>{cell}</td>)}
+    <div className="table-shell">
+      <table>
+        <thead>
+          <tr>
+            {headers.map((header) => <th key={header}>{header}</th>)}
           </tr>
-        )) : (
-          <tr><td colSpan={headers.length}>{emptyText}</td></tr>
-        )}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows?.length ? rows.map((row, index) => (
+            <tr key={`${row[0]}-${index}`}>
+              {row.map((cell, cellIndex) => <td key={`${index}-${cellIndex}`}>{cell}</td>)}
+            </tr>
+          )) : (
+            <tr><td colSpan={headers.length}>{emptyText}</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   )
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`
 }
 
 export default App

@@ -104,4 +104,30 @@ public class OperationAuditLog extends BaseEntity {
     public String getRemark() {
         return remark;
     }
+
+    public static OperationAuditLog create(Long operatorId,
+                                           String operatorRole,
+                                           String moduleName,
+                                           String targetType,
+                                           Long targetId,
+                                           String actionName,
+                                           String beforeData,
+                                           String afterData,
+                                           String requestIp,
+                                           String remark,
+                                           LocalDateTime operatedAt) {
+        OperationAuditLog log = new OperationAuditLog();
+        log.operatorId = operatorId;
+        log.operatorRole = operatorRole;
+        log.moduleName = moduleName;
+        log.targetType = targetType;
+        log.targetId = targetId;
+        log.actionName = actionName;
+        log.beforeData = beforeData;
+        log.afterData = afterData;
+        log.requestIp = requestIp;
+        log.operatedAt = operatedAt;
+        log.remark = remark;
+        return log;
+    }
 }

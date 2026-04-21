@@ -426,6 +426,34 @@ select:focus {
   border: 1px solid #e8edf7;
 }
 
+.table-toolbar {
+  display: flex;
+  gap: 10px;
+  margin: 12px 0 16px;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.small-btn {
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.warning-btn {
+  background: rgba(245, 158, 11, 0.12);
+  color: #a16207;
+}
+
+.success-btn {
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

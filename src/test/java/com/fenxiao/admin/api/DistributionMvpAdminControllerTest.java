@@ -1,7 +1,13 @@
 package com.fenxiao.admin.api;
 
+import com.fenxiao.audit.repository.OperationAuditLogRepository;
+import com.fenxiao.distribution.entity.DistributionRelation;
 import com.fenxiao.distribution.service.DistributionBindingService;
+import com.fenxiao.distribution.repository.DistributionRelationRepository;
+import com.fenxiao.reward.entity.RewardRecord;
+import com.fenxiao.reward.repository.RewardRecordRepository;
 import com.fenxiao.reward.service.RewardCalculationService;
+import com.fenxiao.risk.repository.RiskEventRepository;
 import com.fenxiao.rule.entity.RewardRule;
 import com.fenxiao.rule.repository.RewardRuleRepository;
 import com.fenxiao.user.entity.UserDistributionProfile;
@@ -43,6 +49,18 @@ class DistributionMvpAdminControllerTest {
 
     @Autowired
     private UserDistributionProfileRepository userDistributionProfileRepository;
+
+    @Autowired
+    private DistributionRelationRepository distributionRelationRepository;
+
+    @Autowired
+    private RewardRecordRepository rewardRecordRepository;
+
+    @Autowired
+    private RiskEventRepository riskEventRepository;
+
+    @Autowired
+    private OperationAuditLogRepository operationAuditLogRepository;
 
     @Test
     void shouldReturnRelationDetailForUser() throws Exception {
@@ -140,6 +158,237 @@ class DistributionMvpAdminControllerTest {
                 .andExpect(jsonPath("$.total").value(1));
     }
 
+    @Test
+    void shouldFreezeRiskUserAndWriteAuditLog() throws Exception {
+        seedRules();
+        String rootCode = distributionBindingService.createProfile(14001L, "ID", "id", null).getInviteCode();
+        distributionBindingService.createProfile(14002L, "ID", "id", rootCode);
+        UserDistributionProfile sourceUser = userDistributionProfileRepository.findById(14002L).orElseThrow();
+        sourceUser.markAsRiskUser();
+        userDistributionProfileRepository.save(sourceUser);
+        rewardCalculationService.processIncomeEvent("evt-freeze-1", 14002L, new BigDecimal("80.00"), "USD", LocalDateTime.now().minusDays(1));
+        Long riskEventId = riskEventRepository.findAdminRiskEvents(14002L, null, null, null, org.springframework.data.domain.PageRequest.of(0, 1))
+                .getContent()
+                .getFirst()
+                .getId();
+
+        mockMvc.perform(post("/admin/distribution/risk-events/" + riskEventId + "/actions")
+                        .header("X-Admin-Session", loginAsAdmin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "action": "FREEZE_USER",
+                                  "note": "confirmed suspicious behavior"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.riskStatus").value("HANDLED"))
+                .andExpect(jsonPath("$.resultNote").value("confirmed suspicious behavior"));
+
+        UserDistributionProfile profile = userDistributionProfileRepository.findById(14002L).orElseThrow();
+        DistributionRelation relation = distributionRelationRepository.findByUserId(14002L).orElseThrow();
+        RewardRecord rewardRecord = rewardRecordRepository.findBySourceEventIdOrderByRewardLevelAsc("evt-freeze-1").getFirst();
+
+        org.assertj.core.api.Assertions.assertThat(profile.getUserStatus().name()).isEqualTo("RISK");
+        org.assertj.core.api.Assertions.assertThat(relation.getLockStatus().name()).isEqualTo("LOCKED");
+        org.assertj.core.api.Assertions.assertThat(rewardRecord.getRewardStatus().name()).isEqualTo("RISK_HOLD");
+        org.assertj.core.api.Assertions.assertThat(operationAuditLogRepository.count()).isEqualTo(1);
+
+        mockMvc.perform(get("/admin/distribution/risk-events")
+                        .header("X-Admin-Session", loginAsAdmin())
+                        .param("userId", "14002")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].handledBy").value(0))
+                .andExpect(jsonPath("$.items[0].handledAt").isNotEmpty())
+                .andExpect(jsonPath("$.items[0].resultNote").value("confirmed suspicious behavior"));
+    }
+
+    @Test
+    void shouldUnfreezeRiskUserAndRestoreRewards() throws Exception {
+        seedRules();
+        String rootCode = distributionBindingService.createProfile(15001L, "ID", "id", null).getInviteCode();
+        distributionBindingService.createProfile(15002L, "ID", "id", rootCode);
+        UserDistributionProfile sourceUser = userDistributionProfileRepository.findById(15002L).orElseThrow();
+        sourceUser.markAsRiskUser();
+        userDistributionProfileRepository.save(sourceUser);
+        rewardCalculationService.processIncomeEvent("evt-unfreeze-admin-1", 15002L, new BigDecimal("120.00"), "USD", LocalDateTime.now().minusDays(10));
+        Long riskEventId = riskEventRepository.findAdminRiskEvents(15002L, null, null, null, org.springframework.data.domain.PageRequest.of(0, 1))
+                .getContent()
+                .getFirst()
+                .getId();
+
+        mockMvc.perform(post("/admin/distribution/risk-events/" + riskEventId + "/actions")
+                        .header("X-Admin-Session", loginAsAdmin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "action": "FREEZE_USER",
+                                  "note": "temporary hold"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/admin/distribution/risk-events/" + riskEventId + "/actions")
+                        .header("X-Admin-Session", loginAsAdmin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "action": "UNFREEZE_USER",
+                                  "note": "case cleared"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.riskStatus").value("HANDLED"))
+                .andExpect(jsonPath("$.resultNote").value("case cleared"));
+
+        UserDistributionProfile profile = userDistributionProfileRepository.findById(15002L).orElseThrow();
+        DistributionRelation relation = distributionRelationRepository.findByUserId(15002L).orElseThrow();
+        RewardRecord rewardRecord = rewardRecordRepository.findBySourceEventIdOrderByRewardLevelAsc("evt-unfreeze-admin-1").getFirst();
+
+        org.assertj.core.api.Assertions.assertThat(profile.getUserStatus().name()).isEqualTo("NORMAL");
+        org.assertj.core.api.Assertions.assertThat(relation.getLockStatus().name()).isEqualTo("UNLOCKED");
+        org.assertj.core.api.Assertions.assertThat(rewardRecord.getRewardStatus().name()).isEqualTo("AVAILABLE");
+        org.assertj.core.api.Assertions.assertThat(operationAuditLogRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void shouldIgnoreRiskEventWithoutFreezingUser() throws Exception {
+        seedRules();
+        String rootCode = distributionBindingService.createProfile(16001L, "ID", "id", null).getInviteCode();
+        distributionBindingService.createProfile(16002L, "ID", "id", rootCode);
+
+        UserDistributionProfile sourceUser = userDistributionProfileRepository.findById(16002L).orElseThrow();
+        sourceUser.markAsRiskUser();
+        userDistributionProfileRepository.save(sourceUser);
+        rewardCalculationService.processIncomeEvent("evt-ignore-1", 16002L, new BigDecimal("90.00"), "USD", LocalDateTime.now());
+        Long riskEventId = riskEventRepository.findAdminRiskEvents(16002L, null, null, null, org.springframework.data.domain.PageRequest.of(0, 1))
+                .getContent()
+                .getFirst()
+                .getId();
+
+        mockMvc.perform(post("/admin/distribution/risk-events/" + riskEventId + "/actions")
+                        .header("X-Admin-Session", loginAsAdmin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "action": "IGNORE",
+                                  "note": "false positive"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.riskStatus").value("IGNORED"))
+                .andExpect(jsonPath("$.resultNote").value("false positive"));
+    }
+
+    @Test
+    void shouldReturnRecentAuditLogsAfterRiskActions() throws Exception {
+        seedRules();
+        String rootCode = distributionBindingService.createProfile(17001L, "ID", "id", null).getInviteCode();
+        distributionBindingService.createProfile(17002L, "ID", "id", rootCode);
+
+        UserDistributionProfile sourceUser = userDistributionProfileRepository.findById(17002L).orElseThrow();
+        sourceUser.markAsRiskUser();
+        userDistributionProfileRepository.save(sourceUser);
+        rewardCalculationService.processIncomeEvent("evt-audit-1", 17002L, new BigDecimal("100.00"), "USD", LocalDateTime.now());
+        Long riskEventId = riskEventRepository.findAdminRiskEvents(17002L, null, null, null, org.springframework.data.domain.PageRequest.of(0, 1))
+                .getContent()
+                .getFirst()
+                .getId();
+
+        String adminSession = loginAsAdmin();
+        mockMvc.perform(post("/admin/distribution/risk-events/" + riskEventId + "/actions")
+                        .header("X-Admin-Session", adminSession)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "action": "FREEZE_USER",
+                                  "note": "audit trail check"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/admin/distribution/audit-logs")
+                        .header("X-Admin-Session", adminSession)
+                        .param("moduleName", "risk_event")
+                        .param("size", "5")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].moduleName").value("risk_event"))
+                .andExpect(jsonPath("$.items[0].actionName").value("FREEZE_USER"))
+                .andExpect(jsonPath("$.items[0].targetId").value(riskEventId))
+                .andExpect(jsonPath("$.items[0].remark").value("audit trail check"))
+                .andExpect(jsonPath("$.total").value(1));
+    }
+
+    @Test
+    void shouldRejectFreezeForIgnoredRiskEvent() throws Exception {
+        seedRules();
+        String rootCode = distributionBindingService.createProfile(18001L, "ID", "id", null).getInviteCode();
+        distributionBindingService.createProfile(18002L, "ID", "id", rootCode);
+
+        UserDistributionProfile sourceUser = userDistributionProfileRepository.findById(18002L).orElseThrow();
+        sourceUser.markAsRiskUser();
+        userDistributionProfileRepository.save(sourceUser);
+        rewardCalculationService.processIncomeEvent("evt-invalid-freeze-1", 18002L, new BigDecimal("100.00"), "USD", LocalDateTime.now());
+        Long riskEventId = riskEventRepository.findAdminRiskEvents(18002L, null, null, null, org.springframework.data.domain.PageRequest.of(0, 1))
+                .getContent()
+                .getFirst()
+                .getId();
+        String adminSession = loginAsAdmin();
+
+        mockMvc.perform(post("/admin/distribution/risk-events/" + riskEventId + "/actions")
+                        .header("X-Admin-Session", adminSession)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "action": "IGNORE",
+                                  "note": "false positive"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/admin/distribution/risk-events/" + riskEventId + "/actions")
+                        .header("X-Admin-Session", adminSession)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "action": "FREEZE_USER",
+                                  "note": "should fail"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("ignored risk event cannot freeze user"));
+    }
+
+    @Test
+    void shouldRejectUnfreezeWhenRelationIsNotLocked() throws Exception {
+        seedRules();
+        String rootCode = distributionBindingService.createProfile(19001L, "ID", "id", null).getInviteCode();
+        distributionBindingService.createProfile(19002L, "ID", "id", rootCode);
+
+        UserDistributionProfile sourceUser = userDistributionProfileRepository.findById(19002L).orElseThrow();
+        sourceUser.markAsRiskUser();
+        userDistributionProfileRepository.save(sourceUser);
+        rewardCalculationService.processIncomeEvent("evt-invalid-unfreeze-1", 19002L, new BigDecimal("100.00"), "USD", LocalDateTime.now());
+        Long riskEventId = riskEventRepository.findAdminRiskEvents(19002L, null, null, null, org.springframework.data.domain.PageRequest.of(0, 1))
+                .getContent()
+                .getFirst()
+                .getId();
+
+        mockMvc.perform(post("/admin/distribution/risk-events/" + riskEventId + "/actions")
+                        .header("X-Admin-Session", loginAsAdmin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "action": "UNFREEZE_USER",
+                                  "note": "should fail"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("user is not frozen"));
+    }
+
     private String loginAsAdmin() throws Exception {
         String response = mockMvc.perform(post("/admin/auth/session")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -157,8 +406,9 @@ class DistributionMvpAdminControllerTest {
     }
 
     private void seedRules() {
-        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 1, new BigDecimal("0.15"), 7, 1L));
-        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 2, new BigDecimal("0.05"), 7, 1L));
-        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 3, new BigDecimal("0.02"), 7, 1L));
+        LocalDateTime effectiveFrom = LocalDateTime.now().minusYears(1);
+        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 1, new BigDecimal("0.15"), 7, 1L, effectiveFrom, null));
+        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 2, new BigDecimal("0.05"), 7, 1L, effectiveFrom, null));
+        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 3, new BigDecimal("0.02"), 7, 1L, effectiveFrom, null));
     }
 }

@@ -120,4 +120,8 @@ public class UserDistributionProfile extends BaseEntity {
     public void markAsRiskUser() {
         this.userStatus = UserStatus.RISK;
     }
+
+    public void markAsNormalUser() {
+        this.userStatus = UserStatus.NORMAL;
+    }
 }

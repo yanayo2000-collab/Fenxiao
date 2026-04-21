@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,6 +19,10 @@ public interface RewardRecordRepository extends JpaRepository<RewardRecord, Long
     List<RewardRecord> findTop50ByOrderByIdDesc();
     List<RewardRecord> findByBeneficiaryUserIdOrderByIdDesc(Long beneficiaryUserId);
     List<RewardRecord> findByBeneficiaryUserIdAndRewardStatusOrderByIdDesc(Long beneficiaryUserId, RewardStatus rewardStatus);
+    List<RewardRecord> findByBeneficiaryUserIdAndRewardStatus(Long beneficiaryUserId, RewardStatus rewardStatus);
+    List<RewardRecord> findByBeneficiaryUserIdAndRewardStatusIn(Long beneficiaryUserId, Collection<RewardStatus> rewardStatuses);
+    List<RewardRecord> findBySourceUserIdAndRewardStatus(Long sourceUserId, RewardStatus rewardStatus);
+    List<RewardRecord> findBySourceUserIdAndRewardStatusIn(Long sourceUserId, Collection<RewardStatus> rewardStatuses);
     List<RewardRecord> findByRewardStatusOrderByIdDesc(RewardStatus rewardStatus);
     List<RewardRecord> findByRewardStatusAndUnfreezeAtLessThanEqual(RewardStatus rewardStatus, LocalDateTime unfreezeAt);
 

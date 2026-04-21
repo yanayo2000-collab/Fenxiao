@@ -164,4 +164,14 @@ public class RewardRecord extends BaseEntity {
     public void markAvailable() {
         this.rewardStatus = RewardStatus.AVAILABLE;
     }
+
+    public void releaseFromRiskHold(LocalDateTime now) {
+        this.riskFlag = false;
+        this.riskReason = null;
+        if (this.unfreezeAt != null && this.unfreezeAt.isAfter(now)) {
+            this.rewardStatus = RewardStatus.FROZEN;
+            return;
+        }
+        this.rewardStatus = RewardStatus.AVAILABLE;
+    }
 }

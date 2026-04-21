@@ -137,4 +137,14 @@ public class DistributionRelation extends BaseEntity {
         this.lockStatus = LockStatus.LOCKED;
         this.lockTime = LocalDateTime.now(Clock.systemUTC());
     }
+
+    public void lock(LocalDateTime lockTime) {
+        this.lockStatus = LockStatus.LOCKED;
+        this.lockTime = lockTime;
+    }
+
+    public void unlock() {
+        this.lockStatus = LockStatus.UNLOCKED;
+        this.lockTime = null;
+    }
 }

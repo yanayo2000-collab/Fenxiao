@@ -105,4 +105,18 @@ public class RiskEvent extends BaseEntity {
         event.detectedAt = LocalDateTime.now(Clock.systemUTC());
         return event;
     }
+
+    public void markHandled(Long handledBy, LocalDateTime handledAt, String resultNote) {
+        this.riskStatus = RiskStatus.HANDLED;
+        this.handledBy = handledBy;
+        this.handledAt = handledAt;
+        this.resultNote = resultNote;
+    }
+
+    public void markIgnored(Long handledBy, LocalDateTime handledAt, String resultNote) {
+        this.riskStatus = RiskStatus.IGNORED;
+        this.handledBy = handledBy;
+        this.handledAt = handledAt;
+        this.resultNote = resultNote;
+    }
 }

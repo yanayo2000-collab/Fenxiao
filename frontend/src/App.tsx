@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import {
+  applyAdminRiskEventAction,
   createAdminSession,
   createProfile,
+  getAdminAuditLogs,
   getAdminOverview,
   getAdminRelation,
   getAdminRewards,
@@ -10,6 +12,7 @@ import {
   getDistributionHome,
   getDistributionRewards,
   getDistributionTeam,
+  type AuditLogListResponse,
   type DistributionHomeResponse,
   type OverviewReportResponse,
   type ProfileResponse,
@@ -36,6 +39,8 @@ type ViewMode = 'user' | 'admin'
 
 const STORAGE_KEY = 'fenxiao-web-session'
 const PROFILE_CREATE_TOKEN_KEY = 'fenxiao-profile-create-token'
+const ADMIN_REWARD_QUERY_KEY = 'fenxiao-admin-reward-query'
+const RISK_QUERY_KEY = 'fenxiao-admin-risk-query'
 
 function loadJsonState<T>(key: string): T | null {
   const raw = localStorage.getItem(key)
@@ -72,6 +77,7 @@ function App() {
   const [adminOverview, setAdminOverview] = useState<OverviewReportResponse | null>(null)
   const [adminRewards, setAdminRewards] = useState<RewardListResponse | null>(null)
   const [riskEvents, setRiskEvents] = useState<RiskEventListResponse | null>(null)
+  const [auditLogs, setAuditLogs] = useState<AuditLogListResponse | null>(null)
   const [adminRelation, setAdminRelation] = useState<RelationDetailResponse | null>(null)
   const [form, setForm] = useState({
     userId: session?.userId?.toString() ?? '',
@@ -79,7 +85,7 @@ function App() {
     languageCode: session?.languageCode ?? 'id',
     inviteCode: '',
   })
-  const [adminRewardQuery, setAdminRewardQuery] = useState({
+  const [adminRewardQuery, setAdminRewardQuery] = useState(() => loadJsonState<{ beneficiaryUserId: string; status: string; startAt: string; endAt: string; page: string; size: string }>(ADMIN_REWARD_QUERY_KEY) || {
     beneficiaryUserId: '',
     status: '',
     startAt: '',
@@ -87,7 +93,7 @@ function App() {
     page: '0',
     size: '10',
   })
-  const [riskQuery, setRiskQuery] = useState({
+  const [riskQuery, setRiskQuery] = useState(() => loadJsonState<{ userId: string; riskStatus: string; startAt: string; endAt: string; page: string; size: string }>(RISK_QUERY_KEY) || {
     userId: '',
     riskStatus: '',
     startAt: '',
@@ -95,12 +101,83 @@ function App() {
     page: '0',
     size: '10',
   })
+  const [auditQuery, setAuditQuery] = useState({
+    moduleName: 'risk_event',
+    page: '0',
+    size: '5',
+  })
+  const [riskActionNote, setRiskActionNote] = useState('')
+  const [riskActionLoadingId, setRiskActionLoadingId] = useState<number | null>(null)
   const [relationQueryUserId, setRelationQueryUserId] = useState('')
   const [profileCreateToken, setProfileCreateToken] = useState(() => localStorage.getItem(PROFILE_CREATE_TOKEN_KEY) || '')
 
   const canLoadData = useMemo(() => Boolean(session?.userId && session?.accessToken), [session])
   const canLoadAdmin = useMemo(() => Boolean(adminSession?.sessionToken), [adminSession])
   const canCreateProfile = useMemo(() => Boolean(profileCreateToken.trim() && form.userId.trim()), [profileCreateToken, form.userId])
+
+  useEffect(() => {
+    localStorage.setItem(ADMIN_REWARD_QUERY_KEY, JSON.stringify(adminRewardQuery))
+  }, [adminRewardQuery])
+
+  useEffect(() => {
+    localStorage.setItem(RISK_QUERY_KEY, JSON.stringify(riskQuery))
+  }, [riskQuery])
+
+  async function loadAdminRewards(query = adminRewardQuery) {
+    if (!adminSession) return
+    setLoading(true)
+    setError('')
+    try {
+      const result = await getAdminRewards(adminSession.sessionToken, {
+        beneficiaryUserId: query.beneficiaryUserId ? Number(query.beneficiaryUserId) : undefined,
+        status: query.status || undefined,
+        startAt: query.startAt || undefined,
+        endAt: query.endAt || undefined,
+        page: Number(query.page || 0),
+        size: Number(query.size || 10),
+      })
+      setAdminRewards(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载奖励列表失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function loadRiskEvents(query = riskQuery) {
+    if (!adminSession) return
+    setLoading(true)
+    setError('')
+    try {
+      const result = await getAdminRiskEvents(adminSession.sessionToken, {
+        userId: query.userId ? Number(query.userId) : undefined,
+        riskStatus: query.riskStatus || undefined,
+        startAt: query.startAt || undefined,
+        endAt: query.endAt || undefined,
+        page: Number(query.page || 0),
+        size: Number(query.size || 10),
+      })
+      setRiskEvents(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载风险事件失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function loadAuditLogs(query = auditQuery) {
+    if (!adminSession) return
+    try {
+      const result = await getAdminAuditLogs(adminSession.sessionToken, {
+        moduleName: query.moduleName || undefined,
+        page: Number(query.page || 0),
+        size: Number(query.size || 5),
+      })
+      setAuditLogs(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载处理记录失败')
+    }
+  }
 
   async function handleCreateProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -135,6 +212,12 @@ function App() {
       setAdminSession(nextSession)
       setAdminPassword('')
       setViewMode('admin')
+      const auditResult = await getAdminAuditLogs(nextSession.sessionToken, {
+        moduleName: auditQuery.moduleName,
+        page: Number(auditQuery.page || 0),
+        size: Number(auditQuery.size || 5),
+      })
+      setAuditLogs(auditResult)
     } catch (err) {
       setError(err instanceof Error ? err.message : '后台登录失败')
     } finally {
@@ -147,6 +230,7 @@ function App() {
     setAdminOverview(null)
     setAdminRewards(null)
     setRiskEvents(null)
+    setAuditLogs(null)
     setAdminRelation(null)
   }
 
@@ -185,44 +269,52 @@ function App() {
   }
 
   async function handleLoadAdminRewards() {
-    if (!adminSession) return
-    setLoading(true)
-    setError('')
-    try {
-      const result = await getAdminRewards(adminSession.sessionToken, {
-        beneficiaryUserId: adminRewardQuery.beneficiaryUserId ? Number(adminRewardQuery.beneficiaryUserId) : undefined,
-        status: adminRewardQuery.status || undefined,
-        startAt: adminRewardQuery.startAt || undefined,
-        endAt: adminRewardQuery.endAt || undefined,
-        page: Number(adminRewardQuery.page || 0),
-        size: Number(adminRewardQuery.size || 10),
-      })
-      setAdminRewards(result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '加载奖励列表失败')
-    } finally {
-      setLoading(false)
-    }
+    await loadAdminRewards(adminRewardQuery)
   }
 
   async function handleLoadRiskEvents() {
+    await loadRiskEvents(riskQuery)
+  }
+
+  async function handleAdminRewardPageChange(nextPage: number) {
+    if (nextPage < 0) return
+    const nextQuery = { ...adminRewardQuery, page: String(nextPage) }
+    setAdminRewardQuery(nextQuery)
+    await loadAdminRewards(nextQuery)
+  }
+
+  async function handleRiskPageChange(nextPage: number) {
+    if (nextPage < 0) return
+    const nextQuery = { ...riskQuery, page: String(nextPage) }
+    setRiskQuery(nextQuery)
+    await loadRiskEvents(nextQuery)
+  }
+
+  async function handleRiskAction(riskEventId: number, action: 'HANDLE' | 'IGNORE' | 'FREEZE_USER' | 'UNFREEZE_USER') {
     if (!adminSession) return
-    setLoading(true)
+    setRiskActionLoadingId(riskEventId)
     setError('')
     try {
-      const result = await getAdminRiskEvents(adminSession.sessionToken, {
-        userId: riskQuery.userId ? Number(riskQuery.userId) : undefined,
-        riskStatus: riskQuery.riskStatus || undefined,
-        startAt: riskQuery.startAt || undefined,
-        endAt: riskQuery.endAt || undefined,
-        page: Number(riskQuery.page || 0),
-        size: Number(riskQuery.size || 10),
+      const updatedItem = await applyAdminRiskEventAction(adminSession.sessionToken, riskEventId, {
+        action,
+        note: riskActionNote.trim() || undefined,
       })
-      setRiskEvents(result)
+      setRiskEvents((current) => current ? {
+        ...current,
+        items: current.items.map((item) => item.id === updatedItem.id ? updatedItem : item),
+      } : current)
+      if (adminRewards) {
+        await loadAdminRewards(adminRewardQuery)
+      }
+      if (adminRelation && relationQueryUserId && Number(relationQueryUserId) === updatedItem.userId) {
+        await handleLoadRelation()
+      }
+      await loadAuditLogs(auditQuery)
+      setRiskActionNote('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载风险事件失败')
+      setError(err instanceof Error ? err.message : '处理风险事件失败')
     } finally {
-      setLoading(false)
+      setRiskActionLoadingId(null)
     }
   }
 
@@ -289,11 +381,15 @@ function App() {
   ]
 
   const rewardPageLabel = adminRewards
-    ? `第 ${adminRewards.page + 1} 页 / 每页 ${adminRewards.size} 条 / 共 ${adminRewards.total} 条`
+    ? `本次命中 ${adminRewards.total} 条，当前第 ${adminRewards.page + 1} 页，每页 ${adminRewards.size} 条。`
     : '先执行一次奖励查询'
   const riskPageLabel = riskEvents
-    ? `第 ${riskEvents.page + 1} 页 / 每页 ${riskEvents.size} 条 / 共 ${riskEvents.total} 条`
+    ? `本次命中 ${riskEvents.total} 条，当前第 ${riskEvents.page + 1} 页，每页 ${riskEvents.size} 条。`
     : '先执行一次风险事件查询'
+  const hasRewardPrevPage = Number(adminRewardQuery.page) > 0
+  const hasRewardNextPage = adminRewards ? (adminRewards.page + 1) * adminRewards.size < adminRewards.total : false
+  const hasRiskPrevPage = Number(riskQuery.page) > 0
+  const hasRiskNextPage = riskEvents ? (riskEvents.page + 1) * riskEvents.size < riskEvents.total : false
 
   return (
     <div className="page-shell">
@@ -523,6 +619,10 @@ function App() {
                     </label>
                   </div>
                   <InlineHint text={rewardPageLabel} />
+                  <div className="table-toolbar">
+                    <button className="ghost-btn small-btn" onClick={() => handleAdminRewardPageChange(Number(adminRewardQuery.page) - 1)} disabled={loading || !hasRewardPrevPage}>上一页</button>
+                    <button className="ghost-btn small-btn" onClick={() => handleAdminRewardPageChange(Number(adminRewardQuery.page) + 1)} disabled={loading || !hasRewardNextPage}>下一页</button>
+                  </div>
                   {adminRewards?.items?.length ? (
                     <DataTable
                       headers={['受益用户', '来源用户', '层级', '奖励金额', '状态', '计算时间']}
@@ -531,8 +631,8 @@ function App() {
                         item.sourceUserId,
                         item.rewardLevel,
                         item.rewardAmount,
-                        item.rewardStatus,
-                        item.calculatedAt,
+                        renderStatusBadge(item.rewardStatus),
+                        formatDateTime(item.calculatedAt),
                       ])}
                       emptyText="暂无后台奖励数据"
                     />
@@ -609,23 +709,80 @@ function App() {
                     <input type="number" min="1" max="100" value={riskQuery.size} onChange={(e) => setRiskQuery({ ...riskQuery, size: e.target.value })} placeholder="10" />
                   </label>
                 </div>
+                <div className="grid-form compact-form single-line wide-line">
+                  <label>
+                    处理备注
+                    <input value={riskActionNote} onChange={(e) => setRiskActionNote(e.target.value)} placeholder="例如：人工复核通过 / 确认异常冻结" />
+                  </label>
+                </div>
                 <InlineHint text={riskPageLabel} />
+                <div className="table-toolbar">
+                  <button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) - 1)} disabled={loading || !hasRiskPrevPage}>上一页</button>
+                  <button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) + 1)} disabled={loading || !hasRiskNextPage}>下一页</button>
+                </div>
                 {riskEvents?.items?.length ? (
                   <DataTable
-                    headers={['事件ID', '用户ID', '风险类型', '等级', '状态', '检测时间', '详情']}
+                    headers={['事件ID', '用户ID', '风险类型', '等级', '状态', '检测时间', '处理信息', '操作']}
                     rows={riskEvents.items.map((item) => [
                       item.id,
                       item.userId,
                       item.riskType,
                       item.riskLevel,
-                      item.riskStatus,
-                      item.detectedAt,
-                      item.detailJson,
+                      renderStatusBadge(item.riskStatus),
+                      formatDateTime(item.detectedAt),
+                      `${item.handledAt ? `${formatDateTime(item.handledAt)} / #${item.handledBy ?? 0}` : '未处理'}${item.resultNote ? ` / ${item.resultNote}` : ''}`,
+                      <div className="action-row" key={`risk-actions-${item.id}`}>
+                        <button className="ghost-btn small-btn" onClick={() => handleRiskAction(item.id, 'HANDLE')} disabled={riskActionLoadingId === item.id || !canHandleRisk(item.riskStatus)}>处理</button>
+                        <button className="ghost-btn small-btn" onClick={() => handleRiskAction(item.id, 'IGNORE')} disabled={riskActionLoadingId === item.id || !canIgnoreRisk(item.riskStatus)}>忽略</button>
+                        <button className="ghost-btn small-btn warning-btn" onClick={() => handleRiskAction(item.id, 'FREEZE_USER')} disabled={riskActionLoadingId === item.id || !canFreezeRisk(item.riskStatus)}>冻结用户</button>
+                        <button className="ghost-btn small-btn success-btn" onClick={() => handleRiskAction(item.id, 'UNFREEZE_USER')} disabled={riskActionLoadingId === item.id || !canUnfreezeRisk(item.riskStatus)}>解冻用户</button>
+                      </div>,
                     ])}
                     emptyText="暂无风险事件"
                   />
                 ) : (
                   <EmptyState title="暂无风险事件结果" description="这里会展示风控冻结、风险用户等运营需要跟进的事件。" />
+                )}
+              </PanelSection>
+
+              <PanelSection
+                eyebrow="Audit"
+                title="最近处理记录"
+                description="方便运营复盘最近做过哪些动作，确认谁在什么时间处理了什么问题。"
+                action={<button className="primary-btn" onClick={() => loadAuditLogs(auditQuery)} disabled={!canLoadAdmin}>刷新处理记录</button>}
+              >
+                <div className="grid-form compact-form">
+                  <label>
+                    模块
+                    <select value={auditQuery.moduleName} onChange={(e) => setAuditQuery({ ...auditQuery, moduleName: e.target.value })}>
+                      <option value="risk_event">risk_event</option>
+                      <option value="">全部</option>
+                    </select>
+                  </label>
+                  <label>
+                    页码
+                    <input type="number" min="0" value={auditQuery.page} onChange={(e) => setAuditQuery({ ...auditQuery, page: e.target.value })} />
+                  </label>
+                  <label>
+                    每页条数
+                    <input type="number" min="1" max="100" value={auditQuery.size} onChange={(e) => setAuditQuery({ ...auditQuery, size: e.target.value })} />
+                  </label>
+                </div>
+                {auditLogs?.items?.length ? (
+                  <DataTable
+                    headers={['时间', '模块', '动作', '目标ID', '操作人', '备注']}
+                    rows={auditLogs.items.map((item) => [
+                      formatDateTime(item.operatedAt),
+                      item.moduleName,
+                      renderStatusBadge(item.actionName),
+                      item.targetId,
+                      `${item.operatorRole} / #${item.operatorId}`,
+                      item.remark || '-',
+                    ])}
+                    emptyText="暂无处理记录"
+                  />
+                ) : (
+                  <EmptyState title="暂无处理记录" description="执行一次风险处理动作后，这里会沉淀最近的操作审计。" />
                 )}
               </PanelSection>
             </>
@@ -763,7 +920,38 @@ function InlineHint({ text }: { text: string }) {
   return <p className="inline-hint">{text}</p>
 }
 
-function DataTable({ headers, rows, emptyText }: { headers: string[]; rows?: Array<Array<string | number>>; emptyText: string }) {
+function StatusBadge({ status }: { status: string }) {
+  const tone = status === 'HANDLED' || status === 'AVAILABLE'
+    ? 'success'
+    : status === 'IGNORED'
+      ? 'neutral'
+      : status === 'RISK_HOLD' || status === 'LOCKED'
+        ? 'warning'
+        : 'primary'
+  return <span className={`badge badge-${tone}`}>{status}</span>
+}
+
+function renderStatusBadge(status: string) {
+  return <StatusBadge status={status} />
+}
+
+function canHandleRisk(status: string) {
+  return status === 'PENDING'
+}
+
+function canIgnoreRisk(status: string) {
+  return status === 'PENDING'
+}
+
+function canFreezeRisk(status: string) {
+  return status === 'PENDING'
+}
+
+function canUnfreezeRisk(status: string) {
+  return status === 'HANDLED'
+}
+
+function DataTable({ headers, rows, emptyText }: { headers: string[]; rows?: Array<Array<React.ReactNode>>; emptyText: string }) {
   return (
     <div className="table-shell">
       <table>

@@ -39,17 +39,24 @@ public class RiskEventQueryService {
 
         List<RiskEventListItem> items = new ArrayList<>();
         for (RiskEvent riskEvent : riskEvents.getContent()) {
-            items.add(new RiskEventListItem(
-                    riskEvent.getId(),
-                    riskEvent.getUserId(),
-                    riskEvent.getRiskType(),
-                    riskEvent.getRiskLevel(),
-                    riskEvent.getRiskStatus(),
-                    riskEvent.getDetailJson(),
-                    riskEvent.getDetectedAt()
-            ));
+            items.add(toItem(riskEvent));
         }
         return new RiskEventListResponse(items, riskEvents.getTotalElements(), page, size);
+    }
+
+    public static RiskEventListItem toItem(RiskEvent riskEvent) {
+        return new RiskEventListItem(
+                riskEvent.getId(),
+                riskEvent.getUserId(),
+                riskEvent.getRiskType(),
+                riskEvent.getRiskLevel(),
+                riskEvent.getRiskStatus(),
+                riskEvent.getDetailJson(),
+                riskEvent.getDetectedAt(),
+                riskEvent.getHandledBy(),
+                riskEvent.getHandledAt(),
+                riskEvent.getResultNote()
+        );
     }
 
     private void validatePageRequest(int page, int size) {

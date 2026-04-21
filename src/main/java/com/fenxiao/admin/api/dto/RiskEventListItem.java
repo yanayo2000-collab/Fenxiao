@@ -11,6 +11,9 @@ public record RiskEventListItem(
         Integer riskLevel,
         RiskStatus riskStatus,
         String detailJson,
-        LocalDateTime detectedAt
+        LocalDateTime detectedAt,
+        Long handledBy,
+        LocalDateTime handledAt,
+        String resultNote
 ) {
 }

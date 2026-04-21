@@ -69,10 +69,33 @@ export type RiskEventListItem = {
   riskStatus: string
   detailJson: string
   detectedAt: string
+  handledBy: number | null
+  handledAt: string | null
+  resultNote: string | null
 }
 
 export type RiskEventListResponse = {
   items: RiskEventListItem[]
+  total: number
+  page: number
+  size: number
+}
+
+export type AuditLogListItem = {
+  id: number
+  moduleName: string
+  targetType: string
+  targetId: number
+  actionName: string
+  operatorRole: string
+  operatorId: number
+  requestIp: string | null
+  remark: string | null
+  operatedAt: string
+}
+
+export type AuditLogListResponse = {
+  items: AuditLogListItem[]
   total: number
   page: number
   size: number
@@ -216,6 +239,36 @@ export function getAdminRiskEvents(adminSessionToken: string, filters?: {
 
 export function getAdminRelation(adminSessionToken: string, userId: number) {
   return request<RelationDetailResponse>(`/admin/distribution/relation/${userId}`, {
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+  })
+}
+
+export function applyAdminRiskEventAction(adminSessionToken: string, riskEventId: number, payload: {
+  action: 'HANDLE' | 'IGNORE' | 'FREEZE_USER' | 'UNFREEZE_USER'
+  note?: string
+}) {
+  return request<RiskEventListItem>(`/admin/distribution/risk-events/${riskEventId}/actions`, {
+    method: 'POST',
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getAdminAuditLogs(adminSessionToken: string, filters?: {
+  moduleName?: string
+  page?: number
+  size?: number
+}) {
+  const params = new URLSearchParams()
+  if (filters?.moduleName) params.set('moduleName', filters.moduleName)
+  if (filters?.page !== undefined) params.set('page', String(filters.page))
+  if (filters?.size !== undefined) params.set('size', String(filters.size))
+  const query = params.toString()
+  return request<AuditLogListResponse>(`/admin/distribution/audit-logs${query ? `?${query}` : ''}`, {
     headers: {
       'X-Admin-Session': adminSessionToken,
     },

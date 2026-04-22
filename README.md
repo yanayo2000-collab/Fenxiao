@@ -185,6 +185,11 @@ curl http://localhost:8080/actuator/health
 
 Linky 对接协议见：`docs/linky-integration.md`
 
+当前 Linky webhook 现状：
+- 已记录每次请求的 token / signature / replay 校验结果
+- 已落库 webhook 日志，支持按订单 / 用户 / 处理状态回看
+- 后台最小排查接口：`GET /admin/distribution/linky-webhook-logs`
+
 ## 一期后续增强方向
 
 1. Linky 正式收益同步接入（已补适配入口、字段别名兼容、基础签名校验与时间窗防重放，待对接真实上游字段与回放明细策略）

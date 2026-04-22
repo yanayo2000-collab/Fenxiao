@@ -2,6 +2,8 @@ package com.fenxiao.admin.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fenxiao.distribution.service.DistributionBindingService;
+import com.fenxiao.linky.entity.LinkyWebhookLog;
+import com.fenxiao.linky.repository.LinkyWebhookLogRepository;
 import com.fenxiao.rule.entity.RewardRule;
 import com.fenxiao.rule.repository.RewardRuleRepository;
 import org.junit.jupiter.api.Test;
@@ -57,6 +59,9 @@ class InternalIncomeControllerTest {
 
     @Autowired
     private RewardRuleRepository rewardRuleRepository;
+
+    @Autowired
+    private LinkyWebhookLogRepository linkyWebhookLogRepository;
 
     @Test
     void shouldAcceptInternalIncomeEventAndReturnProcessedStatus() throws Exception {
@@ -141,6 +146,20 @@ class InternalIncomeControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sourceEventId").value("LINKY:linky-order-1"))
                 .andExpect(jsonPath("$.status").value("DUPLICATE"));
+
+        java.util.List<LinkyWebhookLog> logs = linkyWebhookLogRepository.findAll();
+        org.assertj.core.api.Assertions.assertThat(logs).hasSize(2);
+        org.assertj.core.api.Assertions.assertThat(logs)
+                .extracting(LinkyWebhookLog::getRequestStatus)
+                .containsExactlyInAnyOrder("PROCESSED", "DUPLICATE");
+        org.assertj.core.api.Assertions.assertThat(logs)
+                .allSatisfy(log -> {
+                    org.assertj.core.api.Assertions.assertThat(log.getLinkyOrderId()).isEqualTo("linky-order-1");
+                    org.assertj.core.api.Assertions.assertThat(log.getInternalTokenStatus()).isEqualTo("VALID");
+                    org.assertj.core.api.Assertions.assertThat(log.getSignatureStatus()).isEqualTo("VALID");
+                    org.assertj.core.api.Assertions.assertThat(log.getReplayStatus()).isEqualTo("VALID");
+                    org.assertj.core.api.Assertions.assertThat(log.getSourceEventId()).isEqualTo("LINKY:linky-order-1");
+                });
     }
 
     @Test
@@ -207,6 +226,13 @@ class InternalIncomeControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.message").value("linky request expired"));
+
+        LinkyWebhookLog log = linkyWebhookLogRepository.findAll().getFirst();
+        org.assertj.core.api.Assertions.assertThat(log.getLinkyOrderId()).isEqualTo("linky-order-3");
+        org.assertj.core.api.Assertions.assertThat(log.getRequestStatus()).isEqualTo("REJECTED");
+        org.assertj.core.api.Assertions.assertThat(log.getSignatureStatus()).isEqualTo("VALID");
+        org.assertj.core.api.Assertions.assertThat(log.getReplayStatus()).isEqualTo("EXPIRED");
+        org.assertj.core.api.Assertions.assertThat(log.getFailureReason()).isEqualTo("linky request expired");
     }
 
     private String signLinkyRequest(String linkyOrderId, Long userId, BigDecimal incomeAmount, String currencyCode, String paidAt, String timestamp) {

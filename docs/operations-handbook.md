@@ -186,7 +186,7 @@
 当前这版已经是运营可用 MVP，但仍然有边界：
 - 还没有更细的后台权限模型
 - 还没有动作审批流
-- 已有 Linky 适配入口和基础签名校验，但还没完成真实上游字段映射与回放策略
+- 已有 Linky 适配入口、基础签名校验、时间窗防重放和 webhook 日志落库，但还没完成显式 replay record
 - 还没有更复杂的风控规则编排
 
 所以当前使用原则是：
@@ -202,5 +202,6 @@
 - 最近处理记录能看到新增动作
 - 奖励/关系链会在动作后联动刷新
 - Linky 入口至少验证 `X-Internal-Token`、`X-Linky-Timestamp`、`X-Linky-Signature`
+- Linky webhook 日志能查到 signature / replay / requestStatus 结果
 - 前端 build 通过
 - 后端测试通过

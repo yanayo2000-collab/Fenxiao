@@ -9,10 +9,11 @@
 - 基础签名校验
 - 时间窗防重放
 - 收益事件幂等处理
+- webhook 请求日志落库
+- 后台按订单 / 用户 / 处理状态回看 webhook 日志
 
 当前这版还未完成：
 - 上游最终字段协议定稿
-- 原始 webhook 明细落库
 - 更细的 replay record / nonce 追踪
 - 多版本签名协议兼容
 
@@ -142,7 +143,39 @@ LINKY:linky-order-1001
 
 ---
 
-## 7. 响应结构
+## 7. webhook 日志与排查
+当前每次命中 Linky 入口时，Fenxiao 都会落一条 `linky_webhook_log`：
+- 订单号 / 用户 ID / 金额 / 币种 / paidAt
+- `X-Linky-Timestamp`
+- `X-Linky-Signature`
+- internal token 校验结果
+- signature 校验结果
+- replay / 时间窗校验结果
+- 最终处理结果：`PROCESSED` / `DUPLICATE` / `REJECTED` / `FAILED`
+- 失败原因
+- 规范化后的 payload JSON
+
+当前后台最小回看入口：
+- `GET /admin/distribution/linky-webhook-logs`
+
+支持的最小筛选项：
+- `linkyOrderId`
+- `userId`
+- `requestStatus`
+- `page`
+- `size`
+
+这意味着后续对接上游时，如果出现：
+- 签名不一致
+- 时间戳过期
+- 同单重复推送
+- Fenxiao 侧用户不存在
+
+都可以先查这张日志表或 admin 接口，而不是只看接口返回。
+
+---
+
+## 8. 响应结构
 成功响应示例：
 
 ```json
@@ -163,7 +196,7 @@ LINKY:linky-order-1001
 
 ---
 
-## 8. 常见错误
+## 9. 常见错误
 
 ### 8.1 Internal token 错误
 - HTTP: `403`
@@ -191,7 +224,7 @@ LINKY:linky-order-1001
 
 ---
 
-## 9. curl 示例
+## 10. curl 示例
 ```bash
 curl -X POST http://localhost:8080/internal/distribution/linky/income-events \
   -H 'Content-Type: application/json' \
@@ -209,9 +242,9 @@ curl -X POST http://localhost:8080/internal/distribution/linky/income-events \
 
 ---
 
-## 10. 后续建议
+## 11. 后续建议
 下一步建议按这个顺序继续：
 1. 明确 Linky 上游最终字段协议，只保留一套主字段并把别名兼容降级为过渡层
-2. 增加 webhook 原始事件日志表，记录 timestamp / signature / payload 摘要 / 校验结果
-3. 做显式 replay record，而不只靠时间窗
+2. 做显式 replay record，而不只靠时间窗
+3. 把 webhook 日志查询补进运营后台前端，而不只停留在 admin API
 4. 把签名算法、版本号、密钥轮换策略写成正式对接文档

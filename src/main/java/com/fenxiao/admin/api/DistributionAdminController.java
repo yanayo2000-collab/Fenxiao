@@ -1,6 +1,7 @@
 package com.fenxiao.admin.api;
 
 import com.fenxiao.admin.api.dto.AuditLogListResponse;
+import com.fenxiao.admin.api.dto.LinkyWebhookLogListResponse;
 import com.fenxiao.admin.api.dto.ManualRelationAdjustmentRequest;
 import com.fenxiao.admin.api.dto.OverviewReportResponse;
 import com.fenxiao.admin.api.dto.RelationDetailResponse;
@@ -9,6 +10,7 @@ import com.fenxiao.admin.api.dto.RiskEventListItem;
 import com.fenxiao.admin.api.dto.RiskEventListResponse;
 import com.fenxiao.admin.service.AuditLogQueryService;
 import com.fenxiao.admin.service.DistributionReportService;
+import com.fenxiao.admin.service.LinkyWebhookLogService;
 import com.fenxiao.admin.service.RelationAdjustmentService;
 import com.fenxiao.admin.service.RiskEventActionService;
 import com.fenxiao.admin.service.RiskEventQueryService;
@@ -40,6 +42,7 @@ public class DistributionAdminController {
     private final RewardCalculationService rewardCalculationService;
     private final DistributionQueryService distributionQueryService;
     private final DistributionReportService distributionReportService;
+    private final LinkyWebhookLogService linkyWebhookLogService;
     private final AuditLogQueryService auditLogQueryService;
     private final RiskEventQueryService riskEventQueryService;
     private final RiskEventActionService riskEventActionService;
@@ -49,6 +52,7 @@ public class DistributionAdminController {
     public DistributionAdminController(RewardCalculationService rewardCalculationService,
                                        DistributionQueryService distributionQueryService,
                                        DistributionReportService distributionReportService,
+                                       LinkyWebhookLogService linkyWebhookLogService,
                                        AuditLogQueryService auditLogQueryService,
                                        RiskEventQueryService riskEventQueryService,
                                        RiskEventActionService riskEventActionService,
@@ -57,6 +61,7 @@ public class DistributionAdminController {
         this.rewardCalculationService = rewardCalculationService;
         this.distributionQueryService = distributionQueryService;
         this.distributionReportService = distributionReportService;
+        this.linkyWebhookLogService = linkyWebhookLogService;
         this.auditLogQueryService = auditLogQueryService;
         this.riskEventQueryService = riskEventQueryService;
         this.riskEventActionService = riskEventActionService;
@@ -137,6 +142,18 @@ public class DistributionAdminController {
                                               @RequestParam(defaultValue = "20") int size) {
         distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
         return auditLogQueryService.getAuditLogs(moduleName, page, size);
+    }
+
+    @GetMapping("/linky-webhook-logs")
+    public LinkyWebhookLogListResponse listLinkyWebhookLogs(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                            @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+                                                            @RequestParam(required = false) String linkyOrderId,
+                                                            @RequestParam(required = false) Long userId,
+                                                            @RequestParam(required = false) String requestStatus,
+                                                            @RequestParam(defaultValue = "0") int page,
+                                                            @RequestParam(defaultValue = "20") int size) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        return linkyWebhookLogService.getLogs(linkyOrderId, userId, requestStatus, page, size);
     }
 
     @GetMapping("/reports/overview")

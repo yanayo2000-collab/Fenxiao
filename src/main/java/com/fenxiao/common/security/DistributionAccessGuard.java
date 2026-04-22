@@ -61,9 +61,17 @@ public class DistributionAccessGuard {
     }
 
     public void assertInternalToken(String token) {
-        if (internalToken == null || internalToken.isBlank() || token == null || !MessageDigest.isEqual(internalToken.getBytes(StandardCharsets.UTF_8), token.getBytes(StandardCharsets.UTF_8))) {
-            throw new ForbiddenException("internal token invalid");
+        InternalTokenCheckResult result = inspectInternalToken(token);
+        if (!result.allowed()) {
+            throw new ForbiddenException(result.message());
         }
+    }
+
+    public InternalTokenCheckResult inspectInternalToken(String token) {
+        if (internalToken == null || internalToken.isBlank() || token == null || !MessageDigest.isEqual(internalToken.getBytes(StandardCharsets.UTF_8), token.getBytes(StandardCharsets.UTF_8))) {
+            return new InternalTokenCheckResult(false, "INVALID", "internal token invalid");
+        }
+        return new InternalTokenCheckResult(true, "VALID", null);
     }
 
     public void assertLinkySignature(String timestamp,
@@ -73,27 +81,44 @@ public class DistributionAccessGuard {
                                      String incomeAmount,
                                      String currencyCode,
                                      String paidAt) {
-        if (linkySigningSecret == null || linkySigningSecret.isBlank()) {
-            return;
+        LinkyRequestCheckResult result = inspectLinkySignature(timestamp, signature, linkyOrderId, userId, incomeAmount, currencyCode, paidAt);
+        if (!result.allowed()) {
+            throw new ForbiddenException(result.message());
         }
-        if (timestamp == null || timestamp.isBlank() || signature == null || signature.isBlank()) {
-            throw new ForbiddenException("linky signature invalid");
+    }
+
+    public LinkyRequestCheckResult inspectLinkySignature(String timestamp,
+                                                         String signature,
+                                                         String linkyOrderId,
+                                                         Long userId,
+                                                         String incomeAmount,
+                                                         String currencyCode,
+                                                         String paidAt) {
+        if (linkySigningSecret == null || linkySigningSecret.isBlank()) {
+            return new LinkyRequestCheckResult(true, "SKIPPED", "SKIPPED", null);
+        }
+        if (timestamp == null || timestamp.isBlank()) {
+            return new LinkyRequestCheckResult(false, "NOT_CHECKED", "INVALID_TIMESTAMP", "linky signature invalid");
+        }
+        if (signature == null || signature.isBlank()) {
+            return new LinkyRequestCheckResult(false, "INVALID", "NOT_CHECKED", "linky signature invalid");
         }
         Instant requestAt;
         try {
             requestAt = Instant.parse(timestamp);
         } catch (Exception exception) {
-            throw new ForbiddenException("linky signature invalid");
+            return new LinkyRequestCheckResult(false, "NOT_CHECKED", "INVALID_TIMESTAMP", "linky signature invalid");
         }
         long skewSeconds = Math.abs(Duration.between(requestAt, Instant.now(clock)).getSeconds());
         if (skewSeconds > linkyReplayWindowSeconds) {
-            throw new ForbiddenException("linky request expired");
+            return new LinkyRequestCheckResult(false, "VALID", "EXPIRED", "linky request expired");
         }
         String payload = timestamp + "." + linkyOrderId.trim() + "." + userId + "." + incomeAmount + "." + currencyCode.trim().toUpperCase() + "." + paidAt;
         String expected = sign(payload, linkySigningSecret);
         if (!MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), signature.getBytes(StandardCharsets.UTF_8))) {
-            throw new ForbiddenException("linky signature invalid");
+            return new LinkyRequestCheckResult(false, "INVALID", "VALID", "linky signature invalid");
         }
+        return new LinkyRequestCheckResult(true, "VALID", "VALID", null);
     }
 
     public void assertAdminAccess(String token, String sessionToken) {
@@ -115,5 +140,11 @@ public class DistributionAccessGuard {
         } catch (Exception exception) {
             throw new IllegalStateException("failed to verify linky signature", exception);
         }
+    }
+
+    public record InternalTokenCheckResult(boolean allowed, String status, String message) {
+    }
+
+    public record LinkyRequestCheckResult(boolean allowed, String signatureStatus, String replayStatus, String message) {
     }
 }

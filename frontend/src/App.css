@@ -504,6 +504,10 @@ select:focus {
   gap: 8px;
 }
 
+.top-gap {
+  margin-top: 12px;
+}
+
 .small-btn {
   padding: 8px 12px;
   border-radius: 12px;
@@ -723,6 +727,78 @@ th {
   justify-content: center;
   padding: 20px;
   z-index: 50;
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.26);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 60;
+}
+
+.drawer-panel {
+  width: min(560px, 100vw);
+  height: 100vh;
+  background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+  border-left: 1px solid rgba(225, 233, 246, 0.95);
+  box-shadow: -12px 0 32px rgba(15, 23, 42, 0.14);
+  padding: 22px;
+  overflow-y: auto;
+}
+
+.drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.detail-section {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid #e4ebf7;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.detail-section h4 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.detail-item {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f7faff;
+  border: 1px solid #edf2fa;
+}
+
+.detail-item span {
+  display: block;
+  color: #667790;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.detail-item strong {
+  display: block;
+  color: #162133;
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 .dialog-card {

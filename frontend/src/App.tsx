@@ -32,6 +32,11 @@ import {
   buildPagedResultLabel,
 } from './linkyConsole'
 import {
+  buildLinkyReplayDetailSections,
+  buildLinkyWebhookDetailSections,
+  buildLinkyWebhookHeadline,
+} from './linkyDetails'
+import {
   buildAdminTaskCards,
   buildEmptyStatePreset,
   buildLinkyDiagnosticSnapshot,
@@ -69,6 +74,10 @@ type PendingRelationChange = {
   previousLevel3InviterId: number | null
   note: string
 }
+
+type SelectedLinkyDrawer =
+  | { kind: 'webhook'; item: LinkyWebhookLogListResponse['items'][number] }
+  | { kind: 'replay'; item: LinkyReplayRecordListResponse['items'][number] }
 
 const STORAGE_KEY = 'fenxiao-web-session'
 const PROFILE_CREATE_TOKEN_KEY='fenxiao-profile-create-token'
@@ -166,6 +175,7 @@ function App() {
   const [riskActionDrafts, setRiskActionDrafts] = useState<Record<number, string>>({})
   const [pendingRiskAction, setPendingRiskAction] = useState<PendingRiskAction | null>(null)
   const [riskActionLoadingId, setRiskActionLoadingId] = useState<number | null>(null)
+  const [selectedLinkyDrawer, setSelectedLinkyDrawer] = useState<SelectedLinkyDrawer | null>(null)
   const [relationQueryUserId, setRelationQueryUserId] = useState('')
   const [relationAdjustInviterId, setRelationAdjustInviterId] = useState('')
   const [relationAdjustNote, setRelationAdjustNote] = useState('')
@@ -383,6 +393,7 @@ function App() {
     setHasQueriedLinkyWebhookLogs(false)
     setHasQueriedLinkyReplayRecords(false)
     setPendingRiskAction(null)
+    setSelectedLinkyDrawer(null)
     setPendingRelationChange(null)
     setRiskActionDrafts({})
     setSuccessMessage('')
@@ -662,6 +673,15 @@ function App() {
   const relationPreview = adminRelation
     ? buildRelationPreview(adminRelation, relationAdjustInviterId)
     : null
+  const selectedLinkyTitle = selectedLinkyDrawer?.kind === 'webhook'
+    ? buildLinkyWebhookHeadline(selectedLinkyDrawer.item)
+    : selectedLinkyDrawer?.item.linkyOrderId
+      || `Replay #${selectedLinkyDrawer?.item.id ?? ''}`
+  const selectedLinkySections = selectedLinkyDrawer?.kind === 'webhook'
+    ? buildLinkyWebhookDetailSections(selectedLinkyDrawer.item)
+    : selectedLinkyDrawer?.kind === 'replay'
+      ? buildLinkyReplayDetailSections(selectedLinkyDrawer.item)
+      : []
 
   return (
     <div className="page-shell">
@@ -1149,6 +1169,9 @@ function App() {
                               <InfoRow label="支付时间" value={item.paidAt ? formatDateTime(item.paidAt) : '-'} />
                             </div>
                             <p className="inline-hint strong-hint">{buildLinkyWebhookSummary(item)}</p>
+                            <div className="action-row top-gap">
+                              <button className="ghost-btn small-btn" type="button" onClick={() => setSelectedLinkyDrawer({ kind: 'webhook', item })}>查看详情</button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -1190,7 +1213,7 @@ function App() {
 
                     {linkyReplayRecords?.items?.length ? (
                       <DataTable
-                        headers={['订单号', '用户', '首次命中', '最近命中', '摘要', '指纹']}
+                        headers={['订单号', '用户', '首次命中', '最近命中', '摘要', '指纹', '操作']}
                         rows={linkyReplayRecords.items.map((item) => [
                           item.linkyOrderId || '-',
                           item.userId ? `#${item.userId}` : '-',
@@ -1198,6 +1221,7 @@ function App() {
                           item.lastSeenAt ? formatDateTime(item.lastSeenAt) : '-',
                           buildLinkyReplaySummary(item),
                           <FingerprintCell fingerprint={item.requestFingerprint} onCopy={handleCopyFingerprint} />,
+                          <button className="ghost-btn small-btn" type="button" onClick={() => setSelectedLinkyDrawer({ kind: 'replay', item })}>查看详情</button>,
                         ])}
                         emptyText="暂无 replay 记录"
                       />
@@ -1278,7 +1302,7 @@ function App() {
           <PanelSection eyebrow="Next" title="下一批最值得补" description="这版收口后，继续往真实业务化推进。">
             <RoadmapList
               items={[
-                { title: 'Linky 日志详情抽屉', desc: '补 payload、失败原因、上下文串联，让排查不只停在列表摘要。' },
+                { title: 'Linky payload / 失败上下文增强', desc: '把原始 payload、失败明细和关联请求串联进详情抽屉，继续提升排查深度。' },
                 { title: '关系修正审计增强', desc: '补更多 before / after 信息和复核说明。' },
                 { title: '上线前 checklist', desc: '把部署、验证、交接收成真正可执行的清单。' },
                 { title: '更细粒度权限', desc: '为后续审批流和多角色后台做准备。' },
@@ -1287,6 +1311,18 @@ function App() {
           </PanelSection>
         </aside>
       </div>
+
+      {selectedLinkyDrawer ? (
+        <DrawerDialog
+          title={selectedLinkyTitle}
+          subtitle={selectedLinkyDrawer.kind === 'webhook' ? 'Linky webhook 详情' : 'Linky replay 详情'}
+          onClose={() => setSelectedLinkyDrawer(null)}
+        >
+          {selectedLinkySections.map((section) => (
+            <DetailSection key={section.title} title={section.title} rows={section.rows} />
+          ))}
+        </DrawerDialog>
+      ) : null}
 
       {pendingRiskAction ? (
         <ConfirmDialog
@@ -1572,6 +1608,39 @@ function FingerprintCell({ fingerprint, onCopy }: { fingerprint: string; onCopy:
       <code className="truncated-code" title={fingerprint}>{fingerprint}</code>
       <button className="ghost-btn small-btn fingerprint-copy-btn" onClick={() => void onCopy(fingerprint)} type="button">复制</button>
     </div>
+  )
+}
+
+function DrawerDialog({ title, subtitle, children, onClose }: { title: string; subtitle: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="drawer-panel" role="dialog" aria-modal="true" aria-label={title} onClick={(event) => event.stopPropagation()}>
+        <div className="drawer-head">
+          <div>
+            <p className="panel-eyebrow">{subtitle}</p>
+            <h3>{title}</h3>
+          </div>
+          <button className="ghost-btn small-btn" type="button" onClick={onClose}>关闭</button>
+        </div>
+        <div className="drawer-body">{children}</div>
+      </aside>
+    </div>
+  )
+}
+
+function DetailSection({ title, rows }: { title: string; rows: Array<[string, string]> }) {
+  return (
+    <section className="detail-section">
+      <h4>{title}</h4>
+      <div className="detail-grid">
+        {rows.map(([label, value]) => (
+          <div className="detail-item" key={`${title}-${label}`}>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

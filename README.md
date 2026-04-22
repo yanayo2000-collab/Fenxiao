@@ -182,6 +182,8 @@ curl http://localhost:8080/actuator/health
 
 详细操作说明见：`docs/operations-handbook.md`
 
+Linky 对接协议见：`docs/linky-integration.md`
+
 ## 一期后续增强方向
 
 1. Linky 正式收益同步接入（已补适配入口、字段别名兼容、基础签名校验与时间窗防重放，待对接真实上游字段与回放明细策略）

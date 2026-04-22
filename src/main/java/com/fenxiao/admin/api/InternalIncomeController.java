@@ -4,6 +4,7 @@ import com.fenxiao.admin.api.dto.InternalIncomeEventRequest;
 import com.fenxiao.admin.api.dto.InternalIncomeEventResponse;
 import com.fenxiao.admin.api.dto.LinkyIncomeEventRequest;
 import com.fenxiao.admin.service.LinkyIncomeAdapterService;
+import com.fenxiao.admin.service.LinkyReplayRecordService;
 import com.fenxiao.admin.service.LinkyWebhookLogService;
 import com.fenxiao.common.api.ForbiddenException;
 import com.fenxiao.common.security.DistributionAccessGuard;
@@ -25,15 +26,18 @@ public class InternalIncomeController {
 
     private final RewardCalculationService rewardCalculationService;
     private final LinkyIncomeAdapterService linkyIncomeAdapterService;
+    private final LinkyReplayRecordService linkyReplayRecordService;
     private final LinkyWebhookLogService linkyWebhookLogService;
     private final DistributionAccessGuard distributionAccessGuard;
 
     public InternalIncomeController(RewardCalculationService rewardCalculationService,
                                     LinkyIncomeAdapterService linkyIncomeAdapterService,
+                                    LinkyReplayRecordService linkyReplayRecordService,
                                     LinkyWebhookLogService linkyWebhookLogService,
                                     DistributionAccessGuard distributionAccessGuard) {
         this.rewardCalculationService = rewardCalculationService;
         this.linkyIncomeAdapterService = linkyIncomeAdapterService;
+        this.linkyReplayRecordService = linkyReplayRecordService;
         this.linkyWebhookLogService = linkyWebhookLogService;
         this.distributionAccessGuard = distributionAccessGuard;
     }
@@ -70,6 +74,7 @@ public class InternalIncomeController {
         );
         InternalIncomeEventResponse response = null;
         RuntimeException failure = null;
+        LinkyReplayRecordService.ReplayRecordResult replayRecordResult = null;
         try {
             if (!tokenCheck.allowed()) {
                 throw new ForbiddenException(tokenCheck.message());
@@ -83,6 +88,20 @@ public class InternalIncomeController {
             failure = exception;
             throw exception;
         } finally {
+            if (tokenCheck.allowed() && linkyCheck.allowed()) {
+                String finalRequestStatus = response != null ? response.status().name() : (failure instanceof ForbiddenException ? "REJECTED" : "FAILED");
+                replayRecordResult = linkyReplayRecordService.register(
+                        request.linkyOrderId(),
+                        request.userId(),
+                        request.incomeAmount().toPlainString(),
+                        request.currencyCode(),
+                        request.paidAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                        linkyTimestamp,
+                        linkySignature,
+                        finalRequestStatus,
+                        failure == null ? null : failure.getMessage()
+                );
+            }
             linkyWebhookLogService.record(
                     request,
                     linkyTimestamp,
@@ -90,6 +109,7 @@ public class InternalIncomeController {
                     httpServletRequest.getRemoteAddr(),
                     tokenCheck,
                     linkyCheck,
+                    replayRecordResult,
                     response,
                     failure
             );

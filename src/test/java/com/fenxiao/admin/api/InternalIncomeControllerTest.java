@@ -2,7 +2,9 @@ package com.fenxiao.admin.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fenxiao.distribution.service.DistributionBindingService;
+import com.fenxiao.linky.entity.LinkyReplayRecord;
 import com.fenxiao.linky.entity.LinkyWebhookLog;
+import com.fenxiao.linky.repository.LinkyReplayRecordRepository;
 import com.fenxiao.linky.repository.LinkyWebhookLogRepository;
 import com.fenxiao.rule.entity.RewardRule;
 import com.fenxiao.rule.repository.RewardRuleRepository;
@@ -62,6 +64,9 @@ class InternalIncomeControllerTest {
 
     @Autowired
     private LinkyWebhookLogRepository linkyWebhookLogRepository;
+
+    @Autowired
+    private LinkyReplayRecordRepository linkyReplayRecordRepository;
 
     @Test
     void shouldAcceptInternalIncomeEventAndReturnProcessedStatus() throws Exception {
@@ -160,6 +165,17 @@ class InternalIncomeControllerTest {
                     org.assertj.core.api.Assertions.assertThat(log.getReplayStatus()).isEqualTo("VALID");
                     org.assertj.core.api.Assertions.assertThat(log.getSourceEventId()).isEqualTo("LINKY:linky-order-1");
                 });
+        org.assertj.core.api.Assertions.assertThat(logs)
+                .extracting(LinkyWebhookLog::getReplayRecordStatus)
+                .containsExactlyInAnyOrder("FIRST_SEEN", "REPLAYED");
+        org.assertj.core.api.Assertions.assertThat(logs)
+                .extracting(LinkyWebhookLog::getReplayHitCount)
+                .contains(1, 2);
+
+        LinkyReplayRecord replayRecord = linkyReplayRecordRepository.findAll().getFirst();
+        org.assertj.core.api.Assertions.assertThat(replayRecord.getLinkyOrderId()).isEqualTo("linky-order-1");
+        org.assertj.core.api.Assertions.assertThat(replayRecord.getHitCount()).isEqualTo(2);
+        org.assertj.core.api.Assertions.assertThat(replayRecord.getLatestRequestStatus()).isEqualTo("DUPLICATE");
     }
 
     @Test
@@ -232,7 +248,9 @@ class InternalIncomeControllerTest {
         org.assertj.core.api.Assertions.assertThat(log.getRequestStatus()).isEqualTo("REJECTED");
         org.assertj.core.api.Assertions.assertThat(log.getSignatureStatus()).isEqualTo("VALID");
         org.assertj.core.api.Assertions.assertThat(log.getReplayStatus()).isEqualTo("EXPIRED");
+        org.assertj.core.api.Assertions.assertThat(log.getReplayRecordStatus()).isEqualTo("NOT_RECORDED");
         org.assertj.core.api.Assertions.assertThat(log.getFailureReason()).isEqualTo("linky request expired");
+        org.assertj.core.api.Assertions.assertThat(linkyReplayRecordRepository.count()).isEqualTo(0);
     }
 
     private String signLinkyRequest(String linkyOrderId, Long userId, BigDecimal incomeAmount, String currencyCode, String paidAt, String timestamp) {

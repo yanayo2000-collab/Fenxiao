@@ -491,7 +491,20 @@ class DistributionMvpAdminControllerTest {
                 .andExpect(jsonPath("$.items[0].userId").value(19502))
                 .andExpect(jsonPath("$.items[0].signatureStatus").value("VALID"))
                 .andExpect(jsonPath("$.items[0].replayStatus").value("VALID"))
+                .andExpect(jsonPath("$.items[0].replayRecordStatus").value("FIRST_SEEN"))
+                .andExpect(jsonPath("$.items[0].replayHitCount").value(1))
                 .andExpect(jsonPath("$.items[0].requestStatus").value("PROCESSED"))
+                .andExpect(jsonPath("$.total").value(1));
+
+        mockMvc.perform(get("/admin/distribution/linky-replay-records")
+                        .header("X-Admin-Session", loginAsAdmin())
+                        .param("linkyOrderId", "linky-order-admin-1")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].linkyOrderId").value("linky-order-admin-1"))
+                .andExpect(jsonPath("$.items[0].userId").value(19502))
+                .andExpect(jsonPath("$.items[0].hitCount").value(1))
+                .andExpect(jsonPath("$.items[0].latestRequestStatus").value("PROCESSED"))
                 .andExpect(jsonPath("$.total").value(1));
     }
 

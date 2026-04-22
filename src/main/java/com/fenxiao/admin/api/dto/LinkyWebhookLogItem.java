@@ -15,6 +15,8 @@ public record LinkyWebhookLogItem(
         String internalTokenStatus,
         String signatureStatus,
         String replayStatus,
+        String replayRecordStatus,
+        Integer replayHitCount,
         String requestStatus,
         String failureReason
 ) {

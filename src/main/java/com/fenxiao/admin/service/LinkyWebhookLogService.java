@@ -2,10 +2,10 @@ package com.fenxiao.admin.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fenxiao.admin.api.dto.InternalIncomeEventResponse;
-import com.fenxiao.admin.api.dto.LinkyIncomeEventRequest;
 import com.fenxiao.admin.api.dto.LinkyWebhookLogItem;
 import com.fenxiao.admin.api.dto.LinkyWebhookLogListResponse;
+import com.fenxiao.admin.api.dto.LinkyIncomeEventRequest;
+import com.fenxiao.admin.api.dto.InternalIncomeEventResponse;
 import com.fenxiao.common.security.DistributionAccessGuard;
 import com.fenxiao.linky.entity.LinkyWebhookLog;
 import com.fenxiao.linky.repository.LinkyWebhookLogRepository;
@@ -39,6 +39,7 @@ public class LinkyWebhookLogService {
                        String requestIp,
                        DistributionAccessGuard.InternalTokenCheckResult tokenCheck,
                        DistributionAccessGuard.LinkyRequestCheckResult linkyCheck,
+                       LinkyReplayRecordService.ReplayRecordResult replayRecordResult,
                        InternalIncomeEventResponse response,
                        RuntimeException failure) {
         String requestStatus = response != null ? response.status().name() : classifyFailure(failure);
@@ -57,6 +58,9 @@ public class LinkyWebhookLogService {
                 tokenCheck.status(),
                 linkyCheck.signatureStatus(),
                 linkyCheck.replayStatus(),
+                replayRecordResult != null ? replayRecordResult.status() : "NOT_RECORDED",
+                replayRecordResult != null ? replayRecordResult.fingerprint() : null,
+                replayRecordResult != null ? replayRecordResult.hitCount() : null,
                 requestStatus,
                 failureReason,
                 requestIp,
@@ -91,6 +95,8 @@ public class LinkyWebhookLogService {
                     log.getInternalTokenStatus(),
                     log.getSignatureStatus(),
                     log.getReplayStatus(),
+                    log.getReplayRecordStatus(),
+                    log.getReplayHitCount(),
                     log.getRequestStatus(),
                     log.getFailureReason()
             ));

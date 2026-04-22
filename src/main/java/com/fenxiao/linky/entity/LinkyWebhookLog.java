@@ -56,6 +56,15 @@ public class LinkyWebhookLog extends BaseEntity {
     @Column(name = "replay_status", nullable = false, length = 32)
     private String replayStatus;
 
+    @Column(name = "replay_record_status", nullable = false, length = 32)
+    private String replayRecordStatus;
+
+    @Column(name = "request_fingerprint", length = 128)
+    private String requestFingerprint;
+
+    @Column(name = "replay_hit_count")
+    private Integer replayHitCount;
+
     @Column(name = "request_status", nullable = false, length = 32)
     private String requestStatus;
 
@@ -124,6 +133,18 @@ public class LinkyWebhookLog extends BaseEntity {
         return replayStatus;
     }
 
+    public String getReplayRecordStatus() {
+        return replayRecordStatus;
+    }
+
+    public String getRequestFingerprint() {
+        return requestFingerprint;
+    }
+
+    public Integer getReplayHitCount() {
+        return replayHitCount;
+    }
+
     public String getRequestStatus() {
         return requestStatus;
     }
@@ -152,6 +173,9 @@ public class LinkyWebhookLog extends BaseEntity {
                                          String internalTokenStatus,
                                          String signatureStatus,
                                          String replayStatus,
+                                         String replayRecordStatus,
+                                         String requestFingerprint,
+                                         Integer replayHitCount,
                                          String requestStatus,
                                          String failureReason,
                                          String requestIp,
@@ -169,6 +193,9 @@ public class LinkyWebhookLog extends BaseEntity {
         log.internalTokenStatus = internalTokenStatus;
         log.signatureStatus = signatureStatus;
         log.replayStatus = replayStatus;
+        log.replayRecordStatus = replayRecordStatus;
+        log.requestFingerprint = requestFingerprint;
+        log.replayHitCount = replayHitCount;
         log.requestStatus = requestStatus;
         log.failureReason = failureReason;
         log.requestIp = requestIp;

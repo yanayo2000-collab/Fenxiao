@@ -10,12 +10,14 @@
 - 时间窗防重放
 - 收益事件幂等处理
 - webhook 请求日志落库
+- 显式 replay record 指纹去重追踪
 - 后台按订单 / 用户 / 处理状态回看 webhook 日志
+- 后台按订单 / 用户回看 replay record
 
 当前这版还未完成：
 - 上游最终字段协议定稿
-- 更细的 replay record / nonce 追踪
 - 多版本签名协议兼容
+- 前端直接回看 Linky 日志 / replay 记录
 
 ---
 
@@ -119,7 +121,10 @@ X-Linky-Signature: <base64url-hmac>
 - HTTP `403`
 - message: `linky request expired`
 
-这版防的是基础重放，不是完整 replay record 持久化方案。
+这层解决的是：
+- 请求是否已经过旧 / 过新
+
+它和下面的 replay record 是两层能力，不是同一件事。
 
 ---
 
@@ -151,27 +156,28 @@ LINKY:linky-order-1001
 - internal token 校验结果
 - signature 校验结果
 - replay / 时间窗校验结果
+- replay record 结果：`FIRST_SEEN` / `REPLAYED` / `NOT_RECORDED`
+- replay hit count
 - 最终处理结果：`PROCESSED` / `DUPLICATE` / `REJECTED` / `FAILED`
 - 失败原因
 - 规范化后的 payload JSON
 
 当前后台最小回看入口：
 - `GET /admin/distribution/linky-webhook-logs`
+- `GET /admin/distribution/linky-replay-records`
 
 支持的最小筛选项：
-- `linkyOrderId`
-- `userId`
-- `requestStatus`
-- `page`
-- `size`
+- webhook logs：`linkyOrderId` / `userId` / `requestStatus` / `page` / `size`
+- replay records：`linkyOrderId` / `userId` / `page` / `size`
 
 这意味着后续对接上游时，如果出现：
 - 签名不一致
 - 时间戳过期
-- 同单重复推送
+- 同一签名请求被重复推送
+- 同单二次推送但业务已幂等
 - Fenxiao 侧用户不存在
 
-都可以先查这张日志表或 admin 接口，而不是只看接口返回。
+都可以先查 webhook 日志和 replay record，而不是只看接口返回。
 
 ---
 
@@ -245,6 +251,6 @@ curl -X POST http://localhost:8080/internal/distribution/linky/income-events \
 ## 11. 后续建议
 下一步建议按这个顺序继续：
 1. 明确 Linky 上游最终字段协议，只保留一套主字段并把别名兼容降级为过渡层
-2. 做显式 replay record，而不只靠时间窗
-3. 把 webhook 日志查询补进运营后台前端，而不只停留在 admin API
+2. 补更复杂的 replay 策略（例如 nonce / 主动拒绝重复签名请求），而不只做追踪
+3. 把 webhook 日志和 replay 记录查询补进运营后台前端，而不只停留在 admin API
 4. 把签名算法、版本号、密钥轮换策略写成正式对接文档

@@ -191,6 +191,7 @@ Linky 对接协议见：`docs/linky-integration.md`
 - 已有显式 replay record，能区分 `FIRST_SEEN` / `REPLAYED`
 - 后台最小排查接口：`GET /admin/distribution/linky-webhook-logs`
 - 后台 replay 回看接口：`GET /admin/distribution/linky-replay-records`
+- 运营前端已内置 Linky 排查台，可直接查询 webhook 日志和 replay record
 
 ## 一期后续增强方向
 

@@ -123,6 +123,51 @@ export type RelationDetailResponse = {
   crossCountry: boolean
 }
 
+export type LinkyWebhookLogListItem = {
+  id: number
+  linkyOrderId: string | null
+  sourceEventId: string | null
+  userId: number | null
+  incomeAmount: number | null
+  currencyCode: string | null
+  paidAt: string | null
+  requestReceivedAt: string | null
+  internalTokenStatus: string
+  signatureStatus: string
+  replayStatus: string
+  replayRecordStatus: string
+  replayHitCount: number | null
+  requestStatus: string
+  failureReason: string | null
+}
+
+export type LinkyWebhookLogListResponse = {
+  items: LinkyWebhookLogListItem[]
+  total: number
+  page: number
+  size: number
+}
+
+export type LinkyReplayRecordListItem = {
+  id: number
+  requestFingerprint: string
+  linkyOrderId: string | null
+  sourceEventId: string | null
+  userId: number | null
+  firstSeenAt: string | null
+  lastSeenAt: string | null
+  hitCount: number
+  latestRequestStatus: string
+  latestFailureReason: string | null
+}
+
+export type LinkyReplayRecordListResponse = {
+  items: LinkyReplayRecordListItem[]
+  total: number
+  page: number
+  size: number
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -282,6 +327,46 @@ export function getAdminAuditLogs(adminSessionToken: string, filters?: {
   if (filters?.size !== undefined) params.set('size', String(filters.size))
   const query = params.toString()
   return request<AuditLogListResponse>(`/admin/distribution/audit-logs${query ? `?${query}` : ''}`, {
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+  })
+}
+
+export function getAdminLinkyWebhookLogs(adminSessionToken: string, filters?: {
+  linkyOrderId?: string
+  userId?: number
+  requestStatus?: string
+  page?: number
+  size?: number
+}) {
+  const params = new URLSearchParams()
+  if (filters?.linkyOrderId) params.set('linkyOrderId', filters.linkyOrderId)
+  if (filters?.userId !== undefined) params.set('userId', String(filters.userId))
+  if (filters?.requestStatus) params.set('requestStatus', filters.requestStatus)
+  if (filters?.page !== undefined) params.set('page', String(filters.page))
+  if (filters?.size !== undefined) params.set('size', String(filters.size))
+  const query = params.toString()
+  return request<LinkyWebhookLogListResponse>(`/admin/distribution/linky-webhook-logs${query ? `?${query}` : ''}`, {
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+  })
+}
+
+export function getAdminLinkyReplayRecords(adminSessionToken: string, filters?: {
+  linkyOrderId?: string
+  userId?: number
+  page?: number
+  size?: number
+}) {
+  const params = new URLSearchParams()
+  if (filters?.linkyOrderId) params.set('linkyOrderId', filters.linkyOrderId)
+  if (filters?.userId !== undefined) params.set('userId', String(filters.userId))
+  if (filters?.page !== undefined) params.set('page', String(filters.page))
+  if (filters?.size !== undefined) params.set('size', String(filters.size))
+  const query = params.toString()
+  return request<LinkyReplayRecordListResponse>(`/admin/distribution/linky-replay-records${query ? `?${query}` : ''}`, {
     headers: {
       'X-Admin-Session': adminSessionToken,
     },

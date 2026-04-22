@@ -6,6 +6,8 @@ import {
   createAdminSession,
   createProfile,
   getAdminAuditLogs,
+  getAdminLinkyReplayRecords,
+  getAdminLinkyWebhookLogs,
   getAdminOverview,
   getAdminRelation,
   getAdminRewards,
@@ -15,6 +17,8 @@ import {
   getDistributionTeam,
   type AuditLogListResponse,
   type DistributionHomeResponse,
+  type LinkyReplayRecordListResponse,
+  type LinkyWebhookLogListResponse,
   type OverviewReportResponse,
   type ProfileResponse,
   type RelationDetailResponse,
@@ -22,6 +26,11 @@ import {
   type RiskEventListResponse,
   type TeamListResponse,
 } from './api'
+import {
+  buildLinkyReplaySummary,
+  buildLinkyWebhookSummary,
+  buildPagedResultLabel,
+} from './linkyConsole'
 
 type SessionState = {
   userId: number
@@ -57,9 +66,11 @@ type PendingRelationChange = {
 }
 
 const STORAGE_KEY = 'fenxiao-web-session'
-const PROFILE_CREATE_TOKEN_KEY = 'fenxiao-profile-create-token'
+const PROFILE_CREATE_TOKEN_KEY='fenxiao-profile-create-token'
 const ADMIN_REWARD_QUERY_KEY = 'fenxiao-admin-reward-query'
 const RISK_QUERY_KEY = 'fenxiao-admin-risk-query'
+const LINKY_WEBHOOK_QUERY_KEY = 'fenxiao-linky-webhook-query'
+const LINKY_REPLAY_QUERY_KEY = 'fenxiao-linky-replay-query'
 
 function loadJsonState<T>(key: string): T | null {
   const raw = localStorage.getItem(key)
@@ -99,6 +110,10 @@ function App() {
   const [riskEvents, setRiskEvents] = useState<RiskEventListResponse | null>(null)
   const [auditLogs, setAuditLogs] = useState<AuditLogListResponse | null>(null)
   const [adminRelation, setAdminRelation] = useState<RelationDetailResponse | null>(null)
+  const [linkyWebhookLogs, setLinkyWebhookLogs] = useState<LinkyWebhookLogListResponse | null>(null)
+  const [linkyReplayRecords, setLinkyReplayRecords] = useState<LinkyReplayRecordListResponse | null>(null)
+  const [linkyWebhookLoading, setLinkyWebhookLoading] = useState(false)
+  const [linkyReplayLoading, setLinkyReplayLoading] = useState(false)
   const [form, setForm] = useState({
     userId: session?.userId?.toString() ?? '',
     countryCode: session?.countryCode ?? 'ID',
@@ -118,6 +133,19 @@ function App() {
     riskStatus: '',
     startAt: '',
     endAt: '',
+    page: '0',
+    size: '10',
+  })
+  const [linkyWebhookQuery, setLinkyWebhookQuery] = useState(() => loadJsonState<{ linkyOrderId: string; userId: string; requestStatus: string; page: string; size: string }>(LINKY_WEBHOOK_QUERY_KEY) || {
+    linkyOrderId: '',
+    userId: '',
+    requestStatus: '',
+    page: '0',
+    size: '10',
+  })
+  const [linkyReplayQuery, setLinkyReplayQuery] = useState(() => loadJsonState<{ linkyOrderId: string; userId: string; page: string; size: string }>(LINKY_REPLAY_QUERY_KEY) || {
+    linkyOrderId: '',
+    userId: '',
     page: '0',
     size: '10',
   })
@@ -148,6 +176,14 @@ function App() {
   useEffect(() => {
     localStorage.setItem(RISK_QUERY_KEY, JSON.stringify(riskQuery))
   }, [riskQuery])
+
+  useEffect(() => {
+    localStorage.setItem(LINKY_WEBHOOK_QUERY_KEY, JSON.stringify(linkyWebhookQuery))
+  }, [linkyWebhookQuery])
+
+  useEffect(() => {
+    localStorage.setItem(LINKY_REPLAY_QUERY_KEY, JSON.stringify(linkyReplayQuery))
+  }, [linkyReplayQuery])
 
   async function loadAdminRewards(query = adminRewardQuery) {
     if (!adminSession) return
@@ -203,6 +239,71 @@ function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载处理记录失败')
     }
+  }
+
+  async function loadLinkyWebhookLogs(query = linkyWebhookQuery) {
+    if (!adminSession) return
+    setLinkyWebhookLoading(true)
+    setError('')
+    try {
+      const result = await getAdminLinkyWebhookLogs(adminSession.sessionToken, {
+        linkyOrderId: query.linkyOrderId.trim() || undefined,
+        userId: query.userId ? Number(query.userId) : undefined,
+        requestStatus: query.requestStatus || undefined,
+        page: Number(query.page || 0),
+        size: Number(query.size || 10),
+      })
+      setLinkyWebhookLogs(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载 Linky webhook 日志失败')
+    } finally {
+      setLinkyWebhookLoading(false)
+    }
+  }
+
+  async function loadLinkyReplayRecords(query = linkyReplayQuery) {
+    if (!adminSession) return
+    setLinkyReplayLoading(true)
+    setError('')
+    try {
+      const result = await getAdminLinkyReplayRecords(adminSession.sessionToken, {
+        linkyOrderId: query.linkyOrderId.trim() || undefined,
+        userId: query.userId ? Number(query.userId) : undefined,
+        page: Number(query.page || 0),
+        size: Number(query.size || 10),
+      })
+      setLinkyReplayRecords(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载 Linky replay 记录失败')
+    } finally {
+      setLinkyReplayLoading(false)
+    }
+  }
+
+  function handleLoadLinkyWebhookLogs() {
+    const nextQuery = { ...linkyWebhookQuery, page: '0' }
+    setLinkyWebhookQuery(nextQuery)
+    void loadLinkyWebhookLogs(nextQuery)
+  }
+
+  function handleLoadLinkyReplayRecords() {
+    const nextQuery = { ...linkyReplayQuery, page: '0' }
+    setLinkyReplayQuery(nextQuery)
+    void loadLinkyReplayRecords(nextQuery)
+  }
+
+  function handleLinkyWebhookPageChange(nextPage: number) {
+    const safePage = Math.max(0, nextPage)
+    const nextQuery = { ...linkyWebhookQuery, page: String(safePage) }
+    setLinkyWebhookQuery(nextQuery)
+    void loadLinkyWebhookLogs(nextQuery)
+  }
+
+  function handleLinkyReplayPageChange(nextPage: number) {
+    const safePage = Math.max(0, nextPage)
+    const nextQuery = { ...linkyReplayQuery, page: String(safePage) }
+    setLinkyReplayQuery(nextQuery)
+    void loadLinkyReplayRecords(nextQuery)
   }
 
   async function handleCreateProfile(event: React.FormEvent<HTMLFormElement>) {
@@ -262,9 +363,21 @@ function App() {
     setRiskEvents(null)
     setAuditLogs(null)
     setAdminRelation(null)
+    setLinkyWebhookLogs(null)
+    setLinkyReplayRecords(null)
     setPendingRiskAction(null)
     setPendingRelationChange(null)
     setRiskActionDrafts({})
+    setSuccessMessage('')
+  }
+
+  async function handleCopyFingerprint(fingerprint: string) {
+    try {
+      await navigator.clipboard.writeText(fingerprint)
+      setSuccessMessage('Linky replay 指纹已复制到剪贴板。')
+    } catch {
+      setError('复制 Linky replay 指纹失败，请手动复制。')
+    }
   }
 
   async function handleLoadDashboard() {
@@ -485,10 +598,26 @@ function App() {
   const riskPageLabel = riskEvents
     ? `本次命中 ${riskEvents.total} 条，当前第 ${riskEvents.page + 1} 页，每页 ${riskEvents.size} 条。`
     : '先执行一次风险事件查询'
+  const linkyWebhookPageLabel = buildPagedResultLabel(linkyWebhookLogs ? {
+    page: linkyWebhookLogs.page,
+    size: linkyWebhookLogs.size,
+    total: linkyWebhookLogs.total,
+    subject: 'Webhook 日志',
+  } : null)
+  const linkyReplayPageLabel = buildPagedResultLabel(linkyReplayRecords ? {
+    page: linkyReplayRecords.page,
+    size: linkyReplayRecords.size,
+    total: linkyReplayRecords.total,
+    subject: 'Replay 记录',
+  } : null)
   const hasRewardPrevPage = Number(adminRewardQuery.page) > 0
   const hasRewardNextPage = adminRewards ? (adminRewards.page + 1) * adminRewards.size < adminRewards.total : false
   const hasRiskPrevPage = Number(riskQuery.page) > 0
   const hasRiskNextPage = riskEvents ? (riskEvents.page + 1) * riskEvents.size < riskEvents.total : false
+  const hasLinkyWebhookPrevPage = Number(linkyWebhookQuery.page) > 0
+  const hasLinkyWebhookNextPage = linkyWebhookLogs ? (linkyWebhookLogs.page + 1) * linkyWebhookLogs.size < linkyWebhookLogs.total : false
+  const hasLinkyReplayPrevPage = Number(linkyReplayQuery.page) > 0
+  const hasLinkyReplayNextPage = linkyReplayRecords ? (linkyReplayRecords.page + 1) * linkyReplayRecords.size < linkyReplayRecords.total : false
   const relationPreview = adminRelation
     ? buildRelationPreview(adminRelation, relationAdjustInviterId)
     : null
@@ -891,6 +1020,126 @@ function App() {
               </PanelSection>
 
               <PanelSection
+                eyebrow="Linky"
+                title="Linky 接入排查台"
+                description="把 webhook 日志和 replay record 放到同一屏里，运营/联调可以直接按订单、用户和状态定位问题。"
+              >
+                <div className="content-grid two-columns">
+                  <div className="stack-gap">
+                    <InfoCard title="Webhook 日志查询" tone="neutral">
+                      <div className="grid-form compact-form">
+                        <label>
+                          Linky 订单号
+                          <input value={linkyWebhookQuery.linkyOrderId} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, linkyOrderId: e.target.value })} placeholder="例如 order-20260421-001" />
+                        </label>
+                        <label>
+                          用户 ID
+                          <input value={linkyWebhookQuery.userId} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, userId: e.target.value })} placeholder="例如 13002" />
+                        </label>
+                        <label>
+                          请求状态
+                          <select value={linkyWebhookQuery.requestStatus} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, requestStatus: e.target.value })}>
+                            <option value="">全部</option>
+                            <option value="PROCESSED">PROCESSED</option>
+                            <option value="DUPLICATE">DUPLICATE</option>
+                            <option value="REJECTED">REJECTED</option>
+                            <option value="FAILED">FAILED</option>
+                          </select>
+                        </label>
+                        <label>
+                          页码
+                          <input type="number" min="0" value={linkyWebhookQuery.page} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, page: e.target.value })} />
+                        </label>
+                        <label>
+                          每页条数
+                          <input type="number" min="1" max="100" value={linkyWebhookQuery.size} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, size: e.target.value })} />
+                        </label>
+                      </div>
+                      <div className="table-toolbar wrap-toolbar">
+                        <button className="primary-btn small-btn" onClick={handleLoadLinkyWebhookLogs} disabled={linkyWebhookLoading || !canLoadAdmin}>查询 webhook 日志</button>
+                        <button className="ghost-btn small-btn" onClick={() => handleLinkyWebhookPageChange(Number(linkyWebhookQuery.page) - 1)} disabled={linkyWebhookLoading || !hasLinkyWebhookPrevPage}>上一页</button>
+                        <button className="ghost-btn small-btn" onClick={() => handleLinkyWebhookPageChange(Number(linkyWebhookQuery.page) + 1)} disabled={linkyWebhookLoading || !hasLinkyWebhookNextPage}>下一页</button>
+                      </div>
+                      <InlineHint text={linkyWebhookPageLabel} />
+                      <InlineHint text="建议先按订单号看 requestStatus，再结合时间窗和 replay record 结果判断是过期、重复还是业务失败。" />
+                    </InfoCard>
+
+                    {linkyWebhookLogs?.items?.length ? (
+                      <div className="linky-card-list">
+                        {linkyWebhookLogs.items.map((item) => (
+                          <div className="linky-log-card" key={item.id}>
+                            <div className="risk-event-head">
+                              <div>
+                                <strong>{item.linkyOrderId || `日志 #${item.id}`}</strong>
+                                <p>用户 #{item.userId ?? '-'} · event {item.sourceEventId || '-'} · {formatDateTime(item.requestReceivedAt || undefined)}</p>
+                              </div>
+                              {renderStatusBadge(item.requestStatus)}
+                            </div>
+                            <div className="link-grid">
+                              <InfoRow label="签名 / token" value={`${item.signatureStatus} / ${item.internalTokenStatus}`} />
+                              <InfoRow label="时间窗 / 指纹" value={`${item.replayStatus} / ${item.replayRecordStatus}`} />
+                              <InfoRow label="金额" value={item.incomeAmount !== null ? `${item.incomeAmount} ${item.currencyCode || ''}`.trim() : '-'} />
+                              <InfoRow label="支付时间" value={item.paidAt ? formatDateTime(item.paidAt) : '-'} />
+                            </div>
+                            <p className="inline-hint strong-hint">{buildLinkyWebhookSummary(item)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyState title="暂无 webhook 日志结果" description="查到结果后，这里会直接告诉你签名、时间窗、指纹去重和最终请求状态。" />
+                    )}
+                  </div>
+
+                  <div className="stack-gap">
+                    <InfoCard title="Replay record 查询" tone="success">
+                      <div className="grid-form compact-form">
+                        <label>
+                          Linky 订单号
+                          <input value={linkyReplayQuery.linkyOrderId} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, linkyOrderId: e.target.value })} placeholder="例如 order-20260421-001" />
+                        </label>
+                        <label>
+                          用户 ID
+                          <input value={linkyReplayQuery.userId} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, userId: e.target.value })} placeholder="例如 13002" />
+                        </label>
+                        <label>
+                          页码
+                          <input type="number" min="0" value={linkyReplayQuery.page} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, page: e.target.value })} />
+                        </label>
+                        <label>
+                          每页条数
+                          <input type="number" min="1" max="100" value={linkyReplayQuery.size} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, size: e.target.value })} />
+                        </label>
+                      </div>
+                      <div className="table-toolbar wrap-toolbar">
+                        <button className="primary-btn small-btn" onClick={handleLoadLinkyReplayRecords} disabled={linkyReplayLoading || !canLoadAdmin}>查询 replay 记录</button>
+                        <button className="ghost-btn small-btn" onClick={() => handleLinkyReplayPageChange(Number(linkyReplayQuery.page) - 1)} disabled={linkyReplayLoading || !hasLinkyReplayPrevPage}>上一页</button>
+                        <button className="ghost-btn small-btn" onClick={() => handleLinkyReplayPageChange(Number(linkyReplayQuery.page) + 1)} disabled={linkyReplayLoading || !hasLinkyReplayNextPage}>下一页</button>
+                      </div>
+                      <InlineHint text={linkyReplayPageLabel} />
+                      <InlineHint text="这里看的是同一请求指纹累计命中几次，适合判断上游是否反复重发同一单。" />
+                    </InfoCard>
+
+                    {linkyReplayRecords?.items?.length ? (
+                      <DataTable
+                        headers={['订单号', '用户', '首次命中', '最近命中', '摘要', '指纹']}
+                        rows={linkyReplayRecords.items.map((item) => [
+                          item.linkyOrderId || '-',
+                          item.userId ? `#${item.userId}` : '-',
+                          item.firstSeenAt ? formatDateTime(item.firstSeenAt) : '-',
+                          item.lastSeenAt ? formatDateTime(item.lastSeenAt) : '-',
+                          buildLinkyReplaySummary(item),
+                          <FingerprintCell fingerprint={item.requestFingerprint} onCopy={handleCopyFingerprint} />,
+                        ])}
+                        emptyText="暂无 replay 记录"
+                      />
+                    ) : (
+                      <EmptyState title="暂无 replay 记录结果" description="当同一指纹被记录后，这里会显示首次 / 最近命中时间、hit count 和最新请求状态。" />
+                    )}
+                  </div>
+                </div>
+              </PanelSection>
+
+              <PanelSection
                 eyebrow="Audit"
                 title="最近处理记录"
                 description="方便运营复盘最近做过哪些动作，确认谁在什么时间处理了什么问题。"
@@ -960,7 +1209,7 @@ function App() {
           <PanelSection eyebrow="Next" title="下一批最值得补" description="这版收口后，继续往真实业务化推进。">
             <RoadmapList
               items={[
-                { title: 'Linky webhook 日志落库', desc: '把签名、时间窗、原始 payload 和处理结果都留痕。' },
+                { title: 'Linky 日志详情抽屉', desc: '补 payload、失败原因、上下文串联，让排查不只停在列表摘要。' },
                 { title: '关系修正审计增强', desc: '补更多 before / after 信息和复核说明。' },
                 { title: '上线前 checklist', desc: '把部署、验证、交接收成真正可执行的清单。' },
                 { title: '更细粒度权限', desc: '为后续审批流和多角色后台做准备。' },
@@ -1223,6 +1472,15 @@ function DataTable({ headers, rows, emptyText }: { headers: string[]; rows?: Arr
           )}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+function FingerprintCell({ fingerprint, onCopy }: { fingerprint: string; onCopy: (fingerprint: string) => void | Promise<void> }) {
+  return (
+    <div className="fingerprint-cell">
+      <code className="truncated-code" title={fingerprint}>{fingerprint}</code>
+      <button className="ghost-btn small-btn fingerprint-copy-btn" onClick={() => void onCopy(fingerprint)} type="button">复制</button>
     </div>
   )
 }

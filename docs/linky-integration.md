@@ -165,6 +165,7 @@ LINKY:linky-order-1001
 当前后台最小回看入口：
 - `GET /admin/distribution/linky-webhook-logs`
 - `GET /admin/distribution/linky-replay-records`
+- 运营前端控制台内置「Linky 接入排查台」，可直接筛选和联动查看这两类结果
 
 支持的最小筛选项：
 - webhook logs：`linkyOrderId` / `userId` / `requestStatus` / `page` / `size`

@@ -31,6 +31,11 @@ import {
   buildLinkyWebhookSummary,
   buildPagedResultLabel,
 } from './linkyConsole'
+import {
+  buildAdminTaskCards,
+  buildEmptyStatePreset,
+  buildLinkyDiagnosticSnapshot,
+} from './opsConsole'
 
 type SessionState = {
   userId: number
@@ -112,6 +117,10 @@ function App() {
   const [adminRelation, setAdminRelation] = useState<RelationDetailResponse | null>(null)
   const [linkyWebhookLogs, setLinkyWebhookLogs] = useState<LinkyWebhookLogListResponse | null>(null)
   const [linkyReplayRecords, setLinkyReplayRecords] = useState<LinkyReplayRecordListResponse | null>(null)
+  const [hasQueriedAdminRewards, setHasQueriedAdminRewards] = useState(false)
+  const [hasQueriedRiskEvents, setHasQueriedRiskEvents] = useState(false)
+  const [hasQueriedLinkyWebhookLogs, setHasQueriedLinkyWebhookLogs] = useState(false)
+  const [hasQueriedLinkyReplayRecords, setHasQueriedLinkyReplayRecords] = useState(false)
   const [linkyWebhookLoading, setLinkyWebhookLoading] = useState(false)
   const [linkyReplayLoading, setLinkyReplayLoading] = useState(false)
   const [form, setForm] = useState({
@@ -199,6 +208,7 @@ function App() {
         size: Number(query.size || 10),
       })
       setAdminRewards(result)
+      setHasQueriedAdminRewards(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载奖励列表失败')
     } finally {
@@ -220,6 +230,7 @@ function App() {
         size: Number(query.size || 10),
       })
       setRiskEvents(result)
+      setHasQueriedRiskEvents(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载风险事件失败')
     } finally {
@@ -254,6 +265,7 @@ function App() {
         size: Number(query.size || 10),
       })
       setLinkyWebhookLogs(result)
+      setHasQueriedLinkyWebhookLogs(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载 Linky webhook 日志失败')
     } finally {
@@ -273,6 +285,7 @@ function App() {
         size: Number(query.size || 10),
       })
       setLinkyReplayRecords(result)
+      setHasQueriedLinkyReplayRecords(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载 Linky replay 记录失败')
     } finally {
@@ -365,6 +378,10 @@ function App() {
     setAdminRelation(null)
     setLinkyWebhookLogs(null)
     setLinkyReplayRecords(null)
+    setHasQueriedAdminRewards(false)
+    setHasQueriedRiskEvents(false)
+    setHasQueriedLinkyWebhookLogs(false)
+    setHasQueriedLinkyReplayRecords(false)
     setPendingRiskAction(null)
     setPendingRelationChange(null)
     setRiskActionDrafts({})
@@ -598,6 +615,30 @@ function App() {
   const riskPageLabel = riskEvents
     ? `本次命中 ${riskEvents.total} 条，当前第 ${riskEvents.page + 1} 页，每页 ${riskEvents.size} 条。`
     : '先执行一次风险事件查询'
+  const pendingRiskCount = riskEvents?.items?.filter((item) => item.riskStatus === 'PENDING').length ?? 0
+  const failedLinkyRequestCount = linkyWebhookLogs?.items?.filter((item) => item.requestStatus === 'FAILED' || item.requestStatus === 'REJECTED').length ?? 0
+  const processedLinkyRequestCount = linkyWebhookLogs?.items?.filter((item) => item.requestStatus === 'PROCESSED').length ?? 0
+  const replayedLinkyRequestCount = linkyReplayRecords?.items?.filter((item) => item.hitCount > 1).length
+    ?? linkyWebhookLogs?.items?.filter((item) => item.replayRecordStatus === 'REPLAYED').length
+    ?? 0
+  const adminTaskCards = buildAdminTaskCards({
+    adminLoggedIn: Boolean(adminSession),
+    overviewLoaded: Boolean(adminOverview),
+    pendingRiskCount,
+    failedLinkyRequests: failedLinkyRequestCount,
+    replayedLinkyRequests: replayedLinkyRequestCount,
+  })
+  const rewardEmptyState = buildEmptyStatePreset('reward', hasQueriedAdminRewards)
+  const riskEmptyState = buildEmptyStatePreset('risk', hasQueriedRiskEvents)
+  const linkyWebhookEmptyState = buildEmptyStatePreset('linky-webhook', hasQueriedLinkyWebhookLogs)
+  const linkyReplayEmptyState = buildEmptyStatePreset('linky-replay', hasQueriedLinkyReplayRecords)
+  const linkyDiagnosticSnapshot = buildLinkyDiagnosticSnapshot({
+    hasQueried: hasQueriedLinkyWebhookLogs || hasQueriedLinkyReplayRecords,
+    processedCount: processedLinkyRequestCount,
+    failedCount: linkyWebhookLogs?.items?.filter((item) => item.requestStatus === 'FAILED').length ?? 0,
+    rejectedCount: linkyWebhookLogs?.items?.filter((item) => item.requestStatus === 'REJECTED').length ?? 0,
+    replayedCount: replayedLinkyRequestCount,
+  })
   const linkyWebhookPageLabel = buildPagedResultLabel(linkyWebhookLogs ? {
     page: linkyWebhookLogs.page,
     size: linkyWebhookLogs.size,
@@ -666,6 +707,20 @@ function App() {
           ? userSummaryItems.map((item) => <SummaryCard key={item.label} {...item} />)
           : adminSummaryItems.map((item) => <SummaryCard key={item.label} {...item} />)}
       </section>
+
+      {viewMode === 'admin' ? (
+        <section className="ops-priority-board">
+          <div className="ops-task-grid">
+            {adminTaskCards.map((item) => <TaskCard key={item.title} {...item} />)}
+          </div>
+          <DiagnosticBanner
+            eyebrow="Linky Diagnostic"
+            tone={linkyDiagnosticSnapshot.tone}
+            title={linkyDiagnosticSnapshot.title}
+            description={linkyDiagnosticSnapshot.summary}
+          />
+        </section>
+      ) : null}
 
       <div className="console-layout">
         <main className="console-main">
@@ -823,41 +878,43 @@ function App() {
                   description="按受益用户、状态、时间区间分页查奖励，适合运营排查。"
                   action={<button className="primary-btn" onClick={handleLoadAdminRewards} disabled={loading || !canLoadAdmin}>查询奖励</button>}
                 >
-                  <div className="grid-form compact-form">
-                    <label>
-                      受益用户 ID
-                      <input value={adminRewardQuery.beneficiaryUserId} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, beneficiaryUserId: e.target.value })} placeholder="例如 11001" />
-                    </label>
-                    <label>
-                      状态
-                      <select value={adminRewardQuery.status} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, status: e.target.value })}>
-                        <option value="">全部</option>
-                        <option value="FROZEN">FROZEN</option>
-                        <option value="AVAILABLE">AVAILABLE</option>
-                        <option value="RISK_HOLD">RISK_HOLD</option>
-                      </select>
-                    </label>
-                    <label>
-                      开始时间
-                      <input type="datetime-local" value={adminRewardQuery.startAt} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, startAt: e.target.value })} />
-                    </label>
-                    <label>
-                      结束时间
-                      <input type="datetime-local" value={adminRewardQuery.endAt} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, endAt: e.target.value })} />
-                    </label>
-                    <label>
-                      页码
-                      <input type="number" min="0" value={adminRewardQuery.page} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, page: e.target.value })} placeholder="0" />
-                    </label>
-                    <label>
-                      每页条数
-                      <input type="number" min="1" max="100" value={adminRewardQuery.size} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, size: e.target.value })} placeholder="10" />
-                    </label>
-                  </div>
-                  <InlineHint text={rewardPageLabel} />
-                  <div className="table-toolbar">
-                    <button className="ghost-btn small-btn" onClick={() => handleAdminRewardPageChange(Number(adminRewardQuery.page) - 1)} disabled={loading || !hasRewardPrevPage}>上一页</button>
-                    <button className="ghost-btn small-btn" onClick={() => handleAdminRewardPageChange(Number(adminRewardQuery.page) + 1)} disabled={loading || !hasRewardNextPage}>下一页</button>
+                  <div className="query-shell">
+                    <div className="grid-form compact-form">
+                      <label>
+                        受益用户 ID
+                        <input value={adminRewardQuery.beneficiaryUserId} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, beneficiaryUserId: e.target.value })} placeholder="例如 11001" />
+                      </label>
+                      <label>
+                        状态
+                        <select value={adminRewardQuery.status} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, status: e.target.value })}>
+                          <option value="">全部</option>
+                          <option value="FROZEN">FROZEN</option>
+                          <option value="AVAILABLE">AVAILABLE</option>
+                          <option value="RISK_HOLD">RISK_HOLD</option>
+                        </select>
+                      </label>
+                      <label>
+                        开始时间
+                        <input type="datetime-local" value={adminRewardQuery.startAt} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, startAt: e.target.value })} />
+                      </label>
+                      <label>
+                        结束时间
+                        <input type="datetime-local" value={adminRewardQuery.endAt} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, endAt: e.target.value })} />
+                      </label>
+                      <label>
+                        页码
+                        <input type="number" min="0" value={adminRewardQuery.page} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, page: e.target.value })} placeholder="0" />
+                      </label>
+                      <label>
+                        每页条数
+                        <input type="number" min="1" max="100" value={adminRewardQuery.size} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, size: e.target.value })} placeholder="10" />
+                      </label>
+                    </div>
+                    <InlineHint text={rewardPageLabel} />
+                    <div className="table-toolbar">
+                      <button className="ghost-btn small-btn" onClick={() => handleAdminRewardPageChange(Number(adminRewardQuery.page) - 1)} disabled={loading || !hasRewardPrevPage}>上一页</button>
+                      <button className="ghost-btn small-btn" onClick={() => handleAdminRewardPageChange(Number(adminRewardQuery.page) + 1)} disabled={loading || !hasRewardNextPage}>下一页</button>
+                    </div>
                   </div>
                   {adminRewards?.items?.length ? (
                     <DataTable
@@ -873,7 +930,7 @@ function App() {
                       emptyText="暂无后台奖励数据"
                     />
                   ) : (
-                    <EmptyState title="暂无奖励查询结果" description="先登录后台并执行一次筛选查询，结果会显示在这里。" />
+                    <EmptyState title={rewardEmptyState.title} description={rewardEmptyState.description} actionLabel={rewardEmptyState.actionLabel} />
                   )}
                 </PanelSection>
 
@@ -945,42 +1002,44 @@ function App() {
                 description="按用户、状态、时间区间分页查看风险事件，快速定位风险冻结来源。"
                 action={<button className="primary-btn" onClick={handleLoadRiskEvents} disabled={loading || !canLoadAdmin}>查询风险事件</button>}
               >
-                <div className="grid-form compact-form">
-                  <label>
-                    用户 ID
-                    <input value={riskQuery.userId} onChange={(e) => setRiskQuery({ ...riskQuery, userId: e.target.value })} placeholder="例如 13002" />
-                  </label>
-                  <label>
-                    风险状态
-                    <select value={riskQuery.riskStatus} onChange={(e) => setRiskQuery({ ...riskQuery, riskStatus: e.target.value })}>
-                      <option value="">全部</option>
-                      <option value="PENDING">PENDING</option>
-                      <option value="HANDLED">HANDLED</option>
-                      <option value="IGNORED">IGNORED</option>
-                    </select>
-                  </label>
-                  <label>
-                    开始时间
-                    <input type="datetime-local" value={riskQuery.startAt} onChange={(e) => setRiskQuery({ ...riskQuery, startAt: e.target.value })} />
-                  </label>
-                  <label>
-                    结束时间
-                    <input type="datetime-local" value={riskQuery.endAt} onChange={(e) => setRiskQuery({ ...riskQuery, endAt: e.target.value })} />
-                  </label>
-                  <label>
-                    页码
-                    <input type="number" min="0" value={riskQuery.page} onChange={(e) => setRiskQuery({ ...riskQuery, page: e.target.value })} placeholder="0" />
-                  </label>
-                  <label>
-                    每页条数
-                    <input type="number" min="1" max="100" value={riskQuery.size} onChange={(e) => setRiskQuery({ ...riskQuery, size: e.target.value })} placeholder="10" />
-                  </label>
-                </div>
-                <InlineHint text="风险动作已升级成逐条备注 + 二次确认。先看事件，再对目标用户执行处理。" />
-                <InlineHint text={riskPageLabel} />
-                <div className="table-toolbar">
-                  <button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) - 1)} disabled={loading || !hasRiskPrevPage}>上一页</button>
-                  <button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) + 1)} disabled={loading || !hasRiskNextPage}>下一页</button>
+                <div className="query-shell">
+                  <div className="grid-form compact-form">
+                    <label>
+                      用户 ID
+                      <input value={riskQuery.userId} onChange={(e) => setRiskQuery({ ...riskQuery, userId: e.target.value })} placeholder="例如 13002" />
+                    </label>
+                    <label>
+                      风险状态
+                      <select value={riskQuery.riskStatus} onChange={(e) => setRiskQuery({ ...riskQuery, riskStatus: e.target.value })}>
+                        <option value="">全部</option>
+                        <option value="PENDING">PENDING</option>
+                        <option value="HANDLED">HANDLED</option>
+                        <option value="IGNORED">IGNORED</option>
+                      </select>
+                    </label>
+                    <label>
+                      开始时间
+                      <input type="datetime-local" value={riskQuery.startAt} onChange={(e) => setRiskQuery({ ...riskQuery, startAt: e.target.value })} />
+                    </label>
+                    <label>
+                      结束时间
+                      <input type="datetime-local" value={riskQuery.endAt} onChange={(e) => setRiskQuery({ ...riskQuery, endAt: e.target.value })} />
+                    </label>
+                    <label>
+                      页码
+                      <input type="number" min="0" value={riskQuery.page} onChange={(e) => setRiskQuery({ ...riskQuery, page: e.target.value })} placeholder="0" />
+                    </label>
+                    <label>
+                      每页条数
+                      <input type="number" min="1" max="100" value={riskQuery.size} onChange={(e) => setRiskQuery({ ...riskQuery, size: e.target.value })} placeholder="10" />
+                    </label>
+                  </div>
+                  <InlineHint text="风险动作已升级成逐条备注 + 二次确认。先看事件，再对目标用户执行处理。" />
+                  <InlineHint text={riskPageLabel} />
+                  <div className="table-toolbar">
+                    <button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) - 1)} disabled={loading || !hasRiskPrevPage}>上一页</button>
+                    <button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) + 1)} disabled={loading || !hasRiskNextPage}>下一页</button>
+                  </div>
                 </div>
                 {riskEvents?.items?.length ? (
                   <div className="risk-event-list">
@@ -1015,7 +1074,7 @@ function App() {
                     })}
                   </div>
                 ) : (
-                  <EmptyState title="暂无风险事件结果" description="这里会展示风控冻结、风险用户等运营需要跟进的事件。" />
+                  <EmptyState title={riskEmptyState.title} description={riskEmptyState.description} actionLabel={riskEmptyState.actionLabel} />
                 )}
               </PanelSection>
 
@@ -1024,44 +1083,52 @@ function App() {
                 title="Linky 接入排查台"
                 description="把 webhook 日志和 replay record 放到同一屏里，运营/联调可以直接按订单、用户和状态定位问题。"
               >
+                <DiagnosticBanner
+                  eyebrow="Triage"
+                  tone={linkyDiagnosticSnapshot.tone}
+                  title={linkyDiagnosticSnapshot.title}
+                  description={linkyDiagnosticSnapshot.summary}
+                />
                 <div className="content-grid two-columns">
                   <div className="stack-gap">
                     <InfoCard title="Webhook 日志查询" tone="neutral">
-                      <div className="grid-form compact-form">
-                        <label>
-                          Linky 订单号
-                          <input value={linkyWebhookQuery.linkyOrderId} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, linkyOrderId: e.target.value })} placeholder="例如 order-20260421-001" />
-                        </label>
-                        <label>
-                          用户 ID
-                          <input value={linkyWebhookQuery.userId} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, userId: e.target.value })} placeholder="例如 13002" />
-                        </label>
-                        <label>
-                          请求状态
-                          <select value={linkyWebhookQuery.requestStatus} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, requestStatus: e.target.value })}>
-                            <option value="">全部</option>
-                            <option value="PROCESSED">PROCESSED</option>
-                            <option value="DUPLICATE">DUPLICATE</option>
-                            <option value="REJECTED">REJECTED</option>
-                            <option value="FAILED">FAILED</option>
-                          </select>
-                        </label>
-                        <label>
-                          页码
-                          <input type="number" min="0" value={linkyWebhookQuery.page} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, page: e.target.value })} />
-                        </label>
-                        <label>
-                          每页条数
-                          <input type="number" min="1" max="100" value={linkyWebhookQuery.size} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, size: e.target.value })} />
-                        </label>
+                      <div className="query-shell soft-query-shell">
+                        <div className="grid-form compact-form">
+                          <label>
+                            Linky 订单号
+                            <input value={linkyWebhookQuery.linkyOrderId} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, linkyOrderId: e.target.value })} placeholder="例如 order-20260421-001" />
+                          </label>
+                          <label>
+                            用户 ID
+                            <input value={linkyWebhookQuery.userId} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, userId: e.target.value })} placeholder="例如 13002" />
+                          </label>
+                          <label>
+                            请求状态
+                            <select value={linkyWebhookQuery.requestStatus} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, requestStatus: e.target.value })}>
+                              <option value="">全部</option>
+                              <option value="PROCESSED">PROCESSED</option>
+                              <option value="DUPLICATE">DUPLICATE</option>
+                              <option value="REJECTED">REJECTED</option>
+                              <option value="FAILED">FAILED</option>
+                            </select>
+                          </label>
+                          <label>
+                            页码
+                            <input type="number" min="0" value={linkyWebhookQuery.page} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, page: e.target.value })} />
+                          </label>
+                          <label>
+                            每页条数
+                            <input type="number" min="1" max="100" value={linkyWebhookQuery.size} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, size: e.target.value })} />
+                          </label>
+                        </div>
+                        <div className="table-toolbar wrap-toolbar">
+                          <button className="primary-btn small-btn" onClick={handleLoadLinkyWebhookLogs} disabled={linkyWebhookLoading || !canLoadAdmin}>查询 webhook 日志</button>
+                          <button className="ghost-btn small-btn" onClick={() => handleLinkyWebhookPageChange(Number(linkyWebhookQuery.page) - 1)} disabled={linkyWebhookLoading || !hasLinkyWebhookPrevPage}>上一页</button>
+                          <button className="ghost-btn small-btn" onClick={() => handleLinkyWebhookPageChange(Number(linkyWebhookQuery.page) + 1)} disabled={linkyWebhookLoading || !hasLinkyWebhookNextPage}>下一页</button>
+                        </div>
+                        <InlineHint text={linkyWebhookPageLabel} />
+                        <InlineHint text="建议先按订单号看 requestStatus，再结合时间窗和 replay record 结果判断是过期、重复还是业务失败。" />
                       </div>
-                      <div className="table-toolbar wrap-toolbar">
-                        <button className="primary-btn small-btn" onClick={handleLoadLinkyWebhookLogs} disabled={linkyWebhookLoading || !canLoadAdmin}>查询 webhook 日志</button>
-                        <button className="ghost-btn small-btn" onClick={() => handleLinkyWebhookPageChange(Number(linkyWebhookQuery.page) - 1)} disabled={linkyWebhookLoading || !hasLinkyWebhookPrevPage}>上一页</button>
-                        <button className="ghost-btn small-btn" onClick={() => handleLinkyWebhookPageChange(Number(linkyWebhookQuery.page) + 1)} disabled={linkyWebhookLoading || !hasLinkyWebhookNextPage}>下一页</button>
-                      </div>
-                      <InlineHint text={linkyWebhookPageLabel} />
-                      <InlineHint text="建议先按订单号看 requestStatus，再结合时间窗和 replay record 结果判断是过期、重复还是业务失败。" />
                     </InfoCard>
 
                     {linkyWebhookLogs?.items?.length ? (
@@ -1086,37 +1153,39 @@ function App() {
                         ))}
                       </div>
                     ) : (
-                      <EmptyState title="暂无 webhook 日志结果" description="查到结果后，这里会直接告诉你签名、时间窗、指纹去重和最终请求状态。" />
+                      <EmptyState title={linkyWebhookEmptyState.title} description={linkyWebhookEmptyState.description} actionLabel={linkyWebhookEmptyState.actionLabel} />
                     )}
                   </div>
 
                   <div className="stack-gap">
                     <InfoCard title="Replay record 查询" tone="success">
-                      <div className="grid-form compact-form">
-                        <label>
-                          Linky 订单号
-                          <input value={linkyReplayQuery.linkyOrderId} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, linkyOrderId: e.target.value })} placeholder="例如 order-20260421-001" />
-                        </label>
-                        <label>
-                          用户 ID
-                          <input value={linkyReplayQuery.userId} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, userId: e.target.value })} placeholder="例如 13002" />
-                        </label>
-                        <label>
-                          页码
-                          <input type="number" min="0" value={linkyReplayQuery.page} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, page: e.target.value })} />
-                        </label>
-                        <label>
-                          每页条数
-                          <input type="number" min="1" max="100" value={linkyReplayQuery.size} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, size: e.target.value })} />
-                        </label>
+                      <div className="query-shell soft-query-shell">
+                        <div className="grid-form compact-form">
+                          <label>
+                            Linky 订单号
+                            <input value={linkyReplayQuery.linkyOrderId} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, linkyOrderId: e.target.value })} placeholder="例如 order-20260421-001" />
+                          </label>
+                          <label>
+                            用户 ID
+                            <input value={linkyReplayQuery.userId} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, userId: e.target.value })} placeholder="例如 13002" />
+                          </label>
+                          <label>
+                            页码
+                            <input type="number" min="0" value={linkyReplayQuery.page} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, page: e.target.value })} />
+                          </label>
+                          <label>
+                            每页条数
+                            <input type="number" min="1" max="100" value={linkyReplayQuery.size} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, size: e.target.value })} />
+                          </label>
+                        </div>
+                        <div className="table-toolbar wrap-toolbar">
+                          <button className="primary-btn small-btn" onClick={handleLoadLinkyReplayRecords} disabled={linkyReplayLoading || !canLoadAdmin}>查询 replay 记录</button>
+                          <button className="ghost-btn small-btn" onClick={() => handleLinkyReplayPageChange(Number(linkyReplayQuery.page) - 1)} disabled={linkyReplayLoading || !hasLinkyReplayPrevPage}>上一页</button>
+                          <button className="ghost-btn small-btn" onClick={() => handleLinkyReplayPageChange(Number(linkyReplayQuery.page) + 1)} disabled={linkyReplayLoading || !hasLinkyReplayNextPage}>下一页</button>
+                        </div>
+                        <InlineHint text={linkyReplayPageLabel} />
+                        <InlineHint text="这里看的是同一请求指纹累计命中几次，适合判断上游是否反复重发同一单。" />
                       </div>
-                      <div className="table-toolbar wrap-toolbar">
-                        <button className="primary-btn small-btn" onClick={handleLoadLinkyReplayRecords} disabled={linkyReplayLoading || !canLoadAdmin}>查询 replay 记录</button>
-                        <button className="ghost-btn small-btn" onClick={() => handleLinkyReplayPageChange(Number(linkyReplayQuery.page) - 1)} disabled={linkyReplayLoading || !hasLinkyReplayPrevPage}>上一页</button>
-                        <button className="ghost-btn small-btn" onClick={() => handleLinkyReplayPageChange(Number(linkyReplayQuery.page) + 1)} disabled={linkyReplayLoading || !hasLinkyReplayNextPage}>下一页</button>
-                      </div>
-                      <InlineHint text={linkyReplayPageLabel} />
-                      <InlineHint text="这里看的是同一请求指纹累计命中几次，适合判断上游是否反复重发同一单。" />
                     </InfoCard>
 
                     {linkyReplayRecords?.items?.length ? (
@@ -1133,7 +1202,7 @@ function App() {
                         emptyText="暂无 replay 记录"
                       />
                     ) : (
-                      <EmptyState title="暂无 replay 记录结果" description="当同一指纹被记录后，这里会显示首次 / 最近命中时间、hit count 和最新请求状态。" />
+                      <EmptyState title={linkyReplayEmptyState.title} description={linkyReplayEmptyState.description} actionLabel={linkyReplayEmptyState.actionLabel} />
                     )}
                   </div>
                 </div>
@@ -1281,6 +1350,26 @@ function SummaryCard({ label, value, hint }: { label: string; value: string; hin
   )
 }
 
+function TaskCard({ title, value, hint, tone }: { title: string; value: string; hint: string; tone: 'neutral' | 'primary' | 'success' | 'warning' | 'danger' }) {
+  return (
+    <div className={`task-card tone-${tone}`}>
+      <span>{title}</span>
+      <strong>{value}</strong>
+      <p>{hint}</p>
+    </div>
+  )
+}
+
+function DiagnosticBanner({ eyebrow, title, description, tone }: { eyebrow: string; title: string; description: string; tone: 'success' | 'warning' | 'danger' }) {
+  return (
+    <div className={`diagnostic-banner tone-${tone}`}>
+      <p className="panel-eyebrow">{eyebrow}</p>
+      <h3>{title}</h3>
+      <p>{description}</p>
+    </div>
+  )
+}
+
 function Metric({ label, value, hint, tone }: { label: string; value?: number; hint: string; tone: 'neutral' | 'primary' | 'success' | 'warning' | 'danger' }) {
   return (
     <div className={`metric-card tone-${tone}`}>
@@ -1322,11 +1411,12 @@ function InfoRow({ label, value, code = false }: { label: string; value: string 
   )
 }
 
-function EmptyState({ title, description }: { title: string; description: string }) {
+function EmptyState({ title, description, actionLabel }: { title: string; description: string; actionLabel?: string }) {
   return (
     <div className="empty-card">
       <strong>{title}</strong>
       <p>{description}</p>
+      {actionLabel ? <span className="empty-action">{actionLabel}</span> : null}
     </div>
   )
 }

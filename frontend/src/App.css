@@ -140,6 +140,13 @@ h3 {
   transform: translateY(-1px);
 }
 
+.switch-chip:focus-visible,
+.primary-btn:focus-visible,
+.ghost-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.18);
+}
+
 .switch-chip {
   background: #eef3fb;
   color: #42516b;
@@ -203,6 +210,19 @@ h3 {
   margin-top: 20px;
 }
 
+.ops-priority-board {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.ops-task-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
 .summary-card,
 .panel-card,
 .info-card {
@@ -217,7 +237,17 @@ h3 {
   padding: 18px 20px;
 }
 
-.summary-card span {
+.task-card,
+.diagnostic-banner {
+  border-radius: 22px;
+  padding: 18px 20px;
+  border: 1px solid rgba(225, 233, 246, 0.95);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 40px rgba(28, 45, 80, 0.08);
+}
+
+.summary-card span,
+.task-card span {
   display: block;
   margin-bottom: 10px;
   color: #607089;
@@ -229,6 +259,25 @@ h3 {
   display: block;
   font-size: 22px;
   margin-bottom: 6px;
+}
+
+.task-card strong {
+  display: block;
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+
+.summary-card p,
+.task-card p,
+.diagnostic-banner p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.diagnostic-banner h3 {
+  margin: 0 0 8px;
+  font-size: 20px;
 }
 
 .summary-card p {
@@ -292,6 +341,19 @@ h3 {
 
 .compact-form {
   margin-bottom: 16px;
+}
+
+.query-shell {
+  margin-bottom: 18px;
+  padding: 16px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #f8fbff 0%, #f3f7ff 100%);
+  border: 1px solid #e3ebfb;
+}
+
+.soft-query-shell {
+  margin-bottom: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(245, 248, 255, 0.94) 100%);
 }
 
 .single-line {
@@ -494,6 +556,17 @@ th {
 .empty-card p {
   margin: 0;
   line-height: 1.55;
+}
+
+.empty-action {
+  display: inline-flex;
+  margin-top: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .checklist {

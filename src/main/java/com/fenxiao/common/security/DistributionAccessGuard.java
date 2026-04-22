@@ -11,6 +11,9 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Base64;
 
 @Component
@@ -20,21 +23,26 @@ public class DistributionAccessGuard {
     private final String adminToken;
     private final String profileCreateToken;
     private final String linkySigningSecret;
+    private final long linkyReplayWindowSeconds;
     private final UserDistributionProfileRepository userDistributionProfileRepository;
     private final AdminSessionService adminSessionService;
+    private final Clock clock;
 
     public DistributionAccessGuard(@Value("${app.distribution.internal-token:}") String internalToken,
                                    @Value("${app.admin.token:}") String adminToken,
                                    @Value("${app.distribution.profile-create-token:}") String profileCreateToken,
                                    @Value("${app.distribution.linky-signing-secret:}") String linkySigningSecret,
+                                   @Value("${app.distribution.linky-replay-window-seconds:900}") long linkyReplayWindowSeconds,
                                    UserDistributionProfileRepository userDistributionProfileRepository,
                                    AdminSessionService adminSessionService) {
         this.internalToken = internalToken;
         this.adminToken = adminToken;
         this.profileCreateToken = profileCreateToken;
         this.linkySigningSecret = linkySigningSecret;
+        this.linkyReplayWindowSeconds = linkyReplayWindowSeconds;
         this.userDistributionProfileRepository = userDistributionProfileRepository;
         this.adminSessionService = adminSessionService;
+        this.clock = Clock.systemUTC();
     }
 
     public void assertUserAccess(Long targetUserId, String accessToken) {
@@ -69,6 +77,16 @@ public class DistributionAccessGuard {
         }
         if (timestamp == null || timestamp.isBlank() || signature == null || signature.isBlank()) {
             throw new ForbiddenException("linky signature invalid");
+        }
+        Instant requestAt;
+        try {
+            requestAt = Instant.parse(timestamp);
+        } catch (Exception exception) {
+            throw new ForbiddenException("linky signature invalid");
+        }
+        long skewSeconds = Math.abs(Duration.between(requestAt, Instant.now(clock)).getSeconds());
+        if (skewSeconds > linkyReplayWindowSeconds) {
+            throw new ForbiddenException("linky request expired");
         }
         String payload = timestamp + "." + linkyOrderId.trim() + "." + userId + "." + incomeAmount + "." + currencyCode.trim().toUpperCase() + "." + paidAt;
         String expected = sign(payload, linkySigningSecret);

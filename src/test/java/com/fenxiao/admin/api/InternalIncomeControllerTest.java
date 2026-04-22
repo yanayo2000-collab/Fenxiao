@@ -26,7 +26,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Transactional
 @SpringBootTest(properties = {
         "app.distribution.internal-token=test-token",
-        "app.distribution.linky-signing-secret=test-linky-secret"
+        "app.distribution.linky-signing-secret=test-linky-secret",
+        "app.distribution.linky-replay-window-seconds=900"
 })
 class InternalIncomeControllerTest {
 
@@ -96,11 +97,11 @@ class InternalIncomeControllerTest {
         distributionBindingService.createProfile(24102L, "ID", "id", inviterCode);
 
         Map<String, Object> request = Map.of(
-                "linkyOrderId", "linky-order-1",
-                "userId", 24102,
-                "incomeAmount", new BigDecimal("120.50"),
-                "currencyCode", "USD",
-                "paidAt", "2026-04-21T13:30:00"
+                "orderId", "linky-order-1",
+                "memberId", 24102,
+                "commissionAmount", new BigDecimal("120.50"),
+                "currency", "USD",
+                "settledAt", "2026-04-21T13:30:00"
         );
 
         String timestamp = "2026-04-22T04:00:00Z";
@@ -168,6 +169,29 @@ class InternalIncomeControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void shouldRejectLinkyIncomeEventOutsideReplayWindow() throws Exception {
+        Map<String, Object> request = Map.of(
+                "orderId", "linky-order-3",
+                "memberId", 24102,
+                "commissionAmount", new BigDecimal("66.00"),
+                "currency", "USD",
+                "settledAt", "2026-04-21T10:00:00"
+        );
+
+        String staleTimestamp = "2026-04-21T00:00:00Z";
+        String signature = signLinkyRequest("linky-order-3", 24102L, new BigDecimal("66.00"), "USD", "2026-04-21T10:00:00", staleTimestamp);
+
+        mockMvc.perform(post("/internal/distribution/linky/income-events")
+                        .header("X-Internal-Token", "test-token")
+                        .header("X-Linky-Timestamp", staleTimestamp)
+                        .header("X-Linky-Signature", signature)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("linky request expired"));
     }
 
     private String signLinkyRequest(String linkyOrderId, Long userId, BigDecimal incomeAmount, String currencyCode, String paidAt, String timestamp) {

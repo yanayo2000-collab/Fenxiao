@@ -24,7 +24,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
 @Transactional
-@SpringBootTest(properties = "app.distribution.internal-token=test-token")
+@SpringBootTest(properties = {
+        "app.distribution.internal-token=test-token",
+        "app.distribution.linky-signing-secret=test-linky-secret"
+})
 class InternalIncomeControllerTest {
 
     @Autowired
@@ -100,8 +103,13 @@ class InternalIncomeControllerTest {
                 "paidAt", "2026-04-21T13:30:00"
         );
 
+        String timestamp = "2026-04-22T04:00:00Z";
+        String signature = signLinkyRequest("linky-order-1", 24102L, new BigDecimal("120.50"), "USD", "2026-04-21T13:30:00", timestamp);
+
         mockMvc.perform(post("/internal/distribution/linky/income-events")
                         .header("X-Internal-Token", "test-token")
+                        .header("X-Linky-Timestamp", timestamp)
+                        .header("X-Linky-Signature", signature)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -110,6 +118,8 @@ class InternalIncomeControllerTest {
 
         mockMvc.perform(post("/internal/distribution/linky/income-events")
                         .header("X-Internal-Token", "test-token")
+                        .header("X-Linky-Timestamp", timestamp)
+                        .header("X-Linky-Signature", signature)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -127,12 +137,49 @@ class InternalIncomeControllerTest {
                 "paidAt", "2026-04-21T10:00:00"
         );
 
+        String timestamp = "2026-04-22T04:00:00Z";
+        String signature = signLinkyRequest("", 24102L, new BigDecimal("88.00"), "USD", "2026-04-21T10:00:00", timestamp);
+
         mockMvc.perform(post("/internal/distribution/linky/income-events")
                         .header("X-Internal-Token", "test-token")
+                        .header("X-Linky-Timestamp", timestamp)
+                        .header("X-Linky-Signature", signature)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void shouldRejectLinkyIncomeEventWithInvalidSignature() throws Exception {
+        Map<String, Object> request = Map.of(
+                "linkyOrderId", "linky-order-2",
+                "userId", 24102,
+                "incomeAmount", new BigDecimal("88.00"),
+                "currencyCode", "USD",
+                "paidAt", "2026-04-21T10:00:00"
+        );
+
+        mockMvc.perform(post("/internal/distribution/linky/income-events")
+                        .header("X-Internal-Token", "test-token")
+                        .header("X-Linky-Timestamp", "2026-04-22T04:00:00Z")
+                        .header("X-Linky-Signature", "bad-signature")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    private String signLinkyRequest(String linkyOrderId, Long userId, BigDecimal incomeAmount, String currencyCode, String paidAt, String timestamp) {
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec("test-linky-secret".getBytes(java.nio.charset.StandardCharsets.UTF_8), "HmacSHA256"));
+            String payload = timestamp + "." + linkyOrderId.trim() + "." + userId + "." + incomeAmount.toPlainString() + "." + currencyCode.trim().toUpperCase() + "." + paidAt;
+            byte[] signed = mac.doFinal(payload.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(signed);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private void seedRules() {

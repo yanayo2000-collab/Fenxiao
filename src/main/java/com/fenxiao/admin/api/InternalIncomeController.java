@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.format.DateTimeFormatter;
+
 @RestController
 @RequestMapping("/internal/distribution")
 public class InternalIncomeController {
@@ -46,8 +48,19 @@ public class InternalIncomeController {
 
     @PostMapping("/linky/income-events")
     public InternalIncomeEventResponse acceptLinkyIncomeEvent(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+                                                              @RequestHeader(value = "X-Linky-Timestamp", required = false) String linkyTimestamp,
+                                                              @RequestHeader(value = "X-Linky-Signature", required = false) String linkySignature,
                                                               @Valid @RequestBody LinkyIncomeEventRequest request) {
         distributionAccessGuard.assertInternalToken(token);
+        distributionAccessGuard.assertLinkySignature(
+                linkyTimestamp,
+                linkySignature,
+                request.linkyOrderId(),
+                request.userId(),
+                request.incomeAmount().toPlainString(),
+                request.currencyCode(),
+                request.paidAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+        );
         return linkyIncomeAdapterService.accept(request);
     }
 }

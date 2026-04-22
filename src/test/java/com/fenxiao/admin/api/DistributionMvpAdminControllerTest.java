@@ -322,6 +322,63 @@ class DistributionMvpAdminControllerTest {
     }
 
     @Test
+    void shouldManuallyAdjustRelationAndWriteAuditLog() throws Exception {
+        String rootCode = distributionBindingService.createProfile(17101L, "ID", "id", null).getInviteCode();
+        distributionBindingService.createProfile(17102L, "ID", "id", rootCode);
+        String newRootCode = distributionBindingService.createProfile(17103L, "ID", "id", null).getInviteCode();
+        distributionBindingService.createProfile(17104L, "ID", "id", newRootCode);
+        distributionBindingService.createProfile(17105L, "ID", "id", rootCode);
+
+        String adminSession = loginAsAdmin();
+        mockMvc.perform(post("/admin/distribution/relation/17105/adjustments")
+                        .header("X-Admin-Session", adminSession)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "level1InviterId": 17104,
+                                  "note": "manual correction after ops review"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(17105))
+                .andExpect(jsonPath("$.level1InviterId").value(17104))
+                .andExpect(jsonPath("$.level2InviterId").value(17103))
+                .andExpect(jsonPath("$.level3InviterId").doesNotExist())
+                .andExpect(jsonPath("$.bindSource").value("MANUAL"))
+                .andExpect(jsonPath("$.lockStatus").value("UNLOCKED"));
+
+        DistributionRelation relation = distributionRelationRepository.findByUserId(17105L).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(relation.getLevel1InviterId()).isEqualTo(17104L);
+        org.assertj.core.api.Assertions.assertThat(relation.getLevel2InviterId()).isEqualTo(17103L);
+        org.assertj.core.api.Assertions.assertThat(relation.getLevel3InviterId()).isNull();
+        org.assertj.core.api.Assertions.assertThat(relation.getBindSource().name()).isEqualTo("MANUAL");
+        org.assertj.core.api.Assertions.assertThat(operationAuditLogRepository.findAdminAuditLogs("relation", org.springframework.data.domain.PageRequest.of(0, 1))
+                        .getContent().getFirst().getActionName())
+                .isEqualTo("MANUAL_ADJUST");
+    }
+
+    @Test
+    void shouldRejectManualAdjustForLockedRelation() throws Exception {
+        seedRules();
+        String rootCode = distributionBindingService.createProfile(17201L, "ID", "id", null).getInviteCode();
+        distributionBindingService.createProfile(17202L, "ID", "id", rootCode);
+        distributionBindingService.createProfile(17203L, "ID", "id", null);
+        rewardCalculationService.processIncomeEvent("evt-locked-relation-1", 17202L, new BigDecimal("66.00"), "USD", LocalDateTime.now());
+
+        mockMvc.perform(post("/admin/distribution/relation/17202/adjustments")
+                        .header("X-Admin-Session", loginAsAdmin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "level1InviterId": 17203,
+                                  "note": "should fail for locked relation"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("locked relation cannot be adjusted manually"));
+    }
+
+    @Test
     void shouldRejectFreezeForIgnoredRiskEvent() throws Exception {
         seedRules();
         String rootCode = distributionBindingService.createProfile(18001L, "ID", "id", null).getInviteCode();

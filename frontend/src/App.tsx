@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import {
+  adjustAdminRelation,
   applyAdminRiskEventAction,
   createAdminSession,
   createProfile,
@@ -71,6 +72,7 @@ function App() {
   const [adminPassword, setAdminPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   const [home, setHome] = useState<DistributionHomeResponse | null>(null)
   const [team, setTeam] = useState<TeamListResponse | null>(null)
   const [rewards, setRewards] = useState<RewardListResponse | null>(null)
@@ -109,6 +111,9 @@ function App() {
   const [riskActionNote, setRiskActionNote] = useState('')
   const [riskActionLoadingId, setRiskActionLoadingId] = useState<number | null>(null)
   const [relationQueryUserId, setRelationQueryUserId] = useState('')
+  const [relationAdjustInviterId, setRelationAdjustInviterId] = useState('')
+  const [relationAdjustNote, setRelationAdjustNote] = useState('')
+  const [relationAdjustLoading, setRelationAdjustLoading] = useState(false)
   const [profileCreateToken, setProfileCreateToken] = useState(() => localStorage.getItem(PROFILE_CREATE_TOKEN_KEY) || '')
 
   const canLoadData = useMemo(() => Boolean(session?.userId && session?.accessToken), [session])
@@ -294,6 +299,7 @@ function App() {
     if (!adminSession) return
     setRiskActionLoadingId(riskEventId)
     setError('')
+    setSuccessMessage('')
     try {
       const updatedItem = await applyAdminRiskEventAction(adminSession.sessionToken, riskEventId, {
         action,
@@ -311,6 +317,7 @@ function App() {
       }
       await loadAuditLogs(auditQuery)
       setRiskActionNote('')
+      setSuccessMessage(`风险事件 #${riskEventId} 已执行 ${action}。`)
     } catch (err) {
       setError(err instanceof Error ? err.message : '处理风险事件失败')
     } finally {
@@ -322,13 +329,37 @@ function App() {
     if (!adminSession || !relationQueryUserId) return
     setLoading(true)
     setError('')
+    setSuccessMessage('')
     try {
       const relation = await getAdminRelation(adminSession.sessionToken, Number(relationQueryUserId))
       setAdminRelation(relation)
+      setRelationAdjustInviterId(relation.level1InviterId ? String(relation.level1InviterId) : '')
+      setRelationAdjustNote('')
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载关系链失败')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleAdjustRelation() {
+    if (!adminSession || !adminRelation) return
+    setRelationAdjustLoading(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const updated = await adjustAdminRelation(adminSession.sessionToken, adminRelation.userId, {
+        level1InviterId: relationAdjustInviterId.trim() ? Number(relationAdjustInviterId) : undefined,
+        note: relationAdjustNote.trim() || undefined,
+      })
+      setAdminRelation(updated)
+      setRelationAdjustInviterId(updated.level1InviterId ? String(updated.level1InviterId) : '')
+      await loadAuditLogs({ ...auditQuery, moduleName: auditQuery.moduleName || 'relation' })
+      setSuccessMessage('关系链已完成人工修正，并已写入审计记录。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '人工修正关系链失败')
+    } finally {
+      setRelationAdjustLoading(false)
     }
   }
 
@@ -417,6 +448,11 @@ function App() {
         <section className="alert-banner error">
           <strong>操作失败</strong>
           <span>{error}</span>
+        </section>
+      ) : successMessage ? (
+        <section className="alert-banner info">
+          <strong>最新进展</strong>
+          <span>{successMessage}</span>
         </section>
       ) : (
         <section className="alert-banner info">
@@ -654,18 +690,35 @@ function App() {
                     </label>
                   </div>
                   {adminRelation ? (
-                    <div className="relation-grid">
-                      <RelationItem label="用户ID" value={adminRelation.userId} />
-                      <RelationItem label="一级上级" value={adminRelation.level1InviterId} />
-                      <RelationItem label="二级上级" value={adminRelation.level2InviterId} />
-                      <RelationItem label="三级上级" value={adminRelation.level3InviterId} />
-                      <RelationItem label="绑定来源" value={adminRelation.bindSource} />
-                      <RelationItem label="锁定状态" value={adminRelation.lockStatus} />
-                      <RelationItem label="绑定时间" value={adminRelation.bindTime} />
-                      <RelationItem label="锁定时间" value={adminRelation.lockTime || '-'} />
-                      <RelationItem label="国家" value={adminRelation.countryCode} />
-                      <RelationItem label="跨国家" value={adminRelation.crossCountry ? '是' : '否'} />
-                    </div>
+                    <>
+                      <div className="relation-grid">
+                        <RelationItem label="用户ID" value={adminRelation.userId} />
+                        <RelationItem label="一级上级" value={adminRelation.level1InviterId} />
+                        <RelationItem label="二级上级" value={adminRelation.level2InviterId} />
+                        <RelationItem label="三级上级" value={adminRelation.level3InviterId} />
+                        <RelationItem label="绑定来源" value={adminRelation.bindSource} />
+                        <RelationItem label="锁定状态" value={renderStatusBadge(adminRelation.lockStatus)} />
+                        <RelationItem label="绑定时间" value={formatDateTime(adminRelation.bindTime)} />
+                        <RelationItem label="锁定时间" value={adminRelation.lockTime ? formatDateTime(adminRelation.lockTime) : '-'} />
+                        <RelationItem label="国家" value={adminRelation.countryCode} />
+                        <RelationItem label="跨国家" value={adminRelation.crossCountry ? '是' : '否'} />
+                      </div>
+                      <div className="grid-form compact-form">
+                        <label>
+                          人工修正后的一级上级用户 ID
+                          <input value={relationAdjustInviterId} onChange={(e) => setRelationAdjustInviterId(e.target.value)} placeholder="留空后保存 = 设为根关系" />
+                        </label>
+                        <label>
+                          修正备注
+                          <input value={relationAdjustNote} onChange={(e) => setRelationAdjustNote(e.target.value)} placeholder="例如：人工修正绑定关系" />
+                        </label>
+                      </div>
+                      <InlineHint text="支持人工修正一级上级。留空后保存会把该用户改成根关系；如果关系已经锁定，系统会禁止手工改动。" />
+                      <div className="table-toolbar">
+                        <button className="primary-btn small-btn" onClick={handleAdjustRelation} disabled={relationAdjustLoading || !canLoadAdmin}>保存人工修正</button>
+                        <button className="ghost-btn small-btn" onClick={() => setRelationAdjustInviterId('')} disabled={relationAdjustLoading}>设为根关系</button>
+                      </div>
+                    </>
                   ) : (
                     <EmptyState title="暂无关系链结果" description="输入用户 ID 后查询，这里会显示完整三级关系与锁定状态。" />
                   )}
@@ -790,24 +843,34 @@ function App() {
         </main>
 
         <aside className="console-side">
-          <PanelSection eyebrow="Guide" title="本阶段产品优先级" description="先把产品体验做完整，固定域名放在下一阶段。">
+          <PanelSection eyebrow="Guide" title="本阶段产品优先级" description="继续把运营可用 MVP 打磨成更顺手的后台。">
             <Checklist
               items={[
-                '接入流程更清楚，不让用户猜步骤',
-                '用户台和运营台信息分区更明确',
-                '空态、错误态、状态提示更自然',
-                '现在已补风险事件页和分页筛选基础能力',
+                '关系链支持人工修正，并且审计可回看',
+                '风险动作和关系查询都给出明确反馈',
+                '地址、健康检查、部署入口不再靠口头记忆',
+                '文档、控制台和后端能力保持同一口径',
               ]}
             />
           </PanelSection>
 
-          <PanelSection eyebrow="Next" title="下一批最值得补" description="如果你继续让我做，我会按这个顺序往下推。">
+          <PanelSection eyebrow="Access" title="当前环境入口" description="把常用地址和部署入口收在这里，减少来回翻 README。">
+            <InfoCard title="本地 / 部署入口" tone="neutral">
+              <InfoRow label="本地后端" value="http://localhost:8080" code />
+              <InfoRow label="前端开发" value="http://localhost:5173" code />
+              <InfoRow label="Docker 前端" value="http://localhost:8088" code />
+              <InfoRow label="健康检查" value="http://localhost:8080/actuator/health" code />
+              <InfoRow label="部署文件" value="deploy/docker-compose.yml" code />
+            </InfoCard>
+          </PanelSection>
+
+          <PanelSection eyebrow="Next" title="下一批最值得补" description="这版收口后，继续往真实业务化推进。">
             <RoadmapList
               items={[
-                { title: '风险事件处理动作', desc: '让运营不仅能看，还能处理、备注、流转。' },
-                { title: '奖励列表分页器优化', desc: '补上一页/下一页和快捷页码操作。' },
-                { title: '前台邀请链路优化', desc: '把接入、邀请、首页串成更完整的产品流。' },
-                { title: '后台视觉与导航体系', desc: '继续把控制台感做出来。' },
+                { title: 'Linky 收益同步适配器', desc: '把真实收益同步接入 Fenxiao 主链路。' },
+                { title: '关系修正审计增强', desc: '补更多 before / after 信息和复核说明。' },
+                { title: '上线前 checklist', desc: '把部署、验证、交接收成真正可执行的清单。' },
+                { title: '更细粒度权限', desc: '为后续审批流和多角色后台做准备。' },
               ]}
             />
           </PanelSection>
@@ -853,7 +916,7 @@ function Metric({ label, value, hint, tone }: { label: string; value?: number; h
   )
 }
 
-function RelationItem({ label, value }: { label: string; value: string | number | null }) {
+function RelationItem({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="relation-item">
       <span>{label}</span>

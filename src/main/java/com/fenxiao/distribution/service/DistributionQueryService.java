@@ -19,6 +19,10 @@ public class DistributionQueryService {
     public RelationDetailResponse getRelationDetail(Long userId) {
         DistributionRelation relation = distributionRelationRepository.findByUserId(userId)
                 .orElseThrow(() -> new IllegalArgumentException("distribution relation not found"));
+        return toDetailResponse(relation);
+    }
+
+    public static RelationDetailResponse toDetailResponse(DistributionRelation relation) {
         return new RelationDetailResponse(
                 relation.getUserId(),
                 relation.getLevel1InviterId(),

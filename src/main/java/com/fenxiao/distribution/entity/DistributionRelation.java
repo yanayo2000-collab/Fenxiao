@@ -147,4 +147,17 @@ public class DistributionRelation extends BaseEntity {
         this.lockStatus = LockStatus.UNLOCKED;
         this.lockTime = null;
     }
+
+    public void rebindManually(Long level1InviterId,
+                               Long level2InviterId,
+                               Long level3InviterId,
+                               boolean crossCountry,
+                               LocalDateTime bindTime) {
+        this.level1InviterId = level1InviterId;
+        this.level2InviterId = level2InviterId;
+        this.level3InviterId = level3InviterId;
+        this.bindSource = BindSource.MANUAL;
+        this.crossCountry = crossCountry;
+        this.bindTime = bindTime;
+    }
 }

@@ -1,6 +1,7 @@
 package com.fenxiao.admin.api;
 
 import com.fenxiao.admin.api.dto.AuditLogListResponse;
+import com.fenxiao.admin.api.dto.ManualRelationAdjustmentRequest;
 import com.fenxiao.admin.api.dto.OverviewReportResponse;
 import com.fenxiao.admin.api.dto.RelationDetailResponse;
 import com.fenxiao.admin.api.dto.RiskEventActionRequest;
@@ -8,6 +9,7 @@ import com.fenxiao.admin.api.dto.RiskEventListItem;
 import com.fenxiao.admin.api.dto.RiskEventListResponse;
 import com.fenxiao.admin.service.AuditLogQueryService;
 import com.fenxiao.admin.service.DistributionReportService;
+import com.fenxiao.admin.service.RelationAdjustmentService;
 import com.fenxiao.admin.service.RiskEventActionService;
 import com.fenxiao.admin.service.RiskEventQueryService;
 import com.fenxiao.common.security.DistributionAccessGuard;
@@ -41,6 +43,7 @@ public class DistributionAdminController {
     private final AuditLogQueryService auditLogQueryService;
     private final RiskEventQueryService riskEventQueryService;
     private final RiskEventActionService riskEventActionService;
+    private final RelationAdjustmentService relationAdjustmentService;
     private final DistributionAccessGuard distributionAccessGuard;
 
     public DistributionAdminController(RewardCalculationService rewardCalculationService,
@@ -49,6 +52,7 @@ public class DistributionAdminController {
                                        AuditLogQueryService auditLogQueryService,
                                        RiskEventQueryService riskEventQueryService,
                                        RiskEventActionService riskEventActionService,
+                                       RelationAdjustmentService relationAdjustmentService,
                                        DistributionAccessGuard distributionAccessGuard) {
         this.rewardCalculationService = rewardCalculationService;
         this.distributionQueryService = distributionQueryService;
@@ -56,6 +60,7 @@ public class DistributionAdminController {
         this.auditLogQueryService = auditLogQueryService;
         this.riskEventQueryService = riskEventQueryService;
         this.riskEventActionService = riskEventActionService;
+        this.relationAdjustmentService = relationAdjustmentService;
         this.distributionAccessGuard = distributionAccessGuard;
     }
 
@@ -76,6 +81,16 @@ public class DistributionAdminController {
                                                  @PathVariable Long userId) {
         distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
         return distributionQueryService.getRelationDetail(userId);
+    }
+
+    @PostMapping("/relation/{userId}/adjustments")
+    public RelationDetailResponse adjustRelation(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                 @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+                                                 @PathVariable Long userId,
+                                                 @Valid @RequestBody ManualRelationAdjustmentRequest request,
+                                                 HttpServletRequest httpServletRequest) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        return relationAdjustmentService.adjustRelation(userId, request.level1InviterId(), request.note(), httpServletRequest.getRemoteAddr());
     }
 
     @GetMapping("/rewards")

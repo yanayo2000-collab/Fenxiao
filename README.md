@@ -177,6 +177,7 @@ curl http://localhost:8080/actuator/health
 - 风险事件支持处理、忽略、冻结用户、解冻用户
 - 风险动作会联动刷新奖励、关系链与最近处理记录
 - 审计日志可查看最近处理动作、备注、操作时间与目标对象
+- 关系链查询支持人工修正一级上级，并写入 relation 审计记录
 - 非法动作会被后端拦截，前端也会按状态禁用不该点击的按钮
 
 详细操作说明见：`docs/operations-handbook.md`
@@ -185,7 +186,7 @@ curl http://localhost:8080/actuator/health
 
 1. Linky 正式收益同步接入
 2. token 轮换/吊销
-3. 关系人工修正与审计增强
+3. 关系人工修正的 before/after 审计增强与复核说明
 4. 更细的后台权限模型
 5. 网页端体验优化与登录体系接入
 6. 提交整理与上线前 checklist 固化

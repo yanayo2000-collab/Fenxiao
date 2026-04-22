@@ -245,6 +245,19 @@ export function getAdminRelation(adminSessionToken: string, userId: number) {
   })
 }
 
+export function adjustAdminRelation(adminSessionToken: string, userId: number, payload: {
+  level1InviterId?: number
+  note?: string
+}) {
+  return request<RelationDetailResponse>(`/admin/distribution/relation/${userId}/adjustments`, {
+    method: 'POST',
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+    body: JSON.stringify(payload),
+  })
+}
+
 export function applyAdminRiskEventAction(adminSessionToken: string, riskEventId: number, payload: {
   action: 'HANDLE' | 'IGNORE' | 'FREEZE_USER' | 'UNFREEZE_USER'
   note?: string

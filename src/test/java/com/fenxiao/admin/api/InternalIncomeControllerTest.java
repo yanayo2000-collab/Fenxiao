@@ -86,6 +86,55 @@ class InternalIncomeControllerTest {
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
+    @Test
+    void shouldAcceptLinkyIncomeEventAndMapToInternalFlow() throws Exception {
+        seedRules();
+        String inviterCode = distributionBindingService.createProfile(24101L, "ID", "id", null).getInviteCode();
+        distributionBindingService.createProfile(24102L, "ID", "id", inviterCode);
+
+        Map<String, Object> request = Map.of(
+                "linkyOrderId", "linky-order-1",
+                "userId", 24102,
+                "incomeAmount", new BigDecimal("120.50"),
+                "currencyCode", "USD",
+                "paidAt", "2026-04-21T13:30:00"
+        );
+
+        mockMvc.perform(post("/internal/distribution/linky/income-events")
+                        .header("X-Internal-Token", "test-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceEventId").value("LINKY:linky-order-1"))
+                .andExpect(jsonPath("$.status").value("PROCESSED"));
+
+        mockMvc.perform(post("/internal/distribution/linky/income-events")
+                        .header("X-Internal-Token", "test-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceEventId").value("LINKY:linky-order-1"))
+                .andExpect(jsonPath("$.status").value("DUPLICATE"));
+    }
+
+    @Test
+    void shouldValidateLinkyPayload() throws Exception {
+        Map<String, Object> request = Map.of(
+                "linkyOrderId", "",
+                "userId", 24102,
+                "incomeAmount", new BigDecimal("88.00"),
+                "currencyCode", "USD",
+                "paidAt", "2026-04-21T10:00:00"
+        );
+
+        mockMvc.perform(post("/internal/distribution/linky/income-events")
+                        .header("X-Internal-Token", "test-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
     private void seedRules() {
         LocalDateTime effectiveFrom = LocalDateTime.of(2020, 1, 1, 0, 0);
         rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 1, new BigDecimal("0.15"), 7, 1L, effectiveFrom, null));

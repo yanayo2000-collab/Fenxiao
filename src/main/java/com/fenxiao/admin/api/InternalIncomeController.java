@@ -2,6 +2,8 @@ package com.fenxiao.admin.api;
 
 import com.fenxiao.admin.api.dto.InternalIncomeEventRequest;
 import com.fenxiao.admin.api.dto.InternalIncomeEventResponse;
+import com.fenxiao.admin.api.dto.LinkyIncomeEventRequest;
+import com.fenxiao.admin.service.LinkyIncomeAdapterService;
 import com.fenxiao.common.security.DistributionAccessGuard;
 import com.fenxiao.reward.domain.IncomeProcessStatus;
 import com.fenxiao.reward.service.RewardCalculationService;
@@ -17,11 +19,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class InternalIncomeController {
 
     private final RewardCalculationService rewardCalculationService;
+    private final LinkyIncomeAdapterService linkyIncomeAdapterService;
     private final DistributionAccessGuard distributionAccessGuard;
 
     public InternalIncomeController(RewardCalculationService rewardCalculationService,
+                                    LinkyIncomeAdapterService linkyIncomeAdapterService,
                                     DistributionAccessGuard distributionAccessGuard) {
         this.rewardCalculationService = rewardCalculationService;
+        this.linkyIncomeAdapterService = linkyIncomeAdapterService;
         this.distributionAccessGuard = distributionAccessGuard;
     }
 
@@ -37,5 +42,12 @@ public class InternalIncomeController {
                 request.eventTime()
         );
         return new InternalIncomeEventResponse(request.sourceEventId(), status);
+    }
+
+    @PostMapping("/linky/income-events")
+    public InternalIncomeEventResponse acceptLinkyIncomeEvent(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+                                                              @Valid @RequestBody LinkyIncomeEventRequest request) {
+        distributionAccessGuard.assertInternalToken(token);
+        return linkyIncomeAdapterService.accept(request);
     }
 }

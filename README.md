@@ -184,7 +184,7 @@ curl http://localhost:8080/actuator/health
 
 ## 一期后续增强方向
 
-1. Linky 正式收益同步接入
+1. Linky 正式收益同步接入（已补适配入口，待对接真实上游字段与签名策略）
 2. token 轮换/吊销
 3. 关系人工修正的 before/after 审计增强与复核说明
 4. 更细的后台权限模型

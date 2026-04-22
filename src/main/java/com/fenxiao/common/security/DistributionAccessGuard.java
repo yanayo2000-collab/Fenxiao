@@ -34,7 +34,8 @@ public class DistributionAccessGuard {
                                    @Value("${app.distribution.linky-signing-secret:}") String linkySigningSecret,
                                    @Value("${app.distribution.linky-replay-window-seconds:900}") long linkyReplayWindowSeconds,
                                    UserDistributionProfileRepository userDistributionProfileRepository,
-                                   AdminSessionService adminSessionService) {
+                                   AdminSessionService adminSessionService,
+                                   Clock clock) {
         this.internalToken = internalToken;
         this.adminToken = adminToken;
         this.profileCreateToken = profileCreateToken;
@@ -42,7 +43,7 @@ public class DistributionAccessGuard {
         this.linkyReplayWindowSeconds = linkyReplayWindowSeconds;
         this.userDistributionProfileRepository = userDistributionProfileRepository;
         this.adminSessionService = adminSessionService;
-        this.clock = Clock.systemUTC();
+        this.clock = clock;
     }
 
     public void assertUserAccess(Long targetUserId, String accessToken) {

@@ -37,6 +37,24 @@ type AdminAuthState = {
 }
 
 type ViewMode = 'user' | 'admin'
+type RiskActionName = 'HANDLE' | 'IGNORE' | 'FREEZE_USER' | 'UNFREEZE_USER'
+
+type PendingRiskAction = {
+  riskEventId: number
+  userId: number
+  riskStatus: string
+  action: RiskActionName
+  note: string
+}
+
+type PendingRelationChange = {
+  userId: number
+  previousInviterId: number | null
+  nextInviterId: number | null
+  previousLevel2InviterId: number | null
+  previousLevel3InviterId: number | null
+  note: string
+}
 
 const STORAGE_KEY = 'fenxiao-web-session'
 const PROFILE_CREATE_TOKEN_KEY = 'fenxiao-profile-create-token'
@@ -108,11 +126,14 @@ function App() {
     page: '0',
     size: '5',
   })
-  const [riskActionNote, setRiskActionNote] = useState('')
+  const [riskActionDrafts, setRiskActionDrafts] = useState<Record<number, string>>({})
+  const [pendingRiskAction, setPendingRiskAction] = useState<PendingRiskAction | null>(null)
   const [riskActionLoadingId, setRiskActionLoadingId] = useState<number | null>(null)
   const [relationQueryUserId, setRelationQueryUserId] = useState('')
   const [relationAdjustInviterId, setRelationAdjustInviterId] = useState('')
   const [relationAdjustNote, setRelationAdjustNote] = useState('')
+  const [relationBeforeAdjust, setRelationBeforeAdjust] = useState<RelationDetailResponse | null>(null)
+  const [pendingRelationChange, setPendingRelationChange] = useState<PendingRelationChange | null>(null)
   const [relationAdjustLoading, setRelationAdjustLoading] = useState(false)
   const [profileCreateToken, setProfileCreateToken] = useState(() => localStorage.getItem(PROFILE_CREATE_TOKEN_KEY) || '')
 
@@ -217,11 +238,15 @@ function App() {
       setAdminSession(nextSession)
       setAdminPassword('')
       setViewMode('admin')
-      const auditResult = await getAdminAuditLogs(nextSession.sessionToken, {
-        moduleName: auditQuery.moduleName,
-        page: Number(auditQuery.page || 0),
-        size: Number(auditQuery.size || 5),
-      })
+      const [overviewResult, auditResult] = await Promise.all([
+        getAdminOverview(nextSession.sessionToken),
+        getAdminAuditLogs(nextSession.sessionToken, {
+          moduleName: auditQuery.moduleName,
+          page: Number(auditQuery.page || 0),
+          size: Number(auditQuery.size || 5),
+        }),
+      ])
+      setAdminOverview(overviewResult)
       setAuditLogs(auditResult)
     } catch (err) {
       setError(err instanceof Error ? err.message : '后台登录失败')
@@ -237,6 +262,9 @@ function App() {
     setRiskEvents(null)
     setAuditLogs(null)
     setAdminRelation(null)
+    setPendingRiskAction(null)
+    setPendingRelationChange(null)
+    setRiskActionDrafts({})
   }
 
   async function handleLoadDashboard() {
@@ -295,15 +323,16 @@ function App() {
     await loadRiskEvents(nextQuery)
   }
 
-  async function handleRiskAction(riskEventId: number, action: 'HANDLE' | 'IGNORE' | 'FREEZE_USER' | 'UNFREEZE_USER') {
+  async function handleRiskAction(actionRequest: PendingRiskAction) {
     if (!adminSession) return
+    const { riskEventId, action, note } = actionRequest
     setRiskActionLoadingId(riskEventId)
     setError('')
     setSuccessMessage('')
     try {
       const updatedItem = await applyAdminRiskEventAction(adminSession.sessionToken, riskEventId, {
         action,
-        note: riskActionNote.trim() || undefined,
+        note: note.trim() || undefined,
       })
       setRiskEvents((current) => current ? {
         ...current,
@@ -316,8 +345,13 @@ function App() {
         await handleLoadRelation()
       }
       await loadAuditLogs(auditQuery)
-      setRiskActionNote('')
-      setSuccessMessage(`风险事件 #${riskEventId} 已执行 ${action}。`)
+      setRiskActionDrafts((current) => {
+        const next = { ...current }
+        delete next[riskEventId]
+        return next
+      })
+      setPendingRiskAction(null)
+      setSuccessMessage(`风险事件 #${riskEventId} 已执行 ${riskActionLabel(action)}，审计和相关数据已同步刷新。`)
     } catch (err) {
       setError(err instanceof Error ? err.message : '处理风险事件失败')
     } finally {
@@ -333,6 +367,7 @@ function App() {
     try {
       const relation = await getAdminRelation(adminSession.sessionToken, Number(relationQueryUserId))
       setAdminRelation(relation)
+      setRelationBeforeAdjust(relation)
       setRelationAdjustInviterId(relation.level1InviterId ? String(relation.level1InviterId) : '')
       setRelationAdjustNote('')
     } catch (err) {
@@ -352,10 +387,14 @@ function App() {
         level1InviterId: relationAdjustInviterId.trim() ? Number(relationAdjustInviterId) : undefined,
         note: relationAdjustNote.trim() || undefined,
       })
+      setRelationBeforeAdjust(adminRelation)
       setAdminRelation(updated)
       setRelationAdjustInviterId(updated.level1InviterId ? String(updated.level1InviterId) : '')
-      await loadAuditLogs({ ...auditQuery, moduleName: auditQuery.moduleName || 'relation' })
-      setSuccessMessage('关系链已完成人工修正，并已写入审计记录。')
+      const relationAuditQuery = { ...auditQuery, moduleName: 'relation', page: '0' }
+      setAuditQuery(relationAuditQuery)
+      await loadAuditLogs(relationAuditQuery)
+      setPendingRelationChange(null)
+      setSuccessMessage('关系链已完成人工修正，before / after 已更新，relation 审计也已同步刷新。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '人工修正关系链失败')
     } finally {
@@ -373,6 +412,35 @@ function App() {
 
   function handleProfileCreateTokenSave() {
     localStorage.setItem(PROFILE_CREATE_TOKEN_KEY, profileCreateToken)
+  }
+
+  function updateRiskActionDraft(riskEventId: number, note: string) {
+    setRiskActionDrafts((current) => ({
+      ...current,
+      [riskEventId]: note,
+    }))
+  }
+
+  function openRiskActionConfirm(item: RiskEventListResponse['items'][number], action: RiskActionName) {
+    setPendingRiskAction({
+      riskEventId: item.id,
+      userId: item.userId,
+      riskStatus: item.riskStatus,
+      action,
+      note: riskActionDrafts[item.id] || '',
+    })
+  }
+
+  function openRelationAdjustConfirm() {
+    if (!adminRelation) return
+    setPendingRelationChange({
+      userId: adminRelation.userId,
+      previousInviterId: adminRelation.level1InviterId,
+      nextInviterId: relationAdjustInviterId.trim() ? Number(relationAdjustInviterId) : null,
+      previousLevel2InviterId: adminRelation.level2InviterId,
+      previousLevel3InviterId: adminRelation.level3InviterId,
+      note: relationAdjustNote.trim(),
+    })
   }
 
   const userSummaryItems = [
@@ -421,6 +489,9 @@ function App() {
   const hasRewardNextPage = adminRewards ? (adminRewards.page + 1) * adminRewards.size < adminRewards.total : false
   const hasRiskPrevPage = Number(riskQuery.page) > 0
   const hasRiskNextPage = riskEvents ? (riskEvents.page + 1) * riskEvents.size < riskEvents.total : false
+  const relationPreview = adminRelation
+    ? buildRelationPreview(adminRelation, relationAdjustInviterId)
+    : null
 
   return (
     <div className="page-shell">
@@ -703,6 +774,20 @@ function App() {
                         <RelationItem label="国家" value={adminRelation.countryCode} />
                         <RelationItem label="跨国家" value={adminRelation.crossCountry ? '是' : '否'} />
                       </div>
+                      <div className="content-grid two-columns nested-grid">
+                        <InfoCard title="当前关系快照" tone="neutral">
+                          <InfoRow label="当前一级上级" value={adminRelation.level1InviterId ?? '-'} />
+                          <InfoRow label="当前二级上级" value={adminRelation.level2InviterId ?? '-'} />
+                          <InfoRow label="当前三级上级" value={adminRelation.level3InviterId ?? '-'} />
+                          <InfoRow label="当前来源" value={adminRelation.bindSource} />
+                        </InfoCard>
+                        <InfoCard title="修正后预览" tone="success">
+                          <InfoRow label="修正后一级上级" value={relationPreview?.nextLevel1InviterId ?? '-'} />
+                          <InfoRow label="修正后来源" value={relationPreview?.nextBindSource ?? 'MANUAL'} />
+                          <InfoRow label="变更说明" value={relationPreview?.summary ?? '保持当前关系'} />
+                          <InfoRow label="操作建议" value={adminRelation.lockStatus === 'LOCKED' ? '当前关系已锁定，不能手工修改。' : '先确认预览，再提交人工修正。'} />
+                        </InfoCard>
+                      </div>
                       <div className="grid-form compact-form">
                         <label>
                           人工修正后的一级上级用户 ID
@@ -713,14 +798,14 @@ function App() {
                           <input value={relationAdjustNote} onChange={(e) => setRelationAdjustNote(e.target.value)} placeholder="例如：人工修正绑定关系" />
                         </label>
                       </div>
-                      <InlineHint text="支持人工修正一级上级。留空后保存会把该用户改成根关系；如果关系已经锁定，系统会禁止手工改动。" />
+                      <InlineHint text="支持人工修正一级上级。提交前先看预览；留空后保存会把该用户改成根关系；如果关系已经锁定，系统会禁止手工改动。" />
                       <div className="table-toolbar">
-                        <button className="primary-btn small-btn" onClick={handleAdjustRelation} disabled={relationAdjustLoading || !canLoadAdmin}>保存人工修正</button>
+                        <button className="primary-btn small-btn" onClick={openRelationAdjustConfirm} disabled={relationAdjustLoading || !canLoadAdmin || adminRelation.lockStatus === 'LOCKED'}>预览后确认修正</button>
                         <button className="ghost-btn small-btn" onClick={() => setRelationAdjustInviterId('')} disabled={relationAdjustLoading}>设为根关系</button>
                       </div>
                     </>
                   ) : (
-                    <EmptyState title="暂无关系链结果" description="输入用户 ID 后查询，这里会显示完整三级关系与锁定状态。" />
+                    <EmptyState title="暂无关系链结果" description="输入用户 ID 后查询，这里会显示完整三级关系、锁定状态和人工修正预览。" />
                   )}
                 </PanelSection>
               </div>
@@ -762,37 +847,44 @@ function App() {
                     <input type="number" min="1" max="100" value={riskQuery.size} onChange={(e) => setRiskQuery({ ...riskQuery, size: e.target.value })} placeholder="10" />
                   </label>
                 </div>
-                <div className="grid-form compact-form single-line wide-line">
-                  <label>
-                    处理备注
-                    <input value={riskActionNote} onChange={(e) => setRiskActionNote(e.target.value)} placeholder="例如：人工复核通过 / 确认异常冻结" />
-                  </label>
-                </div>
+                <InlineHint text="风险动作已升级成逐条备注 + 二次确认。先看事件，再对目标用户执行处理。" />
                 <InlineHint text={riskPageLabel} />
                 <div className="table-toolbar">
                   <button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) - 1)} disabled={loading || !hasRiskPrevPage}>上一页</button>
                   <button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) + 1)} disabled={loading || !hasRiskNextPage}>下一页</button>
                 </div>
                 {riskEvents?.items?.length ? (
-                  <DataTable
-                    headers={['事件ID', '用户ID', '风险类型', '等级', '状态', '检测时间', '处理信息', '操作']}
-                    rows={riskEvents.items.map((item) => [
-                      item.id,
-                      item.userId,
-                      item.riskType,
-                      item.riskLevel,
-                      renderStatusBadge(item.riskStatus),
-                      formatDateTime(item.detectedAt),
-                      `${item.handledAt ? `${formatDateTime(item.handledAt)} / #${item.handledBy ?? 0}` : '未处理'}${item.resultNote ? ` / ${item.resultNote}` : ''}`,
-                      <div className="action-row" key={`risk-actions-${item.id}`}>
-                        <button className="ghost-btn small-btn" onClick={() => handleRiskAction(item.id, 'HANDLE')} disabled={riskActionLoadingId === item.id || !canHandleRisk(item.riskStatus)}>处理</button>
-                        <button className="ghost-btn small-btn" onClick={() => handleRiskAction(item.id, 'IGNORE')} disabled={riskActionLoadingId === item.id || !canIgnoreRisk(item.riskStatus)}>忽略</button>
-                        <button className="ghost-btn small-btn warning-btn" onClick={() => handleRiskAction(item.id, 'FREEZE_USER')} disabled={riskActionLoadingId === item.id || !canFreezeRisk(item.riskStatus)}>冻结用户</button>
-                        <button className="ghost-btn small-btn success-btn" onClick={() => handleRiskAction(item.id, 'UNFREEZE_USER')} disabled={riskActionLoadingId === item.id || !canUnfreezeRisk(item.riskStatus)}>解冻用户</button>
-                      </div>,
-                    ])}
-                    emptyText="暂无风险事件"
-                  />
+                  <div className="risk-event-list">
+                    {riskEvents.items.map((item) => {
+                      const draftNote = riskActionDrafts[item.id] || ''
+                      return (
+                        <div className="risk-event-card" key={item.id}>
+                          <div className="risk-event-head">
+                            <div>
+                              <strong>风险事件 #{item.id}</strong>
+                              <p>用户 #{item.userId} · {item.riskType} · {formatDateTime(item.detectedAt)}</p>
+                            </div>
+                            {renderStatusBadge(item.riskStatus)}
+                          </div>
+                          <div className="risk-event-meta">
+                            <span>等级 {item.riskLevel}</span>
+                            <span>处理信息：{item.handledAt ? `${formatDateTime(item.handledAt)} / #${item.handledBy ?? 0}` : '未处理'}</span>
+                            <span>备注：{item.resultNote || '暂无'}</span>
+                          </div>
+                          <label className="note-field">
+                            本次处理备注
+                            <input value={draftNote} onChange={(e) => updateRiskActionDraft(item.id, e.target.value)} placeholder="例如：人工复核通过 / 确认异常冻结" />
+                          </label>
+                          <div className="action-row">
+                            <button className="ghost-btn small-btn" onClick={() => openRiskActionConfirm(item, 'HANDLE')} disabled={riskActionLoadingId === item.id || !canHandleRisk(item.riskStatus)}>处理</button>
+                            <button className="ghost-btn small-btn" onClick={() => openRiskActionConfirm(item, 'IGNORE')} disabled={riskActionLoadingId === item.id || !canIgnoreRisk(item.riskStatus)}>忽略</button>
+                            <button className="ghost-btn small-btn warning-btn" onClick={() => openRiskActionConfirm(item, 'FREEZE_USER')} disabled={riskActionLoadingId === item.id || !canFreezeRisk(item.riskStatus)}>冻结用户</button>
+                            <button className="ghost-btn small-btn success-btn" onClick={() => openRiskActionConfirm(item, 'UNFREEZE_USER')} disabled={riskActionLoadingId === item.id || !canUnfreezeRisk(item.riskStatus)}>解冻用户</button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 ) : (
                   <EmptyState title="暂无风险事件结果" description="这里会展示风控冻结、风险用户等运营需要跟进的事件。" />
                 )}
@@ -809,6 +901,7 @@ function App() {
                     模块
                     <select value={auditQuery.moduleName} onChange={(e) => setAuditQuery({ ...auditQuery, moduleName: e.target.value })}>
                       <option value="risk_event">risk_event</option>
+                      <option value="relation">relation</option>
                       <option value="">全部</option>
                     </select>
                   </label>
@@ -846,8 +939,8 @@ function App() {
           <PanelSection eyebrow="Guide" title="本阶段产品优先级" description="继续把运营可用 MVP 打磨成更顺手的后台。">
             <Checklist
               items={[
-                '关系链支持人工修正，并且审计可回看',
-                '风险动作和关系查询都给出明确反馈',
+                '风险动作改成逐条备注 + 二次确认，降低误操作',
+                '关系链人工修正先预览 before / after，再落审计',
                 '地址、健康检查、部署入口不再靠口头记忆',
                 '文档、控制台和后端能力保持同一口径',
               ]}
@@ -867,7 +960,7 @@ function App() {
           <PanelSection eyebrow="Next" title="下一批最值得补" description="这版收口后，继续往真实业务化推进。">
             <RoadmapList
               items={[
-                { title: 'Linky 收益同步适配器', desc: '把真实收益同步接入 Fenxiao 主链路。' },
+                { title: 'Linky webhook 日志落库', desc: '把签名、时间窗、原始 payload 和处理结果都留痕。' },
                 { title: '关系修正审计增强', desc: '补更多 before / after 信息和复核说明。' },
                 { title: '上线前 checklist', desc: '把部署、验证、交接收成真正可执行的清单。' },
                 { title: '更细粒度权限', desc: '为后续审批流和多角色后台做准备。' },
@@ -876,6 +969,39 @@ function App() {
           </PanelSection>
         </aside>
       </div>
+
+      {pendingRiskAction ? (
+        <ConfirmDialog
+          title={`确认${riskActionLabel(pendingRiskAction.action)}?`}
+          tone={pendingRiskAction.action === 'FREEZE_USER' ? 'warning' : pendingRiskAction.action === 'UNFREEZE_USER' ? 'success' : 'neutral'}
+          confirmText={`确认${riskActionLabel(pendingRiskAction.action)}`}
+          onCancel={() => setPendingRiskAction(null)}
+          onConfirm={() => handleRiskAction(pendingRiskAction)}
+          loading={riskActionLoadingId === pendingRiskAction.riskEventId}
+        >
+          <InfoRow label="风险事件" value={`#${pendingRiskAction.riskEventId}`} />
+          <InfoRow label="目标用户" value={`#${pendingRiskAction.userId}`} />
+          <InfoRow label="当前状态" value={pendingRiskAction.riskStatus} />
+          <InfoRow label="本次备注" value={pendingRiskAction.note || '未填写，将按系统默认备注处理'} />
+        </ConfirmDialog>
+      ) : null}
+
+      {pendingRelationChange ? (
+        <ConfirmDialog
+          title="确认提交关系人工修正?"
+          tone="primary"
+          confirmText="确认提交"
+          onCancel={() => setPendingRelationChange(null)}
+          onConfirm={handleAdjustRelation}
+          loading={relationAdjustLoading}
+        >
+          <InfoRow label="目标用户" value={`#${pendingRelationChange.userId}`} />
+          <InfoRow label="当前一级上级" value={relationBeforeAdjust?.level1InviterId ?? pendingRelationChange.previousInviterId ?? '-'} />
+          <InfoRow label="修正后一级上级" value={pendingRelationChange.nextInviterId ?? '-'} />
+          <InfoRow label="原二级 / 三级" value={`${relationBeforeAdjust?.level2InviterId ?? pendingRelationChange.previousLevel2InviterId ?? '-'} / ${relationBeforeAdjust?.level3InviterId ?? pendingRelationChange.previousLevel3InviterId ?? '-'}`} />
+          <InfoRow label="备注" value={pendingRelationChange.note || '未填写备注'} />
+        </ConfirmDialog>
+      ) : null}
     </div>
   )
 }
@@ -983,6 +1109,43 @@ function InlineHint({ text }: { text: string }) {
   return <p className="inline-hint">{text}</p>
 }
 
+function ConfirmDialog({
+  title,
+  tone,
+  confirmText,
+  loading,
+  children,
+  onCancel,
+  onConfirm,
+}: {
+  title: string
+  tone: 'primary' | 'warning' | 'success' | 'neutral'
+  confirmText: string
+  loading?: boolean
+  children: React.ReactNode
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="dialog-backdrop">
+      <div className={`dialog-card tone-${tone}`}>
+        <div className="dialog-head">
+          <div>
+            <p className="panel-eyebrow">确认操作</p>
+            <h3>{title}</h3>
+          </div>
+          <button className="ghost-btn small-btn" onClick={onCancel} disabled={loading}>关闭</button>
+        </div>
+        <div className="stack-gap small">{children}</div>
+        <div className="dialog-actions">
+          <button className="ghost-btn" onClick={onCancel} disabled={loading}>取消</button>
+          <button className="primary-btn" onClick={onConfirm} disabled={loading}>{loading ? '处理中...' : confirmText}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function StatusBadge({ status }: { status: string }) {
   const tone = status === 'HANDLED' || status === 'AVAILABLE'
     ? 'success'
@@ -996,6 +1159,33 @@ function StatusBadge({ status }: { status: string }) {
 
 function renderStatusBadge(status: string) {
   return <StatusBadge status={status} />
+}
+
+function riskActionLabel(action: RiskActionName) {
+  switch (action) {
+    case 'HANDLE':
+      return '处理'
+    case 'IGNORE':
+      return '忽略'
+    case 'FREEZE_USER':
+      return '冻结用户'
+    case 'UNFREEZE_USER':
+      return '解冻用户'
+  }
+}
+
+function buildRelationPreview(relation: RelationDetailResponse, nextInviterIdRaw: string) {
+  const nextLevel1InviterId = nextInviterIdRaw.trim() ? Number(nextInviterIdRaw) : null
+  const changed = nextLevel1InviterId !== relation.level1InviterId
+  return {
+    nextLevel1InviterId,
+    nextBindSource: changed ? 'MANUAL' : relation.bindSource,
+    summary: changed
+      ? nextLevel1InviterId === null
+        ? '将把当前用户改成根关系，并清空上级链路。'
+        : `将把一级上级从 #${relation.level1InviterId ?? '-'} 调整为 #${nextLevel1InviterId}。`
+      : '一级上级未变化，可继续补备注后提交。',
+  }
 }
 
 function canHandleRisk(status: string) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { LinkyReplayRecordListItem, LinkyWebhookLogListItem } from './api'
 import {
+  buildLinkyRelatedContext,
   buildLinkyReplayDetailSections,
   buildLinkyWebhookDetailSections,
   buildLinkyWebhookHeadline,
@@ -8,6 +9,7 @@ import {
 
 const formattedPaidAt = `${new Date('2026-04-23T08:00:00Z').toLocaleDateString()} ${new Date('2026-04-23T08:00:00Z').toLocaleTimeString()}`
 const formattedReceivedAt = `${new Date('2026-04-23T08:01:00Z').toLocaleDateString()} ${new Date('2026-04-23T08:01:00Z').toLocaleTimeString()}`
+const formattedSecondReceivedAt = `${new Date('2026-04-23T08:02:00Z').toLocaleDateString()} ${new Date('2026-04-23T08:02:00Z').toLocaleTimeString()}`
 const formattedFirstSeenAt = `${new Date('2026-04-23T08:00:00Z').toLocaleDateString()} ${new Date('2026-04-23T08:00:00Z').toLocaleTimeString()}`
 const formattedLastSeenAt = `${new Date('2026-04-23T08:05:00Z').toLocaleDateString()} ${new Date('2026-04-23T08:05:00Z').toLocaleTimeString()}`
 
@@ -40,6 +42,20 @@ const replayItem: LinkyReplayRecordListItem = {
   hitCount: 3,
   latestRequestStatus: 'DUPLICATE',
   latestFailureReason: null,
+}
+
+const secondWebhookItem: LinkyWebhookLogListItem = {
+  ...webhookItem,
+  id: 12,
+  requestStatus: 'DUPLICATE',
+  requestReceivedAt: '2026-04-23T08:02:00Z',
+}
+
+const secondReplayItem: LinkyReplayRecordListItem = {
+  ...replayItem,
+  id: 23,
+  requestFingerprint: 'otherfingerprint',
+  linkyOrderId: 'order-1002',
 }
 
 describe('buildLinkyWebhookHeadline', () => {
@@ -110,5 +126,41 @@ describe('buildLinkyReplayDetailSections', () => {
         ],
       },
     ])
+  })
+})
+
+describe('buildLinkyRelatedContext', () => {
+  it('collects same-order webhook and replay records around a webhook detail item', () => {
+    expect(buildLinkyRelatedContext({
+      selected: { kind: 'webhook', item: webhookItem },
+      webhookItems: [webhookItem, secondWebhookItem],
+      replayItems: [replayItem, secondReplayItem],
+    })).toEqual({
+      relatedWebhooks: [
+        `REJECTED · ${formattedReceivedAt}`,
+        `DUPLICATE · ${formattedSecondReceivedAt}`,
+      ],
+      relatedReplays: [
+        'abc123fingerprint · 3 次 · DUPLICATE',
+      ],
+      fingerprintHint: '当前 webhook 列表接口还没返回 requestFingerprint，如需逐条同指纹串联，下一步需要把该字段补到 admin API。',
+    })
+  })
+
+  it('collects same-order webhooks and same-fingerprint replay summary around a replay detail item', () => {
+    expect(buildLinkyRelatedContext({
+      selected: { kind: 'replay', item: replayItem },
+      webhookItems: [webhookItem, secondWebhookItem],
+      replayItems: [replayItem, secondReplayItem],
+    })).toEqual({
+      relatedWebhooks: [
+        `REJECTED · ${formattedReceivedAt}`,
+        `DUPLICATE · ${formattedSecondReceivedAt}`,
+      ],
+      relatedReplays: [
+        'abc123fingerprint · 3 次 · DUPLICATE',
+      ],
+      fingerprintHint: '这条 replay 记录本身就代表同一指纹的累计命中；命中次数和最新状态已经在上面展开。',
+    })
   })
 })

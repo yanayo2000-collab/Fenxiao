@@ -5,6 +5,12 @@ export type LinkyDetailSection = {
   rows: Array<[string, string]>
 }
 
+export type LinkyRelatedContext = {
+  relatedWebhooks: string[]
+  relatedReplays: string[]
+  fingerprintHint: string
+}
+
 export function buildLinkyWebhookHeadline(item: LinkyWebhookLogListItem) {
   return `${item.linkyOrderId || `日志 #${item.id}`} · ${item.requestStatus}`
 }
@@ -64,6 +70,34 @@ export function buildLinkyReplayDetailSections(item: LinkyReplayRecordListItem):
       ],
     },
   ]
+}
+
+export function buildLinkyRelatedContext(input: {
+  selected: { kind: 'webhook'; item: LinkyWebhookLogListItem } | { kind: 'replay'; item: LinkyReplayRecordListItem }
+  webhookItems: LinkyWebhookLogListItem[]
+  replayItems: LinkyReplayRecordListItem[]
+}): LinkyRelatedContext {
+  const linkyOrderId = input.selected.item.linkyOrderId
+  const relatedWebhooks = input.webhookItems
+    .filter((item) => linkyOrderId && item.linkyOrderId === linkyOrderId)
+    .map((item) => `${item.requestStatus} · ${formatTimestamp(item.requestReceivedAt)}`)
+
+  const relatedReplays = input.replayItems
+    .filter((item) => {
+      if (input.selected.kind === 'replay') {
+        return item.requestFingerprint === input.selected.item.requestFingerprint
+      }
+      return linkyOrderId && item.linkyOrderId === linkyOrderId
+    })
+    .map((item) => `${item.requestFingerprint} · ${item.hitCount} 次 · ${item.latestRequestStatus}`)
+
+  return {
+    relatedWebhooks,
+    relatedReplays,
+    fingerprintHint: input.selected.kind === 'replay'
+      ? '这条 replay 记录本身就代表同一指纹的累计命中；命中次数和最新状态已经在上面展开。'
+      : '当前 webhook 列表接口还没返回 requestFingerprint，如需逐条同指纹串联，下一步需要把该字段补到 admin API。',
+  }
 }
 
 function formatTimestamp(value: string | null) {

@@ -32,6 +32,7 @@ import {
   buildPagedResultLabel,
 } from './linkyConsole'
 import {
+  buildLinkyRelatedContext,
   buildLinkyReplayDetailSections,
   buildLinkyWebhookDetailSections,
   buildLinkyWebhookHeadline,
@@ -682,6 +683,13 @@ function App() {
     : selectedLinkyDrawer?.kind === 'replay'
       ? buildLinkyReplayDetailSections(selectedLinkyDrawer.item)
       : []
+  const selectedLinkyRelated = selectedLinkyDrawer
+    ? buildLinkyRelatedContext({
+        selected: selectedLinkyDrawer,
+        webhookItems: linkyWebhookLogs?.items ?? [],
+        replayItems: linkyReplayRecords?.items ?? [],
+      })
+    : null
 
   return (
     <div className="page-shell">
@@ -1321,6 +1329,13 @@ function App() {
           {selectedLinkySections.map((section) => (
             <DetailSection key={section.title} title={section.title} rows={section.rows} />
           ))}
+          {selectedLinkyRelated ? (
+            <RelatedLinkySection
+              relatedWebhooks={selectedLinkyRelated.relatedWebhooks}
+              relatedReplays={selectedLinkyRelated.relatedReplays}
+              fingerprintHint={selectedLinkyRelated.fingerprintHint}
+            />
+          ) : null}
         </DrawerDialog>
       ) : null}
 
@@ -1639,6 +1654,37 @@ function DetailSection({ title, rows }: { title: string; rows: Array<[string, st
             <strong>{value}</strong>
           </div>
         ))}
+      </div>
+    </section>
+  )
+}
+
+function RelatedLinkySection({ relatedWebhooks, relatedReplays, fingerprintHint }: { relatedWebhooks: string[]; relatedReplays: string[]; fingerprintHint: string }) {
+  return (
+    <section className="detail-section">
+      <h4>关联请求视图</h4>
+      <div className="stack-gap small">
+        <div>
+          <p className="detail-subtitle">同订单 webhook</p>
+          {relatedWebhooks.length ? (
+            <ul className="detail-list">
+              {relatedWebhooks.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          ) : (
+            <p className="inline-hint">当前列表范围内没有更多同订单 webhook。</p>
+          )}
+        </div>
+        <div>
+          <p className="detail-subtitle">关联 replay 记录</p>
+          {relatedReplays.length ? (
+            <ul className="detail-list">
+              {relatedReplays.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          ) : (
+            <p className="inline-hint">当前列表范围内没有更多 replay 记录。</p>
+          )}
+          <p className="inline-hint">{fingerprintHint}</p>
+        </div>
       </div>
     </section>
   )

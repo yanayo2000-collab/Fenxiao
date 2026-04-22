@@ -774,6 +774,13 @@ th {
   font-size: 16px;
 }
 
+.detail-subtitle {
+  margin: 0 0 8px;
+  color: #44536d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -799,6 +806,16 @@ th {
   color: #162133;
   line-height: 1.45;
   word-break: break-word;
+}
+
+.detail-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #42506a;
+}
+
+.detail-list li + li {
+  margin-top: 6px;
 }
 
 .dialog-card {

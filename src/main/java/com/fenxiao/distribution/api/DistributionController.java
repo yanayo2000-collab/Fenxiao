@@ -1,12 +1,19 @@
 package com.fenxiao.distribution.api;
 
 import com.fenxiao.common.security.DistributionAccessGuard;
+import com.fenxiao.distribution.api.dto.CreateInviteBindingRequest;
 import com.fenxiao.distribution.api.dto.CreateProfileRequest;
 import com.fenxiao.distribution.api.dto.DistributionHomeResponse;
+import com.fenxiao.distribution.api.dto.InviteBindingResponse;
+import com.fenxiao.distribution.api.dto.IssueInviteCodeRequest;
+import com.fenxiao.distribution.api.dto.IssueInviteCodeResponse;
 import com.fenxiao.distribution.api.dto.ProfileResponse;
 import com.fenxiao.distribution.api.dto.TeamListResponse;
+import com.fenxiao.distribution.entity.InviteBindingRegistration;
 import com.fenxiao.distribution.service.DistributionBindingService;
 import com.fenxiao.distribution.service.DistributionFrontendService;
+import com.fenxiao.distribution.service.InviteBindingRegistrationService;
+import com.fenxiao.distribution.service.InviteCodeIssueService;
 import com.fenxiao.reward.api.dto.RewardListResponse;
 import com.fenxiao.reward.domain.RewardStatus;
 import com.fenxiao.user.entity.UserDistributionProfile;
@@ -28,13 +35,19 @@ public class DistributionController {
 
     private final DistributionBindingService distributionBindingService;
     private final DistributionFrontendService distributionFrontendService;
+    private final InviteBindingRegistrationService inviteBindingRegistrationService;
+    private final InviteCodeIssueService inviteCodeIssueService;
     private final DistributionAccessGuard distributionAccessGuard;
 
     public DistributionController(DistributionBindingService distributionBindingService,
                                   DistributionFrontendService distributionFrontendService,
+                                  InviteBindingRegistrationService inviteBindingRegistrationService,
+                                  InviteCodeIssueService inviteCodeIssueService,
                                   DistributionAccessGuard distributionAccessGuard) {
         this.distributionBindingService = distributionBindingService;
         this.distributionFrontendService = distributionFrontendService;
+        this.inviteBindingRegistrationService = inviteBindingRegistrationService;
+        this.inviteCodeIssueService = inviteCodeIssueService;
         this.distributionAccessGuard = distributionAccessGuard;
     }
 
@@ -63,6 +76,36 @@ public class DistributionController {
                 profile.getCountryCode(),
                 profile.getLanguageCode(),
                 profile.getApiAccessToken()
+        );
+    }
+
+    @PostMapping("/bindings/register")
+    public InviteBindingResponse registerInviteBinding(@Valid @RequestBody CreateInviteBindingRequest request) {
+        InviteBindingRegistration registration = inviteBindingRegistrationService.register(request);
+        return new InviteBindingResponse(
+                registration.getId(),
+                registration.getInviterUserId(),
+                registration.getInviteCode(),
+                registration.getWhatsappNumber(),
+                registration.getLinkyAccount(),
+                registration.getBindStatus(),
+                registration.getSubmittedAt().toString()
+        );
+    }
+
+    @PostMapping("/invite-codes/issue")
+    public IssueInviteCodeResponse issueInviteCode(@Valid @RequestBody IssueInviteCodeRequest request) {
+        InviteCodeIssueService.InviteCodeIssueResult result = inviteCodeIssueService.issue(request);
+        return new IssueInviteCodeResponse(
+                result.profile().getUserId(),
+                result.record().getProductCode(),
+                result.record().getWhatsappNumber(),
+                result.record().getAppAccount(),
+                result.profile().getInviteCode(),
+                result.profile().getCountryCode(),
+                result.profile().getLanguageCode(),
+                result.profile().getApiAccessToken(),
+                result.record().getIssuedAt().toString()
         );
     }
 

@@ -16,7 +16,7 @@ import java.util.Random;
 @Transactional
 public class DistributionBindingService {
 
-    private static final String INVITE_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    private static final String INVITE_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXY3456789";
     private static final int INVITE_CODE_LENGTH = 8;
 
     private final UserDistributionProfileRepository userProfileRepository;
@@ -48,6 +48,11 @@ public class DistributionBindingService {
             bindInviter(userId, inviteCode);
         }
         return profile;
+    }
+
+    public UserDistributionProfile ensureRootProfile(Long userId, String countryCode, String languageCode) {
+        return userProfileRepository.findById(userId)
+                .orElseGet(() -> createProfile(userId, countryCode, languageCode, null));
     }
 
     public DistributionRelation bindInviter(Long userId, String inviteCode) {

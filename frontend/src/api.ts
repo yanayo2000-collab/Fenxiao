@@ -13,6 +13,40 @@ export type ProfileResponse = {
   accessToken: string
 }
 
+export type CreateInviteBindingRequest = {
+  inviteCode: string
+  whatsappNumber: string
+  linkyAccount: string
+}
+
+export type IssueInviteCodeRequest = {
+  productCode: string
+  whatsappNumber: string
+  appAccount: string
+}
+
+export type InviteBindingResponse = {
+  id: number
+  inviterUserId: number
+  inviteCode: string
+  whatsappNumber: string
+  linkyAccount: string
+  bindStatus: string
+  submittedAt: string
+}
+
+export type IssueInviteCodeResponse = {
+  userId: number
+  productCode: string
+  whatsappNumber: string
+  appAccount: string
+  inviteCode: string
+  countryCode: string
+  languageCode: string
+  accessToken: string
+  issuedAt: string
+}
+
 export type AdminSessionResponse = {
   sessionToken: string
   expiresAt: string
@@ -193,6 +227,20 @@ export function createProfile(profileCreateToken: string, payload: CreateProfile
     headers: {
       'X-Profile-Create-Token': profileCreateToken,
     },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function registerInviteBinding(payload: CreateInviteBindingRequest) {
+  return request<InviteBindingResponse>('/api/distribution/bindings/register', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function issueInviteCode(payload: IssueInviteCodeRequest) {
+  return request<IssueInviteCodeResponse>('/api/distribution/invite-codes/issue', {
+    method: 'POST',
     body: JSON.stringify(payload),
   })
 }

@@ -35,6 +35,8 @@ class DistributionBindingServiceTest {
         assertThat(profile.getUserId()).isEqualTo(1001L);
         assertThat(profile.getInviteCode()).isNotBlank();
         assertThat(profile.getInviteCode()).hasSize(8);
+        assertThat(profile.getInviteCode()).matches("^[A-Y3-9]+$");
+        assertThat(profile.getInviteCode()).doesNotContain("0", "O", "2", "Z");
         assertThat(profile.getCountryCode()).isEqualTo("ID");
     }
 

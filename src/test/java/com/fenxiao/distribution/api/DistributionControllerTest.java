@@ -1,6 +1,7 @@
 package com.fenxiao.distribution.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fenxiao.distribution.service.DistributionBindingService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -25,6 +26,9 @@ class DistributionControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private DistributionBindingService distributionBindingService;
 
     @Test
     void shouldRejectProfileCreationWithoutCreateToken() throws Exception {
@@ -105,5 +109,66 @@ class DistributionControllerTest {
                         ))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("invite code not found"));
+    }
+
+    @Test
+    void shouldRegisterInviteBindingUsingInviteCodeWhatsappAndLinkyAccount() throws Exception {
+        String inviteCode = distributionBindingService.createProfile(53001L, "ID", "id", null).getInviteCode();
+
+        mockMvc.perform(post("/api/distribution/bindings/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "inviteCode", inviteCode.toLowerCase(),
+                                "whatsappNumber", "+6281234567890",
+                                "linkyAccount", "12345678"
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.inviteCode").value(inviteCode))
+                .andExpect(jsonPath("$.inviterUserId").value(53001))
+                .andExpect(jsonPath("$.whatsappNumber").value("+6281234567890"))
+                .andExpect(jsonPath("$.linkyAccount").value("12345678"))
+                .andExpect(jsonPath("$.bindStatus").value("ACTIVE"));
+    }
+
+    @Test
+    void shouldRejectDuplicateBindingRegistration() throws Exception {
+        String inviteCode = distributionBindingService.createProfile(53002L, "ID", "id", null).getInviteCode();
+
+        mockMvc.perform(post("/api/distribution/bindings/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "inviteCode", inviteCode,
+                                "whatsappNumber", "+6281111111111",
+                                "linkyAccount", "87654321"
+                        ))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/distribution/bindings/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "inviteCode", inviteCode,
+                                "whatsappNumber", "+6281111111111",
+                                "linkyAccount", "12345678"
+                        ))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("whatsapp number already registered"));
+    }
+
+    @Test
+    void shouldIssueInviteCodeFromProductWhatsappAndAppAccount() throws Exception {
+        mockMvc.perform(post("/api/distribution/invite-codes/issue")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "productCode", "linky",
+                                "whatsappNumber", "+6281234567890",
+                                "appAccount", "12345678"
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(12345678))
+                .andExpect(jsonPath("$.productCode").value("LINKY"))
+                .andExpect(jsonPath("$.whatsappNumber").value("+6281234567890"))
+                .andExpect(jsonPath("$.appAccount").value("12345678"))
+                .andExpect(jsonPath("$.inviteCode").isNotEmpty())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty());
     }
 }

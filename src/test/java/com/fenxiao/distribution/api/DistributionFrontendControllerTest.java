@@ -18,6 +18,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -109,6 +110,37 @@ class DistributionFrontendControllerTest {
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].beneficiaryUserId").value(22001))
                 .andExpect(jsonPath("$.items[0].rewardStatus").value("FROZEN"));
+    }
+
+    @Test
+    void shouldReflectBindingRegistrationInHomeAndTeam() throws Exception {
+        UserDistributionProfile inviter = distributionBindingService.createProfile(23001L, "ID", "id", null);
+        String inviteCode = inviter.getInviteCode();
+        distributionBindingService.ensureRootProfile(87654321L, "ID", "id");
+
+        mockMvc.perform(post("/api/distribution/bindings/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  \"inviteCode\": \"%s\",
+                                  \"whatsappNumber\": \"+6281234567891\",
+                                  \"linkyAccount\": \"87654321\"
+                                }
+                                """.formatted(inviteCode)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/distribution/home/23001")
+                        .header("X-Distribution-Token", inviter.getApiAccessToken())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.invitedUsers").value(1));
+
+        mockMvc.perform(get("/api/distribution/team/23001")
+                        .header("X-Distribution-Token", inviter.getApiAccessToken())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].userId").value(87654321));
     }
 
     private void seedRules() {

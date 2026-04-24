@@ -6,7 +6,7 @@ import {
 } from './opsConsole'
 
 describe('buildAdminTaskCards', () => {
-  it('highlights login and overview before other ops actions are available', () => {
+  it('highlights login and overview before advanced operations are available', () => {
     expect(buildAdminTaskCards({
       adminLoggedIn: false,
       overviewLoaded: false,
@@ -15,33 +15,33 @@ describe('buildAdminTaskCards', () => {
       replayedLinkyRequests: 0,
     })).toEqual([
       {
-        title: '先登录后台',
-        value: '未登录',
+        title: '分销后台会话',
+        value: '待登录',
         tone: 'warning',
-        hint: '先建立后台 session，奖励、风险、Linky 排查区才可用。',
+        hint: '先建立后台 session，概览、邀请码、绑定关系和收益记录才能继续联动。',
       },
       {
-        title: '拉取运营概览',
-        value: '待处理',
+        title: '分销概览',
+        value: '待同步',
         tone: 'primary',
-        hint: '先看规模和风险量，再决定往奖励、风险还是 Linky 入口深挖。',
+        hint: '先同步一次总览，确认当前多产品分销盘子的邀请、收益和异常概况。',
       },
       {
-        title: '处理风险事件',
-        value: '0 条待跟进',
-        tone: 'neutral',
-        hint: '风险列表会优先暴露冻结、人工处置和待复核事件。',
+        title: '异常处理',
+        value: '已清空',
+        tone: 'success',
+        hint: '当前没有待处理异常，可以继续查看绑定关系和收益走势。',
       },
       {
-        title: '排查 Linky 异常',
-        value: '0 条异常',
-        tone: 'neutral',
-        hint: '建议先按订单号查 webhook，再结合 replay 记录判断是否重复推送。',
+        title: '产品事件排查',
+        value: '已稳定',
+        tone: 'success',
+        hint: '高级排查里再按具体产品查看事件日志和重复回放，Linky 只是其中一个产品。',
       },
     ])
   })
 
-  it('elevates risk and Linky anomalies when operational data exists', () => {
+  it('elevates exceptions and product event anomalies when operational data exists', () => {
     expect(buildAdminTaskCards({
       adminLoggedIn: true,
       overviewLoaded: true,
@@ -49,16 +49,16 @@ describe('buildAdminTaskCards', () => {
       failedLinkyRequests: 2,
       replayedLinkyRequests: 4,
     })[2]).toEqual({
-      title: '处理风险事件',
-      value: '3 条待跟进',
+      title: '异常处理',
+      value: '3 条待处理',
       tone: 'danger',
-      hint: '优先处理待复核风险，避免奖励长期冻结。',
+      hint: '优先处理待确认异常，避免绑定关系、收益状态或事件回传长期卡住。',
     })
   })
 })
 
 describe('buildLinkyDiagnosticSnapshot', () => {
-  it('returns a neutral summary before any Linky query has been executed', () => {
+  it('returns a growth-chain warning before any Linky query has been executed', () => {
     expect(buildLinkyDiagnosticSnapshot({
       hasQueried: false,
       processedCount: 0,
@@ -67,12 +67,12 @@ describe('buildLinkyDiagnosticSnapshot', () => {
       replayedCount: 0,
     })).toEqual({
       tone: 'warning',
-      title: 'Linky 还没开始排查',
-      summary: '先按订单号查一笔 webhook，建立基线后再判断是否存在失败、拒绝或重复命中。',
+      title: 'Linky 回传链路待校验',
+      summary: '先按订单号查一笔 Linky webhook，确认收益事件是否已经稳定进入 Fenxiao。',
     })
   })
 
-  it('summarizes failed and replayed requests for first-screen diagnosis', () => {
+  it('summarizes blocked and replayed Linky callbacks for growth diagnosis', () => {
     expect(buildLinkyDiagnosticSnapshot({
       hasQueried: true,
       processedCount: 5,
@@ -81,12 +81,12 @@ describe('buildLinkyDiagnosticSnapshot', () => {
       replayedCount: 4,
     })).toEqual({
       tone: 'danger',
-      title: 'Linky 需要优先排查',
-      summary: '最近查询里有 3 条失败/拒绝请求、4 条重复命中，请先看 webhook 状态再切 replay 记录。',
+      title: 'Linky 回传链路存在阻塞',
+      summary: '最近查询里有 3 条失败/拒绝请求、4 条重复命中，请先确认回传是否影响归因和奖励结算。',
     })
   })
 
-  it('returns a healthy summary when only processed requests are present', () => {
+  it('returns a healthy summary when Linky callback processing is stable', () => {
     expect(buildLinkyDiagnosticSnapshot({
       hasQueried: true,
       processedCount: 6,
@@ -95,8 +95,8 @@ describe('buildLinkyDiagnosticSnapshot', () => {
       replayedCount: 0,
     })).toEqual({
       tone: 'success',
-      title: 'Linky 当前较平稳',
-      summary: '最近查询以 PROCESSED 为主，若还要追单，优先按订单号查 webhook 明细。',
+      title: 'Linky 回传链路较稳定',
+      summary: '最近查询以 PROCESSED 为主，可继续按订单追奖励结算与裂变归因。',
     })
   })
 })

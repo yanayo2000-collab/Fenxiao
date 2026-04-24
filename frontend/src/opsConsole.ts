@@ -24,37 +24,37 @@ export function buildAdminTaskCards(input: {
   failedLinkyRequests: number
   replayedLinkyRequests: number
 }): AdminTaskCard[] {
-  const linkyIssueCount = input.failedLinkyRequests + input.replayedLinkyRequests
+  const productEventIssueCount = input.failedLinkyRequests + input.replayedLinkyRequests
   return [
     {
-      title: '先登录后台',
-      value: input.adminLoggedIn ? '已登录' : '未登录',
+      title: '分销后台会话',
+      value: input.adminLoggedIn ? '已登录' : '待登录',
       tone: input.adminLoggedIn ? 'success' : 'warning',
       hint: input.adminLoggedIn
-        ? '后台 session 已建立，可以直接继续排查与运营处理。'
-        : '先建立后台 session，奖励、风险、Linky 排查区才可用。',
+        ? '后台 session 已建立，可以继续看概览、关系、收益和异常。'
+        : '先建立后台 session，概览、邀请码、绑定关系和收益记录才能继续联动。',
     },
     {
-      title: '拉取运营概览',
-      value: input.overviewLoaded ? '已就绪' : '待处理',
+      title: '分销概览',
+      value: input.overviewLoaded ? '已同步' : '待同步',
       tone: input.overviewLoaded ? 'success' : 'primary',
       hint: input.overviewLoaded
-        ? '概览已到位，可以根据规模和风险量决定下一步动作。'
-        : '先看规模和风险量，再决定往奖励、风险还是 Linky 入口深挖。',
+        ? '总览已到位，可以继续判断邀请码、绑定、收益和异常优先级。'
+        : '先同步一次总览，确认当前多产品分销盘子的邀请、收益和异常概况。',
     },
     {
-      title: '处理风险事件',
-      value: `${input.pendingRiskCount} 条待跟进`,
-      tone: input.pendingRiskCount > 0 ? 'danger' : 'neutral',
+      title: '异常处理',
+      value: input.pendingRiskCount > 0 ? `${input.pendingRiskCount} 条待处理` : '已清空',
+      tone: input.pendingRiskCount > 0 ? 'danger' : 'success',
       hint: input.pendingRiskCount > 0
-        ? '优先处理待复核风险，避免奖励长期冻结。'
-        : '风险列表会优先暴露冻结、人工处置和待复核事件。',
+        ? '优先处理待确认异常，避免绑定关系、收益状态或事件回传长期卡住。'
+        : '当前没有待处理异常，可以继续查看绑定关系和收益走势。',
     },
     {
-      title: '排查 Linky 异常',
-      value: `${linkyIssueCount} 条异常`,
-      tone: linkyIssueCount > 0 ? 'warning' : 'neutral',
-      hint: '建议先按订单号查 webhook，再结合 replay 记录判断是否重复推送。',
+      title: '产品事件排查',
+      value: productEventIssueCount > 0 ? `${productEventIssueCount} 条异常` : '已稳定',
+      tone: productEventIssueCount > 0 ? 'warning' : 'success',
+      hint: '高级排查里再按具体产品查看事件日志和重复回放，Linky 只是其中一个产品。',
     },
   ]
 }
@@ -70,23 +70,23 @@ export function buildLinkyDiagnosticSnapshot(input: {
   if (!input.hasQueried) {
     return {
       tone: 'warning',
-      title: 'Linky 还没开始排查',
-      summary: '先按订单号查一笔 webhook，建立基线后再判断是否存在失败、拒绝或重复命中。',
+      title: 'Linky 回传链路待校验',
+      summary: '先按订单号查一笔 Linky webhook，确认收益事件是否已经稳定进入 Fenxiao。',
     }
   }
   if (blockedCount > 0 || input.replayedCount > 0) {
     return {
       tone: 'danger',
-      title: 'Linky 需要优先排查',
-      summary: `最近查询里有 ${blockedCount} 条失败/拒绝请求、${input.replayedCount} 条重复命中，请先看 webhook 状态再切 replay 记录。`,
+      title: 'Linky 回传链路存在阻塞',
+      summary: `最近查询里有 ${blockedCount} 条失败/拒绝请求、${input.replayedCount} 条重复命中，请先确认回传是否影响归因和奖励结算。`,
     }
   }
   return {
     tone: 'success',
-    title: 'Linky 当前较平稳',
+    title: 'Linky 回传链路较稳定',
     summary: input.processedCount > 0
-      ? '最近查询以 PROCESSED 为主，若还要追单，优先按订单号查 webhook 明细。'
-      : '最近没有命中异常结果，可以换订单号或用户继续追单。',
+      ? '最近查询以 PROCESSED 为主，可继续按订单追奖励结算与裂变归因。'
+      : '最近没有命中异常结果，可以换订单号或用户继续校验增长链路。',
   }
 }
 

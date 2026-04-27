@@ -20,18 +20,22 @@ public class InviteBindingRegistrationService {
     private final InviteBindingRegistrationRepository inviteBindingRegistrationRepository;
     private final DistributionRelationRepository distributionRelationRepository;
     private final DistributionBindingService distributionBindingService;
+    private final UserProductOwnershipService userProductOwnershipService;
 
     public InviteBindingRegistrationService(UserDistributionProfileRepository userDistributionProfileRepository,
                                             InviteBindingRegistrationRepository inviteBindingRegistrationRepository,
                                             DistributionRelationRepository distributionRelationRepository,
-                                            DistributionBindingService distributionBindingService) {
+                                            DistributionBindingService distributionBindingService,
+                                            UserProductOwnershipService userProductOwnershipService) {
         this.userDistributionProfileRepository = userDistributionProfileRepository;
         this.inviteBindingRegistrationRepository = inviteBindingRegistrationRepository;
         this.distributionRelationRepository = distributionRelationRepository;
         this.distributionBindingService = distributionBindingService;
+        this.userProductOwnershipService = userProductOwnershipService;
     }
 
     public InviteBindingRegistration register(CreateInviteBindingRequest request) {
+        String normalizedProductCode = normalizeProductCode(request.productCode());
         String normalizedInviteCode = normalizeInviteCode(request.inviteCode());
         String normalizedWhatsappNumber = normalizeWhatsappNumber(request.whatsappNumber());
         String normalizedLinkyAccount = normalizeLinkyAccount(request.linkyAccount());
@@ -47,6 +51,7 @@ public class InviteBindingRegistrationService {
         }
 
         InviteBindingRegistration registration = InviteBindingRegistration.createActive(
+                normalizedProductCode,
                 inviter.getUserId(),
                 inviter.getInviteCode(),
                 normalizedWhatsappNumber,
@@ -65,7 +70,18 @@ public class InviteBindingRegistrationService {
         } else {
             distributionBindingService.createProfile(inviteeUserId, inviter.getCountryCode(), inviter.getLanguageCode(), inviter.getInviteCode());
         }
+        userProductOwnershipService.claimOwnership(
+                inviteeUserId,
+                normalizedProductCode,
+                "INVITE_BINDING",
+                "INVITE_BINDING_REGISTRATION",
+                saved.getId()
+        );
         return saved;
+    }
+
+    private String normalizeProductCode(String productCode) {
+        return productCode.trim().toUpperCase(Locale.ROOT);
     }
 
     private String normalizeInviteCode(String inviteCode) {

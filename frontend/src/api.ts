@@ -14,6 +14,7 @@ export type ProfileResponse = {
 }
 
 export type CreateInviteBindingRequest = {
+  productCode: string
   inviteCode: string
   whatsappNumber: string
   linkyAccount: string
@@ -27,6 +28,7 @@ export type IssueInviteCodeRequest = {
 
 export type InviteBindingResponse = {
   id: number
+  productCode: string
   inviterUserId: number
   inviteCode: string
   whatsappNumber: string
@@ -157,6 +159,21 @@ export type RelationDetailResponse = {
   crossCountry: boolean
 }
 
+export type OwnershipItemResponse = {
+  id: number
+  productCode: string
+  ownershipStatus: string
+  ownershipSource: string
+  sourceRecordType: string
+  sourceRecordId: number | null
+  effectiveAt: string
+}
+
+export type OwnershipDetailResponse = {
+  userId: number
+  items: OwnershipItemResponse[]
+}
+
 export type LinkyWebhookLogListItem = {
   id: number
   linkyOrderId: string | null
@@ -206,11 +223,11 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers || {}),
     },
-    ...init,
   })
 
   if (!response.ok) {
@@ -276,8 +293,11 @@ export function getDistributionRewards(userId: number, accessToken: string) {
   })
 }
 
-export function getAdminOverview(adminSessionToken: string) {
-  return request<OverviewReportResponse>('/admin/distribution/reports/overview', {
+export function getAdminOverview(adminSessionToken: string, product?: string) {
+  const params = new URLSearchParams()
+  if (product) params.set('product', product)
+  const query = params.toString()
+  return request<OverviewReportResponse>(`/admin/distribution/reports/overview${query ? `?${query}` : ''}`, {
     headers: {
       'X-Admin-Session': adminSessionToken,
     },
@@ -287,6 +307,7 @@ export function getAdminOverview(adminSessionToken: string) {
 export function getAdminRewards(adminSessionToken: string, filters?: {
   beneficiaryUserId?: number
   status?: string
+  product?: string
   startAt?: string
   endAt?: string
   page?: number
@@ -295,6 +316,7 @@ export function getAdminRewards(adminSessionToken: string, filters?: {
   const params = new URLSearchParams()
   if (filters?.beneficiaryUserId) params.set('beneficiaryUserId', String(filters.beneficiaryUserId))
   if (filters?.status) params.set('status', filters.status)
+  if (filters?.product) params.set('product', filters.product)
   if (filters?.startAt) params.set('startAt', filters.startAt)
   if (filters?.endAt) params.set('endAt', filters.endAt)
   if (filters?.page !== undefined) params.set('page', String(filters.page))
@@ -310,6 +332,7 @@ export function getAdminRewards(adminSessionToken: string, filters?: {
 export function getAdminRiskEvents(adminSessionToken: string, filters?: {
   userId?: number
   riskStatus?: string
+  product?: string
   startAt?: string
   endAt?: string
   page?: number
@@ -318,6 +341,7 @@ export function getAdminRiskEvents(adminSessionToken: string, filters?: {
   const params = new URLSearchParams()
   if (filters?.userId) params.set('userId', String(filters.userId))
   if (filters?.riskStatus) params.set('riskStatus', filters.riskStatus)
+  if (filters?.product) params.set('product', filters.product)
   if (filters?.startAt) params.set('startAt', filters.startAt)
   if (filters?.endAt) params.set('endAt', filters.endAt)
   if (filters?.page !== undefined) params.set('page', String(filters.page))
@@ -330,8 +354,11 @@ export function getAdminRiskEvents(adminSessionToken: string, filters?: {
   })
 }
 
-export function getAdminRelation(adminSessionToken: string, userId: number) {
-  return request<RelationDetailResponse>(`/admin/distribution/relation/${userId}`, {
+export function getAdminRelation(adminSessionToken: string, userId: number, product?: string) {
+  const params = new URLSearchParams()
+  if (product) params.set('product', product)
+  const query = params.toString()
+  return request<RelationDetailResponse>(`/admin/distribution/relation/${userId}${query ? `?${query}` : ''}`, {
     headers: {
       'X-Admin-Session': adminSessionToken,
     },
@@ -341,8 +368,32 @@ export function getAdminRelation(adminSessionToken: string, userId: number) {
 export function adjustAdminRelation(adminSessionToken: string, userId: number, payload: {
   level1InviterId?: number
   note?: string
+}, product?: string) {
+  const params = new URLSearchParams()
+  if (product) params.set('product', product)
+  const query = params.toString()
+  return request<RelationDetailResponse>(`/admin/distribution/relation/${userId}/adjustments${query ? `?${query}` : ''}`, {
+    method: 'POST',
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getAdminOwnership(adminSessionToken: string, userId: number) {
+  return request<OwnershipDetailResponse>(`/admin/distribution/ownership/${userId}`, {
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+  })
+}
+
+export function correctAdminOwnership(adminSessionToken: string, userId: number, payload: {
+  productCode: string
+  note?: string
 }) {
-  return request<RelationDetailResponse>(`/admin/distribution/relation/${userId}/adjustments`, {
+  return request<OwnershipDetailResponse>(`/admin/distribution/ownership/${userId}/corrections`, {
     method: 'POST',
     headers: {
       'X-Admin-Session': adminSessionToken,
@@ -385,6 +436,7 @@ export function getAdminLinkyWebhookLogs(adminSessionToken: string, filters?: {
   linkyOrderId?: string
   userId?: number
   requestStatus?: string
+  product?: string
   page?: number
   size?: number
 }) {
@@ -392,6 +444,7 @@ export function getAdminLinkyWebhookLogs(adminSessionToken: string, filters?: {
   if (filters?.linkyOrderId) params.set('linkyOrderId', filters.linkyOrderId)
   if (filters?.userId !== undefined) params.set('userId', String(filters.userId))
   if (filters?.requestStatus) params.set('requestStatus', filters.requestStatus)
+  if (filters?.product) params.set('product', filters.product)
   if (filters?.page !== undefined) params.set('page', String(filters.page))
   if (filters?.size !== undefined) params.set('size', String(filters.size))
   const query = params.toString()
@@ -405,12 +458,14 @@ export function getAdminLinkyWebhookLogs(adminSessionToken: string, filters?: {
 export function getAdminLinkyReplayRecords(adminSessionToken: string, filters?: {
   linkyOrderId?: string
   userId?: number
+  product?: string
   page?: number
   size?: number
 }) {
   const params = new URLSearchParams()
   if (filters?.linkyOrderId) params.set('linkyOrderId', filters.linkyOrderId)
   if (filters?.userId !== undefined) params.set('userId', String(filters.userId))
+  if (filters?.product) params.set('product', filters.product)
   if (filters?.page !== undefined) params.set('page', String(filters.page))
   if (filters?.size !== undefined) params.set('size', String(filters.size))
   const query = params.toString()

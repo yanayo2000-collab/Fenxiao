@@ -24,13 +24,16 @@ public class LinkyWebhookLogService {
     private final LinkyWebhookLogRepository linkyWebhookLogRepository;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final AdminProductScopeService adminProductScopeService;
 
     public LinkyWebhookLogService(LinkyWebhookLogRepository linkyWebhookLogRepository,
                                   ObjectMapper objectMapper,
-                                  Clock clock) {
+                                  Clock clock,
+                                  AdminProductScopeService adminProductScopeService) {
         this.linkyWebhookLogRepository = linkyWebhookLogRepository;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.adminProductScopeService = adminProductScopeService;
     }
 
     public void record(LinkyIncomeEventRequest request,
@@ -68,19 +71,46 @@ public class LinkyWebhookLogService {
         ));
     }
 
-    public LinkyWebhookLogListResponse getLogs(String linkyOrderId, Long userId, String requestStatus, int page, int size) {
+    public LinkyWebhookLogListResponse getLogs(String linkyOrderId,
+                                               Long userId,
+                                               String requestStatus,
+                                               int page,
+                                               int size,
+                                               String productCode) {
         if (page < 0) {
             throw new IllegalArgumentException("page must be greater than or equal to 0");
         }
         if (size < 1 || size > 100) {
             throw new IllegalArgumentException("size must be between 1 and 100");
         }
-        Page<LinkyWebhookLog> logs = linkyWebhookLogRepository.findForAdmin(
-                normalize(linkyOrderId),
-                userId,
-                normalize(requestStatus),
-                PageRequest.of(page, size)
-        );
+        String normalizedProductCode = adminProductScopeService.normalizeProductCode(productCode);
+        Page<LinkyWebhookLog> logs;
+        if (normalizedProductCode == null) {
+            logs = linkyWebhookLogRepository.findForAdmin(
+                    normalize(linkyOrderId),
+                    userId,
+                    normalize(requestStatus),
+                    PageRequest.of(page, size)
+            );
+        } else {
+            List<Long> scopedUserIds = adminProductScopeService.resolveScopedUserIds(normalizedProductCode);
+            if (scopedUserIds.isEmpty()) {
+                return new LinkyWebhookLogListResponse(List.of(), 0, page, size);
+            }
+            if (userId != null) {
+                if (!scopedUserIds.contains(userId)) {
+                    return new LinkyWebhookLogListResponse(List.of(), 0, page, size);
+                }
+                scopedUserIds = List.of(userId);
+            }
+            logs = linkyWebhookLogRepository.findForAdminByUserIdIn(
+                    scopedUserIds,
+                    normalize(linkyOrderId),
+                    userId,
+                    normalize(requestStatus),
+                    PageRequest.of(page, size)
+            );
+        }
         List<LinkyWebhookLogItem> items = new ArrayList<>();
         for (LinkyWebhookLog log : logs.getContent()) {
             items.add(new LinkyWebhookLogItem(

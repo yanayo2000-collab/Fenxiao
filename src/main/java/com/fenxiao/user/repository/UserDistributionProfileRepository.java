@@ -11,5 +11,7 @@ public interface UserDistributionProfileRepository extends JpaRepository<UserDis
     Optional<UserDistributionProfile> findByInviteCode(String inviteCode);
     boolean existsByInviteCode(String inviteCode);
     long countByEffectiveUserTrue();
+    long countByUserIdIn(Collection<Long> userIds);
+    long countByUserIdInAndEffectiveUserTrue(Collection<Long> userIds);
     List<UserDistributionProfile> findByUserIdIn(Collection<Long> userIds);
 }

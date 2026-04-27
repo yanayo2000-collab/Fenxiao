@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 
 public interface RiskEventRepository extends JpaRepository<RiskEvent, Long> {
 
@@ -24,4 +25,20 @@ public interface RiskEventRepository extends JpaRepository<RiskEvent, Long> {
                                         LocalDateTime startAt,
                                         LocalDateTime endAt,
                                         Pageable pageable);
+
+    @Query("""
+            select r from RiskEvent r
+            where r.userId in :userIds
+              and (:riskStatus is null or r.riskStatus = :riskStatus)
+              and (:startAt is null or r.detectedAt >= :startAt)
+              and (:endAt is null or r.detectedAt <= :endAt)
+            order by r.id desc
+            """)
+    Page<RiskEvent> findAdminRiskEventsByUserIdIn(Collection<Long> userIds,
+                                                  RiskStatus riskStatus,
+                                                  LocalDateTime startAt,
+                                                  LocalDateTime endAt,
+                                                  Pageable pageable);
+
+    long countByUserIdIn(Collection<Long> userIds);
 }

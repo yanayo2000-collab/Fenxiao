@@ -15,16 +15,24 @@ import java.util.Optional;
 
 public interface RewardRecordRepository extends JpaRepository<RewardRecord, Long> {
     List<RewardRecord> findBySourceEventIdOrderByRewardLevelAsc(String sourceEventId);
+
     Optional<RewardRecord> findBySourceEventIdAndBeneficiaryUserIdAndRewardLevel(String sourceEventId, Long beneficiaryUserId, Integer rewardLevel);
+
     List<RewardRecord> findTop50ByOrderByIdDesc();
+
     List<RewardRecord> findByBeneficiaryUserIdOrderByIdDesc(Long beneficiaryUserId);
+
     List<RewardRecord> findByBeneficiaryUserIdAndRewardStatusOrderByIdDesc(Long beneficiaryUserId, RewardStatus rewardStatus);
+
     List<RewardRecord> findByBeneficiaryUserIdAndRewardStatus(Long beneficiaryUserId, RewardStatus rewardStatus);
+
     List<RewardRecord> findByBeneficiaryUserIdAndRewardStatusIn(Long beneficiaryUserId, Collection<RewardStatus> rewardStatuses);
+
     List<RewardRecord> findBySourceUserIdAndRewardStatus(Long sourceUserId, RewardStatus rewardStatus);
+
     List<RewardRecord> findBySourceUserIdAndRewardStatusIn(Long sourceUserId, Collection<RewardStatus> rewardStatuses);
-    List<RewardRecord> findByRewardStatusOrderByIdDesc(RewardStatus rewardStatus);
-    List<RewardRecord> findByRewardStatusAndUnfreezeAtLessThanEqual(RewardStatus rewardStatus, LocalDateTime unfreezeAt);
+
+    List<RewardRecord> findByRewardStatusAndUnfreezeAtLessThanEqual(RewardStatus rewardStatus, LocalDateTime now);
 
     @Query("""
             select r from RewardRecord r
@@ -40,6 +48,20 @@ public interface RewardRecordRepository extends JpaRepository<RewardRecord, Long
                                         LocalDateTime endAt,
                                         Pageable pageable);
 
+    @Query("""
+            select r from RewardRecord r
+            where r.beneficiaryUserId in :beneficiaryUserIds
+              and (:status is null or r.rewardStatus = :status)
+              and (:startAt is null or r.calculatedAt >= :startAt)
+              and (:endAt is null or r.calculatedAt <= :endAt)
+            order by r.id desc
+            """)
+    Page<RewardRecord> findAdminRewardsByBeneficiaryUserIdIn(Collection<Long> beneficiaryUserIds,
+                                                             RewardStatus status,
+                                                             LocalDateTime startAt,
+                                                             LocalDateTime endAt,
+                                                             Pageable pageable);
+
     @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r")
     BigDecimal sumRewardAmount();
 
@@ -51,4 +73,10 @@ public interface RewardRecordRepository extends JpaRepository<RewardRecord, Long
 
     @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId = :beneficiaryUserId and r.rewardStatus = :status")
     BigDecimal sumRewardAmountByBeneficiaryUserIdAndStatus(Long beneficiaryUserId, RewardStatus status);
+
+    @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId in :beneficiaryUserIds")
+    BigDecimal sumRewardAmountByBeneficiaryUserIdIn(Collection<Long> beneficiaryUserIds);
+
+    @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId in :beneficiaryUserIds and r.rewardStatus = :status")
+    BigDecimal sumRewardAmountByBeneficiaryUserIdInAndStatus(Collection<Long> beneficiaryUserIds, RewardStatus status);
 }

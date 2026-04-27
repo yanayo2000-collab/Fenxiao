@@ -22,11 +22,14 @@ public class LinkyReplayRecordService {
 
     private final LinkyReplayRecordRepository linkyReplayRecordRepository;
     private final Clock clock;
+    private final AdminProductScopeService adminProductScopeService;
 
     public LinkyReplayRecordService(LinkyReplayRecordRepository linkyReplayRecordRepository,
-                                    Clock clock) {
+                                    Clock clock,
+                                    AdminProductScopeService adminProductScopeService) {
         this.linkyReplayRecordRepository = linkyReplayRecordRepository;
         this.clock = clock;
+        this.adminProductScopeService = adminProductScopeService;
     }
 
     @Transactional
@@ -63,14 +66,39 @@ public class LinkyReplayRecordService {
                 });
     }
 
-    public LinkyReplayRecordListResponse getRecords(String linkyOrderId, Long userId, int page, int size) {
+    public LinkyReplayRecordListResponse getRecords(String linkyOrderId,
+                                                    Long userId,
+                                                    int page,
+                                                    int size,
+                                                    String productCode) {
         if (page < 0) {
             throw new IllegalArgumentException("page must be greater than or equal to 0");
         }
         if (size < 1 || size > 100) {
             throw new IllegalArgumentException("size must be between 1 and 100");
         }
-        Page<LinkyReplayRecord> records = linkyReplayRecordRepository.findForAdmin(normalize(linkyOrderId), userId, PageRequest.of(page, size));
+        String normalizedProductCode = adminProductScopeService.normalizeProductCode(productCode);
+        Page<LinkyReplayRecord> records;
+        if (normalizedProductCode == null) {
+            records = linkyReplayRecordRepository.findForAdmin(normalizeFilter(linkyOrderId), userId, PageRequest.of(page, size));
+        } else {
+            List<Long> scopedUserIds = adminProductScopeService.resolveScopedUserIds(normalizedProductCode);
+            if (scopedUserIds.isEmpty()) {
+                return new LinkyReplayRecordListResponse(List.of(), 0, page, size);
+            }
+            if (userId != null) {
+                if (!scopedUserIds.contains(userId)) {
+                    return new LinkyReplayRecordListResponse(List.of(), 0, page, size);
+                }
+                scopedUserIds = List.of(userId);
+            }
+            records = linkyReplayRecordRepository.findForAdminByUserIdIn(
+                    scopedUserIds,
+                    normalizeFilter(linkyOrderId),
+                    userId,
+                    PageRequest.of(page, size)
+            );
+        }
         List<LinkyReplayRecordItem> items = new ArrayList<>();
         for (LinkyReplayRecord record : records.getContent()) {
             items.add(new LinkyReplayRecordItem(
@@ -114,6 +142,13 @@ public class LinkyReplayRecordService {
     private String normalize(String value) {
         if (value == null || value.isBlank()) {
             return "-";
+        }
+        return value.trim();
+    }
+
+    private String normalizeFilter(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
         }
         return value.trim();
     }

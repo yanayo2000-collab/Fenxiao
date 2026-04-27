@@ -17,6 +17,9 @@ public class InviteBindingRegistration extends BaseEntity {
     @jakarta.persistence.GeneratedValue(strategy = jakarta.persistence.GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "product_code", nullable = false, length = 32)
+    private String productCode;
+
     @Column(name = "inviter_user_id", nullable = false)
     private Long inviterUserId;
 
@@ -43,6 +46,10 @@ public class InviteBindingRegistration extends BaseEntity {
 
     public Long getId() {
         return id;
+    }
+
+    public String getProductCode() {
+        return productCode;
     }
 
     public Long getInviterUserId() {
@@ -73,11 +80,13 @@ public class InviteBindingRegistration extends BaseEntity {
         return remark;
     }
 
-    public static InviteBindingRegistration createActive(Long inviterUserId,
+    public static InviteBindingRegistration createActive(String productCode,
+                                                         Long inviterUserId,
                                                          String inviteCode,
                                                          String whatsappNumber,
                                                          String linkyAccount) {
         InviteBindingRegistration registration = new InviteBindingRegistration();
+        registration.productCode = productCode;
         registration.inviterUserId = inviterUserId;
         registration.inviteCode = inviteCode;
         registration.whatsappNumber = whatsappNumber;

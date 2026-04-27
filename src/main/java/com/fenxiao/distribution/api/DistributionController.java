@@ -84,6 +84,7 @@ public class DistributionController {
         InviteBindingRegistration registration = inviteBindingRegistrationService.register(request);
         return new InviteBindingResponse(
                 registration.getId(),
+                registration.getProductCode(),
                 registration.getInviterUserId(),
                 registration.getInviteCode(),
                 registration.getWhatsappNumber(),

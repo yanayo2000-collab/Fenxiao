@@ -118,11 +118,13 @@ class DistributionControllerTest {
         mockMvc.perform(post("/api/distribution/bindings/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
+                                "productCode", "linky",
                                 "inviteCode", inviteCode.toLowerCase(),
                                 "whatsappNumber", "+6281234567890",
                                 "linkyAccount", "12345678"
                         ))))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.productCode").value("LINKY"))
                 .andExpect(jsonPath("$.inviteCode").value(inviteCode))
                 .andExpect(jsonPath("$.inviterUserId").value(53001))
                 .andExpect(jsonPath("$.whatsappNumber").value("+6281234567890"))
@@ -137,8 +139,9 @@ class DistributionControllerTest {
         mockMvc.perform(post("/api/distribution/bindings/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
+                                "productCode", "linky",
                                 "inviteCode", inviteCode,
-                                "whatsappNumber", "+6281111111111",
+                                "whatsappNumber", "+6281234500002",
                                 "linkyAccount", "87654321"
                         ))))
                 .andExpect(status().isOk());
@@ -146,8 +149,9 @@ class DistributionControllerTest {
         mockMvc.perform(post("/api/distribution/bindings/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
+                                "productCode", "linky",
                                 "inviteCode", inviteCode,
-                                "whatsappNumber", "+6281111111111",
+                                "whatsappNumber", "+6281234500002",
                                 "linkyAccount", "12345678"
                         ))))
                 .andExpect(status().isBadRequest())

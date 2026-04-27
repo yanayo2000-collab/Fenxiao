@@ -17,9 +17,12 @@ import java.util.List;
 public class RiskEventQueryService {
 
     private final RiskEventRepository riskEventRepository;
+    private final AdminProductScopeService adminProductScopeService;
 
-    public RiskEventQueryService(RiskEventRepository riskEventRepository) {
+    public RiskEventQueryService(RiskEventRepository riskEventRepository,
+                                 AdminProductScopeService adminProductScopeService) {
         this.riskEventRepository = riskEventRepository;
+        this.adminProductScopeService = adminProductScopeService;
     }
 
     public RiskEventListResponse getRiskEvents(Long userId,
@@ -27,15 +30,38 @@ public class RiskEventQueryService {
                                                LocalDateTime startAt,
                                                LocalDateTime endAt,
                                                int page,
-                                               int size) {
+                                               int size,
+                                               String productCode) {
         validatePageRequest(page, size);
-        Page<RiskEvent> riskEvents = riskEventRepository.findAdminRiskEvents(
-                userId,
-                riskStatus,
-                startAt,
-                endAt,
-                PageRequest.of(page, size)
-        );
+        String normalizedProductCode = adminProductScopeService.normalizeProductCode(productCode);
+        Page<RiskEvent> riskEvents;
+        if (normalizedProductCode == null) {
+            riskEvents = riskEventRepository.findAdminRiskEvents(
+                    userId,
+                    riskStatus,
+                    startAt,
+                    endAt,
+                    PageRequest.of(page, size)
+            );
+        } else {
+            List<Long> scopedUserIds = adminProductScopeService.resolveScopedUserIds(normalizedProductCode);
+            if (scopedUserIds.isEmpty()) {
+                return new RiskEventListResponse(List.of(), 0, page, size);
+            }
+            if (userId != null) {
+                if (!scopedUserIds.contains(userId)) {
+                    return new RiskEventListResponse(List.of(), 0, page, size);
+                }
+                scopedUserIds = List.of(userId);
+            }
+            riskEvents = riskEventRepository.findAdminRiskEventsByUserIdIn(
+                    scopedUserIds,
+                    riskStatus,
+                    startAt,
+                    endAt,
+                    PageRequest.of(page, size)
+            );
+        }
 
         List<RiskEventListItem> items = new ArrayList<>();
         for (RiskEvent riskEvent : riskEvents.getContent()) {

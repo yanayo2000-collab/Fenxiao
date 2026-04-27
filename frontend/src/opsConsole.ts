@@ -17,6 +17,21 @@ export type EmptyStatePreset = {
   actionLabel: string
 }
 
+export type AdminWorkspaceShortcut = {
+  title: string
+  value: string
+  description: string
+  tone: 'neutral' | 'primary' | 'success' | 'warning'
+  href: string
+  cta: string
+}
+
+export type AdminSectionLink = {
+  label: string
+  description: string
+  href: string
+}
+
 export function buildAdminTaskCards(input: {
   adminLoggedIn: boolean
   overviewLoaded: boolean
@@ -55,6 +70,82 @@ export function buildAdminTaskCards(input: {
       value: productEventIssueCount > 0 ? `${productEventIssueCount} 条异常` : '已稳定',
       tone: productEventIssueCount > 0 ? 'warning' : 'success',
       hint: '高级排查里再按具体产品查看事件日志和重复回放，Linky 只是其中一个产品。',
+    },
+  ]
+}
+
+export function buildAdminWorkspaceShortcuts(input: {
+  adminLoggedIn: boolean
+  overviewLoaded: boolean
+  pendingRiskCount: number
+}): AdminWorkspaceShortcut[] {
+  return [
+    {
+      title: '先登录后台',
+      value: input.adminLoggedIn ? '已完成' : '现在去做',
+      description: input.adminLoggedIn ? '后台会话已建立，可以直接继续查概览和业务问题。' : '第一步先建立后台会话，不然大部分模块都只是占位。',
+      tone: input.adminLoggedIn ? 'success' : 'primary',
+      href: '#admin-login',
+      cta: input.adminLoggedIn ? '查看登录状态' : '去登录',
+    },
+    {
+      title: '同步分销概览',
+      value: input.overviewLoaded ? '已同步' : input.adminLoggedIn ? '建议现在同步' : '登录后再做',
+      description: input.overviewLoaded ? '已经有全局盘面，可以继续判断邀请码、收益和异常优先级。' : '先拉一次总览，后面再查单点问题会更有方向。',
+      tone: input.overviewLoaded ? 'success' : input.adminLoggedIn ? 'warning' : 'neutral',
+      href: '#admin-overview',
+      cta: '去看概览',
+    },
+    {
+      title: '管理邀请码与对外入口',
+      value: '三页入口已就位',
+      description: '发码、绑定、收益查看都统一放在这一块，运营不用再去侧边找链接。',
+      tone: 'primary',
+      href: '#admin-invite-ops',
+      cta: '去看入口',
+    },
+    {
+      title: '按问题进入模块',
+      value: input.pendingRiskCount > 0 ? `${input.pendingRiskCount} 个异常待处理` : '按场景操作',
+      description: input.pendingRiskCount > 0 ? '先处理异常，再回头看绑定和收益，避免误判。' : '查收益去收益记录，查归属去绑定关系，查回传去高级排查。',
+      tone: input.pendingRiskCount > 0 ? 'warning' : 'neutral',
+      href: '#admin-modules',
+      cta: '查看模块',
+    },
+  ]
+}
+
+export function buildAdminSectionLinks(): AdminSectionLink[] {
+  return [
+    {
+      label: '邀请码与对外入口',
+      description: '统一管理 invite / bind / earnings 三个对外页面，适合发给渠道、客服或用户。',
+      href: '#admin-invite-ops',
+    },
+    {
+      label: '收益记录',
+      description: '奖励没起来、金额不对、状态异常时，先从这里查。',
+      href: '#admin-rewards',
+    },
+    {
+      label: '产品归属',
+      description: '查单个用户当前归属到哪个产品，必要时做人工修正。',
+      href: '#admin-ownership',
+    },
+    {
+      label: '绑定关系',
+      description: '用户归属错了、需要人工修正关系时，从这里进。',
+      href: '#admin-bindings',
+    },
+    {
+      label: '异常处理',
+      description: '有待处理风险、冻结、忽略或人工复核需求时，从这里进。',
+      href: '#admin-exceptions',
+    },
+    {
+      label: '高级排查',
+      description: '只有产品事件链路出问题时再展开，避免主后台一上来太重。',
+      href: '#admin-advanced',
     },
   ]
 }

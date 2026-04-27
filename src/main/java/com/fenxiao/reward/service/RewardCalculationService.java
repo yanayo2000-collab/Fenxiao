@@ -1,5 +1,6 @@
 package com.fenxiao.reward.service;
 
+import com.fenxiao.admin.service.AdminProductScopeService;
 import com.fenxiao.distribution.domain.UserStatus;
 import com.fenxiao.distribution.entity.DistributionRelation;
 import com.fenxiao.distribution.repository.DistributionRelationRepository;
@@ -40,19 +41,22 @@ public class RewardCalculationService {
     private final DistributionRelationRepository relationRepository;
     private final UserDistributionProfileRepository userProfileRepository;
     private final RiskEventRepository riskEventRepository;
+    private final AdminProductScopeService adminProductScopeService;
 
     public RewardCalculationService(IncomeEventRepository incomeEventRepository,
                                     RewardRecordRepository rewardRecordRepository,
                                     RewardRuleRepository rewardRuleRepository,
                                     DistributionRelationRepository relationRepository,
                                     UserDistributionProfileRepository userProfileRepository,
-                                    RiskEventRepository riskEventRepository) {
+                                    RiskEventRepository riskEventRepository,
+                                    AdminProductScopeService adminProductScopeService) {
         this.incomeEventRepository = incomeEventRepository;
         this.rewardRecordRepository = rewardRecordRepository;
         this.rewardRuleRepository = rewardRuleRepository;
         this.relationRepository = relationRepository;
         this.userProfileRepository = userProfileRepository;
         this.riskEventRepository = riskEventRepository;
+        this.adminProductScopeService = adminProductScopeService;
     }
 
     public IncomeProcessStatus processIncomeEvent(String sourceEventId,
@@ -124,15 +128,38 @@ public class RewardCalculationService {
                                                LocalDateTime startAt,
                                                LocalDateTime endAt,
                                                int page,
-                                               int size) {
+                                               int size,
+                                               String productCode) {
         validatePageRequest(page, size);
-        Page<RewardRecord> rewardPage = rewardRecordRepository.findAdminRewards(
-                beneficiaryUserId,
-                status,
-                startAt,
-                endAt,
-                PageRequest.of(page, size)
-        );
+        String normalizedProductCode = adminProductScopeService.normalizeProductCode(productCode);
+        Page<RewardRecord> rewardPage;
+        if (normalizedProductCode == null) {
+            rewardPage = rewardRecordRepository.findAdminRewards(
+                    beneficiaryUserId,
+                    status,
+                    startAt,
+                    endAt,
+                    PageRequest.of(page, size)
+            );
+        } else {
+            List<Long> scopedUserIds = adminProductScopeService.resolveScopedUserIds(normalizedProductCode);
+            if (scopedUserIds.isEmpty()) {
+                return new RewardListResponse(List.of(), 0, page, size);
+            }
+            if (beneficiaryUserId != null) {
+                if (!scopedUserIds.contains(beneficiaryUserId)) {
+                    return new RewardListResponse(List.of(), 0, page, size);
+                }
+                scopedUserIds = List.of(beneficiaryUserId);
+            }
+            rewardPage = rewardRecordRepository.findAdminRewardsByBeneficiaryUserIdIn(
+                    scopedUserIds,
+                    status,
+                    startAt,
+                    endAt,
+                    PageRequest.of(page, size)
+            );
+        }
 
         List<RewardListItem> items = new ArrayList<>();
         for (RewardRecord record : rewardPage.getContent()) {

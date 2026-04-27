@@ -1,9 +1,11 @@
 package com.fenxiao.admin.api;
 
 import com.fenxiao.audit.repository.OperationAuditLogRepository;
+import com.fenxiao.distribution.api.dto.IssueInviteCodeRequest;
 import com.fenxiao.distribution.entity.DistributionRelation;
 import com.fenxiao.distribution.repository.DistributionRelationRepository;
 import com.fenxiao.distribution.service.DistributionBindingService;
+import com.fenxiao.distribution.service.InviteCodeIssueService;
 import com.fenxiao.linky.repository.LinkyWebhookLogRepository;
 import com.fenxiao.reward.entity.RewardRecord;
 import com.fenxiao.reward.repository.RewardRecordRepository;
@@ -48,6 +50,9 @@ class DistributionMvpAdminControllerTest {
     private DistributionBindingService distributionBindingService;
 
     @Autowired
+    private InviteCodeIssueService inviteCodeIssueService;
+
+    @Autowired
     private RewardCalculationService rewardCalculationService;
 
     @Autowired
@@ -71,6 +76,9 @@ class DistributionMvpAdminControllerTest {
     @Autowired
     private LinkyWebhookLogRepository linkyWebhookLogRepository;
 
+    @Autowired
+    private com.fenxiao.distribution.repository.UserProductOwnershipRepository userProductOwnershipRepository;
+
     @Test
     void shouldReturnRelationDetailForUser() throws Exception {
         String rootCode = distributionBindingService.createProfile(10001L, "ID", "id", null).getInviteCode();
@@ -85,6 +93,33 @@ class DistributionMvpAdminControllerTest {
                 .andExpect(jsonPath("$.level1InviterId").value(10002))
                 .andExpect(jsonPath("$.level2InviterId").value(10001))
                 .andExpect(jsonPath("$.lockStatus").value("UNLOCKED"));
+    }
+
+    @Test
+    void shouldRestrictRelationDetailByProductCode() throws Exception {
+        String linkyRootCode = inviteCodeIssueService.issue(new IssueInviteCodeRequest("LINKY", "+628****5101", "10101")).record().getInviteCode();
+        distributionBindingService.createProfile(10102L, "ID", "id", linkyRootCode);
+        inviteCodeIssueService.issue(new IssueInviteCodeRequest("LINKY", "+628****5102", "10102"));
+
+        String toolRootCode = inviteCodeIssueService.issue(new IssueInviteCodeRequest("TOOLX", "+628****5201", "10201")).record().getInviteCode();
+        distributionBindingService.createProfile(10202L, "ID", "id", toolRootCode);
+        inviteCodeIssueService.issue(new IssueInviteCodeRequest("TOOLX", "+628****5202", "10202"));
+
+        String adminSessionToken = loginAsAdmin();
+
+        mockMvc.perform(get("/admin/distribution/relation/10102")
+                        .header("X-Admin-Session", adminSessionToken)
+                        .param("product", "LINKY")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(10102));
+
+        mockMvc.perform(get("/admin/distribution/relation/10102")
+                        .header("X-Admin-Session", adminSessionToken)
+                        .param("product", "TOOLX")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("distribution relation not found for product"));
     }
 
     @Test
@@ -121,6 +156,54 @@ class DistributionMvpAdminControllerTest {
                 .andExpect(jsonPath("$.effectiveUsers").value(2))
                 .andExpect(jsonPath("$.rewardTotal").value(21.0))
                 .andExpect(jsonPath("$.frozenRewardTotal").value(21.0));
+    }
+
+    @Test
+    void shouldFilterOverviewRewardsAndRiskEventsByProductCode() throws Exception {
+        seedRules();
+        String linkyRootCode = inviteCodeIssueService.issue(new IssueInviteCodeRequest("LINKY", "+628111111111", "21001")).record().getInviteCode();
+        distributionBindingService.createProfile(21002L, "ID", "id", linkyRootCode);
+        inviteCodeIssueService.issue(new IssueInviteCodeRequest("LINKY", "+628111111112", "21002"));
+
+        String toolRootCode = inviteCodeIssueService.issue(new IssueInviteCodeRequest("TOOLX", "+628222222221", "22001")).record().getInviteCode();
+        distributionBindingService.createProfile(22002L, "ID", "id", toolRootCode);
+        inviteCodeIssueService.issue(new IssueInviteCodeRequest("TOOLX", "+628222222222", "22002"));
+
+        UserDistributionProfile linkyRiskUser = userDistributionProfileRepository.findById(21002L).orElseThrow();
+        linkyRiskUser.markAsRiskUser();
+        userDistributionProfileRepository.save(linkyRiskUser);
+
+        rewardCalculationService.processIncomeEvent("evt-linky-product-1", 21002L, new BigDecimal("100.00"), "USD", LocalDateTime.of(2026, 4, 22, 10, 0));
+        rewardCalculationService.processIncomeEvent("evt-toolx-product-1", 22002L, new BigDecimal("200.00"), "USD", LocalDateTime.of(2026, 4, 22, 11, 0));
+
+        String adminSessionToken = loginAsAdmin();
+
+        mockMvc.perform(get("/admin/distribution/reports/overview")
+                        .header("X-Admin-Session", adminSessionToken)
+                        .param("product", "LINKY")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.invitedUsers").value(1))
+                .andExpect(jsonPath("$.effectiveUsers").value(1))
+                .andExpect(jsonPath("$.rewardTotal").value(15.0))
+                .andExpect(jsonPath("$.riskEventCount").value(1));
+
+        mockMvc.perform(get("/admin/distribution/rewards")
+                        .header("X-Admin-Session", adminSessionToken)
+                        .param("product", "LINKY")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].beneficiaryUserId").value(21001))
+                .andExpect(jsonPath("$.items[0].sourceUserId").value(21002));
+
+        mockMvc.perform(get("/admin/distribution/risk-events")
+                        .header("X-Admin-Session", adminSessionToken)
+                        .param("product", "LINKY")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].userId").value(21002));
     }
 
     @Test
@@ -367,6 +450,47 @@ class DistributionMvpAdminControllerTest {
     }
 
     @Test
+    void shouldRestrictManualRelationAdjustmentByProductCode() throws Exception {
+        String linkyRootCode = inviteCodeIssueService.issue(new IssueInviteCodeRequest("LINKY", "+6281111111101", "17301")).record().getInviteCode();
+        distributionBindingService.createProfile(17302L, "ID", "id", linkyRootCode);
+        inviteCodeIssueService.issue(new IssueInviteCodeRequest("LINKY", "+6281111111102", "17302"));
+        distributionBindingService.createProfile(17303L, "ID", "id", linkyRootCode);
+        inviteCodeIssueService.issue(new IssueInviteCodeRequest("LINKY", "+6281111111103", "17303"));
+
+        String toolRootCode = inviteCodeIssueService.issue(new IssueInviteCodeRequest("TOOLX", "+6282222222201", "17401")).record().getInviteCode();
+        distributionBindingService.createProfile(17402L, "ID", "id", toolRootCode);
+        inviteCodeIssueService.issue(new IssueInviteCodeRequest("TOOLX", "+6282222222202", "17402"));
+
+        String adminSession = loginAsAdmin();
+        mockMvc.perform(post("/admin/distribution/relation/17303/adjustments")
+                        .header("X-Admin-Session", adminSession)
+                        .param("product", "LINKY")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "level1InviterId": 17302,
+                                  "note": "linky correction"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(17303))
+                .andExpect(jsonPath("$.level1InviterId").value(17302));
+
+        mockMvc.perform(post("/admin/distribution/relation/17303/adjustments")
+                        .header("X-Admin-Session", adminSession)
+                        .param("product", "TOOLX")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "level1InviterId": 17402,
+                                  "note": "cross product should fail"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("distribution relation not found for product"));
+    }
+
+    @Test
     void shouldRejectManualAdjustForLockedRelation() throws Exception {
         seedRules();
         String rootCode = distributionBindingService.createProfile(17201L, "ID", "id", null).getInviteCode();
@@ -456,6 +580,53 @@ class DistributionMvpAdminControllerTest {
     }
 
     @Test
+    void shouldCorrectOwnershipAndWriteAuditLog() throws Exception {
+        inviteCodeIssueService.issue(new IssueInviteCodeRequest("LINKY", "+6283111111101", "19801"));
+        inviteCodeIssueService.issue(new IssueInviteCodeRequest("TOOLX", "+6283222222201", "19802"));
+
+        String adminSession = loginAsAdmin();
+
+        mockMvc.perform(get("/admin/distribution/ownership/19801")
+                        .header("X-Admin-Session", adminSession)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(19801))
+                .andExpect(jsonPath("$.items[0].productCode").value("LINKY"))
+                .andExpect(jsonPath("$.items[0].ownershipStatus").value("ACTIVE"));
+
+        mockMvc.perform(post("/admin/distribution/ownership/19801/corrections")
+                        .header("X-Admin-Session", adminSession)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "productCode": "TOOLX",
+                                  "note": "ops corrected product ownership"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(19801))
+                .andExpect(jsonPath("$.items[0].productCode").value("TOOLX"))
+                .andExpect(jsonPath("$.items[0].ownershipStatus").value("ACTIVE"));
+
+        org.assertj.core.api.Assertions.assertThat(userProductOwnershipRepository.findByUserIdAndProductCode(19801L, "LINKY").orElseThrow().getOwnershipStatus())
+                .isEqualTo("CORRECTED");
+        org.assertj.core.api.Assertions.assertThat(userProductOwnershipRepository.findByUserIdAndProductCode(19801L, "TOOLX").orElseThrow().getOwnershipStatus())
+                .isEqualTo("ACTIVE");
+        org.assertj.core.api.Assertions.assertThat(operationAuditLogRepository.findAdminAuditLogs("ownership", org.springframework.data.domain.PageRequest.of(0, 1))
+                        .getContent().getFirst().getActionName())
+                .isEqualTo("MANUAL_CORRECT");
+
+        mockMvc.perform(get("/admin/distribution/audit-logs")
+                        .header("X-Admin-Session", adminSession)
+                        .param("moduleName", "ownership")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].moduleName").value("ownership"))
+                .andExpect(jsonPath("$.items[0].actionName").value("MANUAL_CORRECT"))
+                .andExpect(jsonPath("$.items[0].remark").value("ops corrected product ownership"));
+    }
+
+    @Test
     void shouldReturnLinkyWebhookLogsForAdmin() throws Exception {
         seedRules();
         String inviterCode = distributionBindingService.createProfile(19501L, "ID", "id", null).getInviteCode();
@@ -506,6 +677,74 @@ class DistributionMvpAdminControllerTest {
                 .andExpect(jsonPath("$.items[0].hitCount").value(1))
                 .andExpect(jsonPath("$.items[0].latestRequestStatus").value("PROCESSED"))
                 .andExpect(jsonPath("$.total").value(1));
+    }
+
+    @Test
+    void shouldFilterLinkyWebhookLogsAndReplayRecordsByProductCode() throws Exception {
+        seedRules();
+        String linkyRootCode = inviteCodeIssueService.issue(new IssueInviteCodeRequest("LINKY", "+628****3331", "19601")).record().getInviteCode();
+        distributionBindingService.createProfile(19602L, "ID", "id", linkyRootCode);
+        inviteCodeIssueService.issue(new IssueInviteCodeRequest("LINKY", "+628****3332", "19602"));
+
+        String toolRootCode = inviteCodeIssueService.issue(new IssueInviteCodeRequest("TOOLX", "+628****4441", "19701")).record().getInviteCode();
+        distributionBindingService.createProfile(19702L, "ID", "id", toolRootCode);
+        inviteCodeIssueService.issue(new IssueInviteCodeRequest("TOOLX", "+628****4442", "19702"));
+
+        String linkyTimestamp = java.time.Instant.now().toString();
+        String linkySignature = signLinkyRequest("linky-order-product-1", 19602L, new BigDecimal("66.00"), "USD", "2026-04-21T12:00:00", linkyTimestamp);
+        mockMvc.perform(post("/internal/distribution/linky/income-events")
+                        .header("X-Internal-Token", "test-token")
+                        .header("X-Linky-Timestamp", linkyTimestamp)
+                        .header("X-Linky-Signature", linkySignature)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "orderId": "linky-order-product-1",
+                                  "memberId": 19602,
+                                  "commissionAmount": 66.00,
+                                  "currency": "USD",
+                                  "settledAt": "2026-04-21T12:00:00"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        String toolTimestamp = java.time.Instant.now().plusSeconds(1).toString();
+        String toolSignature = signLinkyRequest("toolx-order-product-1", 19702L, new BigDecimal("77.00"), "USD", "2026-04-21T13:00:00", toolTimestamp);
+        mockMvc.perform(post("/internal/distribution/linky/income-events")
+                        .header("X-Internal-Token", "test-token")
+                        .header("X-Linky-Timestamp", toolTimestamp)
+                        .header("X-Linky-Signature", toolSignature)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "orderId": "toolx-order-product-1",
+                                  "memberId": 19702,
+                                  "commissionAmount": 77.00,
+                                  "currency": "USD",
+                                  "settledAt": "2026-04-21T13:00:00"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        String adminSessionToken = loginAsAdmin();
+
+        mockMvc.perform(get("/admin/distribution/linky-webhook-logs")
+                        .header("X-Admin-Session", adminSessionToken)
+                        .param("product", "LINKY")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].linkyOrderId").value("linky-order-product-1"))
+                .andExpect(jsonPath("$.items[0].userId").value(19602));
+
+        mockMvc.perform(get("/admin/distribution/linky-replay-records")
+                        .header("X-Admin-Session", adminSessionToken)
+                        .param("product", "LINKY")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].linkyOrderId").value("linky-order-product-1"))
+                .andExpect(jsonPath("$.items[0].userId").value(19602));
     }
 
     private String loginAsAdmin() throws Exception {

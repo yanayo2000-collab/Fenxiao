@@ -15,11 +15,14 @@ public class InviteCodeIssueService {
 
     private final InviteCodeIssueRecordRepository inviteCodeIssueRecordRepository;
     private final DistributionBindingService distributionBindingService;
+    private final UserProductOwnershipService userProductOwnershipService;
 
     public InviteCodeIssueService(InviteCodeIssueRecordRepository inviteCodeIssueRecordRepository,
-                                  DistributionBindingService distributionBindingService) {
+                                  DistributionBindingService distributionBindingService,
+                                  UserProductOwnershipService userProductOwnershipService) {
         this.inviteCodeIssueRecordRepository = inviteCodeIssueRecordRepository;
         this.distributionBindingService = distributionBindingService;
+        this.userProductOwnershipService = userProductOwnershipService;
     }
 
     public InviteCodeIssueResult issue(IssueInviteCodeRequest request) {
@@ -48,6 +51,13 @@ public class InviteCodeIssueService {
                         appAccount,
                         profile.getInviteCode()
                 )));
+        userProductOwnershipService.claimOwnership(
+                profile.getUserId(),
+                productCode,
+                "INVITE_CODE_ISSUE",
+                "INVITE_CODE_ISSUE_RECORD",
+                record.getId()
+        );
 
         return new InviteCodeIssueResult(record, profile);
     }

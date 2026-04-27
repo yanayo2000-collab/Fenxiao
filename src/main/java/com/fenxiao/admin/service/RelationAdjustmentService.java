@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @Transactional
@@ -27,26 +28,41 @@ public class RelationAdjustmentService {
     private final DistributionRelationRepository distributionRelationRepository;
     private final UserDistributionProfileRepository userDistributionProfileRepository;
     private final OperationAuditLogRepository operationAuditLogRepository;
+    private final AdminProductScopeService adminProductScopeService;
     private final Clock clock;
 
     @Autowired
     public RelationAdjustmentService(DistributionRelationRepository distributionRelationRepository,
                                      UserDistributionProfileRepository userDistributionProfileRepository,
-                                     OperationAuditLogRepository operationAuditLogRepository) {
-        this(distributionRelationRepository, userDistributionProfileRepository, operationAuditLogRepository, Clock.systemUTC());
+                                     OperationAuditLogRepository operationAuditLogRepository,
+                                     AdminProductScopeService adminProductScopeService) {
+        this(distributionRelationRepository, userDistributionProfileRepository, operationAuditLogRepository, adminProductScopeService, Clock.systemUTC());
     }
 
     RelationAdjustmentService(DistributionRelationRepository distributionRelationRepository,
                               UserDistributionProfileRepository userDistributionProfileRepository,
                               OperationAuditLogRepository operationAuditLogRepository,
+                              AdminProductScopeService adminProductScopeService,
                               Clock clock) {
         this.distributionRelationRepository = distributionRelationRepository;
         this.userDistributionProfileRepository = userDistributionProfileRepository;
         this.operationAuditLogRepository = operationAuditLogRepository;
+        this.adminProductScopeService = adminProductScopeService;
         this.clock = clock;
     }
 
-    public RelationDetailResponse adjustRelation(Long userId, Long level1InviterId, String note, String requestIp) {
+    public RelationDetailResponse adjustRelation(Long userId, Long level1InviterId, String note, String requestIp, String productCode) {
+        String normalizedProductCode = adminProductScopeService.normalizeProductCode(productCode);
+        if (normalizedProductCode != null) {
+            List<Long> scopedUserIds = adminProductScopeService.resolveScopedUserIds(normalizedProductCode);
+            if (!scopedUserIds.contains(userId)) {
+                throw new IllegalArgumentException("distribution relation not found for product");
+            }
+            if (level1InviterId != null && !scopedUserIds.contains(level1InviterId)) {
+                throw new IllegalArgumentException("inviter relation not found for product");
+            }
+        }
+
         DistributionRelation relation = distributionRelationRepository.findByUserId(userId)
                 .orElseThrow(() -> new IllegalArgumentException("distribution relation not found"));
         UserDistributionProfile profile = userDistributionProfileRepository.findById(userId)

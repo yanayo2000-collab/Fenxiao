@@ -122,6 +122,7 @@ class DistributionFrontendControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  \"productCode\": \"linky\",
                                   \"inviteCode\": \"%s\",
                                   \"whatsappNumber\": \"+6281234567891\",
                                   \"linkyAccount\": \"87654321\"

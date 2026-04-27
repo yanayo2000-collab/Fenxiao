@@ -3,12 +3,14 @@ import './App.css'
 import {
   adjustAdminRelation,
   applyAdminRiskEventAction,
+  correctAdminOwnership,
   createAdminSession,
   createProfile,
   getAdminAuditLogs,
   getAdminLinkyReplayRecords,
   getAdminLinkyWebhookLogs,
   getAdminOverview,
+  getAdminOwnership,
   getAdminRelation,
   getAdminRewards,
   getAdminRiskEvents,
@@ -24,6 +26,7 @@ import {
   type LinkyReplayRecordListResponse,
   type LinkyWebhookLogListResponse,
   type OverviewReportResponse,
+  type OwnershipDetailResponse,
   type ProfileResponse,
   type RelationDetailResponse,
   type RewardListResponse,
@@ -42,10 +45,13 @@ import {
   buildLinkyWebhookHeadline,
 } from './linkyDetails'
 import {
-  buildAdminTaskCards,
+  buildAdminSectionLinks,
+  buildAdminWorkspaceShortcuts,
   buildEmptyStatePreset,
   buildLinkyDiagnosticSnapshot,
+  type AdminWorkspaceShortcut,
 } from './opsConsole'
+import { buildPublicEntryLinks } from './publicEntries'
 
 type SessionState = {
   userId: number
@@ -60,7 +66,6 @@ type AdminAuthState = {
   expiresAt: string
 }
 
-type ViewMode = 'user' | 'admin'
 type AdminProductKey = 'ALL' | 'LINKY'
 type RiskActionName = 'HANDLE' | 'IGNORE' | 'FREEZE_USER' | 'UNFREEZE_USER'
 
@@ -79,6 +84,10 @@ type PendingRelationChange = {
   previousLevel2InviterId: number | null
   previousLevel3InviterId: number | null
   note: string
+}
+
+type ConsoleAppProps = {
+  initialViewMode?: 'user' | 'admin'
 }
 
 type SelectedLinkyDrawer =
@@ -105,13 +114,27 @@ function loadExternalLocale(): 'zh' | 'en' | 'es' | 'id' | 'pt' {
 }
 
 function loadJsonState<T>(key: string): T | null {
-  const raw = localStorage.getItem(key)
+  const storage = typeof window !== 'undefined'
+    ? window.localStorage
+    : typeof globalThis !== 'undefined' && 'localStorage' in globalThis
+      ? globalThis.localStorage
+      : null
+  const raw = storage?.getItem(key)
   if (!raw) return null
   try {
     return JSON.parse(raw) as T
   } catch {
     return null
   }
+}
+
+function loadPlainState(key: string): string {
+  const storage = typeof window !== 'undefined'
+    ? window.localStorage
+    : typeof globalThis !== 'undefined' && 'localStorage' in globalThis
+      ? globalThis.localStorage
+      : null
+  return storage?.getItem(key) || ''
 }
 
 function saveUserSession(profile: ProfileResponse) {
@@ -126,10 +149,10 @@ function saveUserSession(profile: ProfileResponse) {
   return session
 }
 
-function ConsoleApp() {
+function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
+  void initialViewMode
   const [session, setSession] = useState<SessionState | null>(() => loadJsonState<SessionState>(STORAGE_KEY))
   const [adminSession, setAdminSession] = useState<AdminAuthState | null>(null)
-  const [viewMode, setViewMode] = useState<ViewMode>('user')
   const [adminPassword, setAdminPassword] = useState('')
   const [adminProduct, setAdminProduct] = useState<AdminProductKey>('ALL')
   const [showAdvancedOps, setShowAdvancedOps] = useState(false)
@@ -143,6 +166,7 @@ function ConsoleApp() {
   const [adminRewards, setAdminRewards] = useState<RewardListResponse | null>(null)
   const [riskEvents, setRiskEvents] = useState<RiskEventListResponse | null>(null)
   const [auditLogs, setAuditLogs] = useState<AuditLogListResponse | null>(null)
+  const [adminOwnership, setAdminOwnership] = useState<OwnershipDetailResponse | null>(null)
   const [adminRelation, setAdminRelation] = useState<RelationDetailResponse | null>(null)
   const [linkyWebhookLogs, setLinkyWebhookLogs] = useState<LinkyWebhookLogListResponse | null>(null)
   const [linkyReplayRecords, setLinkyReplayRecords] = useState<LinkyReplayRecordListResponse | null>(null)
@@ -196,19 +220,28 @@ function ConsoleApp() {
   const [pendingRiskAction, setPendingRiskAction] = useState<PendingRiskAction | null>(null)
   const [riskActionLoadingId, setRiskActionLoadingId] = useState<number | null>(null)
   const [selectedLinkyDrawer, setSelectedLinkyDrawer] = useState<SelectedLinkyDrawer | null>(null)
+  const [ownershipQueryUserId, setOwnershipQueryUserId] = useState('')
+  const [ownershipCorrectionProductCode, setOwnershipCorrectionProductCode] = useState('LINKY')
+  const [ownershipCorrectionNote, setOwnershipCorrectionNote] = useState('')
+  const [ownershipCorrectionLoading, setOwnershipCorrectionLoading] = useState(false)
   const [relationQueryUserId, setRelationQueryUserId] = useState('')
   const [relationAdjustInviterId, setRelationAdjustInviterId] = useState('')
   const [relationAdjustNote, setRelationAdjustNote] = useState('')
   const [relationBeforeAdjust, setRelationBeforeAdjust] = useState<RelationDetailResponse | null>(null)
   const [pendingRelationChange, setPendingRelationChange] = useState<PendingRelationChange | null>(null)
   const [relationAdjustLoading, setRelationAdjustLoading] = useState(false)
-  const [profileCreateToken, setProfileCreateToken] = useState(() => localStorage.getItem(PROFILE_CREATE_TOKEN_KEY) || '')
+  const [profileCreateToken, setProfileCreateToken] = useState(() => loadPlainState(PROFILE_CREATE_TOKEN_KEY))
 
   const canLoadData = useMemo(() => Boolean(session?.userId && session?.accessToken), [session])
   const canLoadAdmin = useMemo(() => Boolean(adminSession?.sessionToken), [adminSession])
   const canCreateProfile = useMemo(() => Boolean(profileCreateToken.trim() && form.userId.trim()), [profileCreateToken, form.userId])
   const currentAdminProductLabel = ADMIN_PRODUCT_OPTIONS.find((item) => item.value === adminProduct)?.label ?? '全部产品'
+  const activeAdminProductCode = adminProduct === 'ALL' ? undefined : adminProduct
   const showingProductSpecificDiagnostics = adminProduct === 'LINKY'
+  const publicEntryLinks = useMemo(
+    () => buildPublicEntryLinks(typeof window !== 'undefined' ? window.location.origin : ''),
+    [],
+  )
 
   useEffect(() => {
     localStorage.setItem(ADMIN_REWARD_QUERY_KEY, JSON.stringify(adminRewardQuery))
@@ -226,6 +259,20 @@ function ConsoleApp() {
     localStorage.setItem(LINKY_REPLAY_QUERY_KEY, JSON.stringify(linkyReplayQuery))
   }, [linkyReplayQuery])
 
+  useEffect(() => {
+    setAdminOverview(null)
+    setAdminRewards(null)
+    setRiskEvents(null)
+    setAdminOwnership(null)
+    setAdminRelation(null)
+    setLinkyWebhookLogs(null)
+    setLinkyReplayRecords(null)
+    setHasQueriedAdminRewards(false)
+    setHasQueriedRiskEvents(false)
+    setHasQueriedLinkyWebhookLogs(false)
+    setHasQueriedLinkyReplayRecords(false)
+  }, [adminProduct])
+
   async function loadAdminRewards(query = adminRewardQuery) {
     if (!adminSession) return
     setLoading(true)
@@ -234,6 +281,7 @@ function ConsoleApp() {
       const result = await getAdminRewards(adminSession.sessionToken, {
         beneficiaryUserId: query.beneficiaryUserId ? Number(query.beneficiaryUserId) : undefined,
         status: query.status || undefined,
+        product: activeAdminProductCode,
         startAt: query.startAt || undefined,
         endAt: query.endAt || undefined,
         page: Number(query.page || 0),
@@ -256,6 +304,7 @@ function ConsoleApp() {
       const result = await getAdminRiskEvents(adminSession.sessionToken, {
         userId: query.userId ? Number(query.userId) : undefined,
         riskStatus: query.riskStatus || undefined,
+        product: activeAdminProductCode,
         startAt: query.startAt || undefined,
         endAt: query.endAt || undefined,
         page: Number(query.page || 0),
@@ -293,6 +342,7 @@ function ConsoleApp() {
         linkyOrderId: query.linkyOrderId.trim() || undefined,
         userId: query.userId ? Number(query.userId) : undefined,
         requestStatus: query.requestStatus || undefined,
+        product: activeAdminProductCode,
         page: Number(query.page || 0),
         size: Number(query.size || 10),
       })
@@ -313,6 +363,7 @@ function ConsoleApp() {
       const result = await getAdminLinkyReplayRecords(adminSession.sessionToken, {
         linkyOrderId: query.linkyOrderId.trim() || undefined,
         userId: query.userId ? Number(query.userId) : undefined,
+        product: activeAdminProductCode,
         page: Number(query.page || 0),
         size: Number(query.size || 10),
       })
@@ -367,7 +418,6 @@ function ConsoleApp() {
       setHome(null)
       setTeam(null)
       setRewards(null)
-      setViewMode('user')
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建分销档案失败')
     } finally {
@@ -383,9 +433,8 @@ function ConsoleApp() {
       const nextSession = await createAdminSession(adminPassword)
       setAdminSession(nextSession)
       setAdminPassword('')
-      setViewMode('admin')
       const [overviewResult, auditResult] = await Promise.all([
-        getAdminOverview(nextSession.sessionToken),
+        getAdminOverview(nextSession.sessionToken, activeAdminProductCode),
         getAdminAuditLogs(nextSession.sessionToken, {
           moduleName: auditQuery.moduleName,
           page: Number(auditQuery.page || 0),
@@ -439,12 +488,22 @@ function ConsoleApp() {
     }
   }
 
-  function openBindPage(inviteCode: string) {
+  function openExternalLandingPage(path: '/invite' | '/bind' | '/earnings') {
     const target = typeof window !== 'undefined'
-      ? `${window.location.origin}/bind?inviteCode=${encodeURIComponent(inviteCode)}`
-      : `/bind?inviteCode=${encodeURIComponent(inviteCode)}`
+      ? `${window.location.origin}${path}`
+      : path
     if (typeof window !== 'undefined') {
       window.open(target, '_blank', 'noopener,noreferrer')
+    }
+  }
+
+  async function copyPublicEntryLink(url: string) {
+    try {
+      await navigator.clipboard.writeText(url)
+      setSuccessMessage(`已复制链接：${url}`)
+      setError('')
+    } catch {
+      setError('复制链接失败，请手动复制。')
     }
   }
 
@@ -473,7 +532,7 @@ function ConsoleApp() {
     setLoading(true)
     setError('')
     try {
-      const overview = await getAdminOverview(adminSession.sessionToken)
+      const overview = await getAdminOverview(adminSession.sessionToken, activeAdminProductCode)
       setAdminOverview(overview)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载运营概览失败')
@@ -546,7 +605,7 @@ function ConsoleApp() {
     setError('')
     setSuccessMessage('')
     try {
-      const relation = await getAdminRelation(adminSession.sessionToken, Number(relationQueryUserId))
+      const relation = await getAdminRelation(adminSession.sessionToken, Number(relationQueryUserId), activeAdminProductCode)
       setAdminRelation(relation)
       setRelationBeforeAdjust(relation)
       setRelationAdjustInviterId(relation.level1InviterId ? String(relation.level1InviterId) : '')
@@ -558,6 +617,117 @@ function ConsoleApp() {
     }
   }
 
+  async function handleLoadOwnership() {
+    if (!adminSession || !ownershipQueryUserId) return
+    setLoading(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const queriedUserId = Number(ownershipQueryUserId)
+      const ownership = await getAdminOwnership(adminSession.sessionToken, queriedUserId)
+      setAdminOwnership(ownership)
+      setRelationQueryUserId(String(queriedUserId))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载产品归属失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleLoadJointWorkbench() {
+    if (!adminSession || !ownershipQueryUserId.trim()) return
+    const queriedUserId = Number(ownershipQueryUserId)
+    setLoading(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const jointAuditQuery = { ...auditQuery, moduleName: '', page: '0' }
+      const [ownership, relation, audit] = await Promise.all([
+        getAdminOwnership(adminSession.sessionToken, queriedUserId),
+        getAdminRelation(adminSession.sessionToken, queriedUserId, activeAdminProductCode),
+        getAdminAuditLogs(adminSession.sessionToken, {
+          moduleName: jointAuditQuery.moduleName || undefined,
+          page: Number(jointAuditQuery.page || 0),
+          size: Number(jointAuditQuery.size || 5),
+        }),
+      ])
+      setAdminOwnership(ownership)
+      setAdminRelation(relation)
+      setRelationBeforeAdjust(relation)
+      setRelationAdjustInviterId(relation.level1InviterId ? String(relation.level1InviterId) : '')
+      setRelationAdjustNote('')
+      setRelationQueryUserId(String(queriedUserId))
+      setAuditQuery(jointAuditQuery)
+      setAuditLogs(audit)
+      setShowAdvancedOps(true)
+      setSuccessMessage('ownership、绑定关系和联合审计已经一次性同步完成。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '一键联合查询失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleSyncOwnershipRelation() {
+    const targetUserId = adminOwnership?.userId ?? (ownershipQueryUserId.trim() ? Number(ownershipQueryUserId) : null)
+    if (!adminSession || !targetUserId) return
+    setRelationQueryUserId(String(targetUserId))
+    setLoading(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const relation = await getAdminRelation(adminSession.sessionToken, targetUserId, activeAdminProductCode)
+      setAdminRelation(relation)
+      setRelationBeforeAdjust(relation)
+      setRelationAdjustInviterId(relation.level1InviterId ? String(relation.level1InviterId) : '')
+      setRelationAdjustNote('')
+      setSuccessMessage('当前用户的产品归属和绑定关系已经同步到联合处置视图。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '同步绑定关系失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleCorrectOwnership() {
+    if (!adminSession || !adminOwnership || !ownershipCorrectionProductCode.trim()) return
+    setOwnershipCorrectionLoading(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const updated = await correctAdminOwnership(adminSession.sessionToken, adminOwnership.userId, {
+        productCode: ownershipCorrectionProductCode.trim().toUpperCase(),
+        note: ownershipCorrectionNote.trim() || undefined,
+      })
+      setAdminOwnership(updated)
+      const ownershipAuditQuery = { ...auditQuery, moduleName: 'ownership', page: '0' }
+      setAuditQuery(ownershipAuditQuery)
+      setShowAdvancedOps(true)
+      await loadAuditLogs(ownershipAuditQuery)
+      setSuccessMessage('产品归属已完成人工修正，当前归属和 ownership 审计都已同步刷新。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '人工修正产品归属失败')
+    } finally {
+      setOwnershipCorrectionLoading(false)
+    }
+  }
+
+  function handleLoadOwnershipAudit() {
+    if (!adminSession) return
+    const ownershipAuditQuery = { ...auditQuery, moduleName: 'ownership', page: '0' }
+    setAuditQuery(ownershipAuditQuery)
+    setShowAdvancedOps(true)
+    void loadAuditLogs(ownershipAuditQuery)
+  }
+
+  function handleLoadJointAudit() {
+    if (!adminSession) return
+    const jointAuditQuery = { ...auditQuery, moduleName: '', page: '0' }
+    setAuditQuery(jointAuditQuery)
+    setShowAdvancedOps(true)
+    void loadAuditLogs(jointAuditQuery)
+  }
+
   async function handleAdjustRelation() {
     if (!adminSession || !adminRelation) return
     setRelationAdjustLoading(true)
@@ -567,7 +737,7 @@ function ConsoleApp() {
       const updated = await adjustAdminRelation(adminSession.sessionToken, adminRelation.userId, {
         level1InviterId: relationAdjustInviterId.trim() ? Number(relationAdjustInviterId) : undefined,
         note: relationAdjustNote.trim() || undefined,
-      })
+      }, activeAdminProductCode)
       setRelationBeforeAdjust(adminRelation)
       setAdminRelation(updated)
       setRelationAdjustInviterId(updated.level1InviterId ? String(updated.level1InviterId) : '')
@@ -624,65 +794,17 @@ function ConsoleApp() {
     })
   }
 
-  const userSummaryItems = [
-    {
-      label: '当前身份',
-      value: session ? `用户 #${session.userId}` : '待接入',
-      hint: session ? `邀请码 ${session.inviteCode}` : '完成一次接入后，这里会显示当前用户身份。',
-    },
-    {
-      label: '国家 / 语言',
-      value: session ? `${session.countryCode} / ${session.languageCode}` : '未设置',
-      hint: '用于规则匹配与前台展示',
-    },
-    {
-      label: '数据状态',
-      value: home ? '已同步' : '待同步',
-      hint: home ? '前台工作台已拿到最新数据' : '完成接入后，点击“刷新用户工作台”同步最新数据。',
-    },
-  ]
-
-  const userJourneySteps: Array<{ step: string; title: string; description: string; status: 'pending' | 'active' | 'ready' }> = [
-    {
-      step: '01',
-      title: '保存接入令牌',
-      description: profileCreateToken.trim() ? '令牌已就位，可以直接创建或接入分销档案。' : '先填写 Profile Create Token，避免后面创建时卡住。',
-      status: profileCreateToken.trim() ? 'ready' : 'pending',
-    },
-    {
-      step: '02',
-      title: '创建 / 接入用户',
-      description: session ? `当前已接入用户 #${session.userId}，邀请码 ${session.inviteCode}。` : '填写用户 ID、国家码和语言码，完成一次接入。',
-      status: session ? 'ready' : 'pending',
-    },
-    {
-      step: '03',
-      title: '刷新工作台数据',
-      description: home ? '首页指标已经同步，可以继续查看团队和奖励。' : '接入后刷新用户工作台，把概览、团队和奖励拉起来。',
-      status: home ? 'ready' : session ? 'active' : 'pending',
-    },
-  ]
-
-  const userFocusCards: Array<{ title: string; value: string; description: string; tone: 'neutral' | 'primary' | 'success' | 'warning' }> = [
-    {
-      title: '当前焦点',
-      value: session ? '继续同步数据' : '先完成接入',
-      description: session ? '用户身份已经有了，下一步直接把工作台数据拉齐。' : '首页先只做一件事：把用户会话建起来。',
-      tone: session ? 'primary' : 'neutral',
-    },
-    {
-      title: '工作台状态',
-      value: home ? '已同步' : '待同步',
-      description: home ? '可以继续查看直属团队、奖励明细和后续链路。' : '还没拉到概览数据，建议先点一次“刷新用户工作台”。',
-      tone: home ? 'success' : 'warning',
-    },
-  ]
+  const pendingRiskCount = riskEvents?.items?.filter((item) => item.riskStatus === 'PENDING').length ?? 0
+  const processedLinkyRequestCount = linkyWebhookLogs?.items?.filter((item) => item.requestStatus === 'PROCESSED').length ?? 0
+  const replayedLinkyRequestCount = linkyReplayRecords?.items?.filter((item) => item.hitCount > 1).length
+    ?? linkyWebhookLogs?.items?.filter((item) => item.replayRecordStatus === 'REPLAYED').length
+    ?? 0
 
   const adminSummaryItems = [
     {
-      label: '分销后台会话',
-      value: adminSession ? '已登录' : '待登录',
-      hint: adminSession ? `到期 ${formatDateTime(adminSession.expiresAt)}` : '先登录后台，才能继续看概览、绑定关系和收益记录。',
+      label: '后台状态',
+      value: adminSession ? '已进入后台' : '待进入',
+      hint: adminSession ? `到期 ${formatDateTime(adminSession.expiresAt)}` : '拿到口令后先进入后台，后面的概览、关系和收益才会联动。',
     },
     {
       label: '当前产品视角',
@@ -690,60 +812,24 @@ function ConsoleApp() {
       hint: adminProduct === 'ALL' ? '当前按多产品总盘子查看，Linky 只是其中一个产品选项。' : '当前已切到 Linky 视角，便于继续看该产品的绑定、收益和高级排查。',
     },
     {
-      label: '分销概览',
-      value: adminOverview ? '已同步' : '待同步',
-      hint: adminOverview ? '已拿到总览，可继续判断邀请码、绑定关系、收益记录和异常优先级。' : '先同步一次总览，确认当前邀请、收益和异常走势。',
+      label: '当前焦点',
+      value: !adminSession ? '先登录' : !adminOverview ? '先同步总览' : pendingRiskCount > 0 ? '先处理异常' : '按问题进入模块',
+      hint: !adminSession
+        ? '首页第一步先建立后台会话。'
+        : !adminOverview
+          ? '先拉一次总览，再决定后面先查收益、绑定还是异常。'
+          : pendingRiskCount > 0
+            ? '当前有待处理异常，建议优先看异常处理。'
+            : '可以直接按问题进入收益记录、绑定关系或高级排查。',
     },
   ]
 
   const rewardPageLabel = adminRewards
     ? `本次命中 ${adminRewards.total} 条，当前第 ${adminRewards.page + 1} 页，每页 ${adminRewards.size} 条。`
     : '先执行一次奖励查询'
-  const rewardSummaryItems = [
-    {
-      label: '当前筛选',
-      value: adminRewardQuery.beneficiaryUserId ? `用户 #${adminRewardQuery.beneficiaryUserId}` : '全部奖励',
-    },
-    {
-      label: '状态范围',
-      value: adminRewardQuery.status ? statusToProductLabel(adminRewardQuery.status) : '全部状态',
-    },
-    {
-      label: '时间区间',
-      value: adminRewardQuery.startAt || adminRewardQuery.endAt ? `${adminRewardQuery.startAt || '起始未设'} → ${adminRewardQuery.endAt || '结束未设'}` : '未设置时间范围',
-    },
-    {
-      label: '分页设置',
-      value: `第 ${Number(adminRewardQuery.page) + 1} 页 / 每页 ${adminRewardQuery.size} 条`,
-    },
-  ]
-  const rewardResultItems = adminRewards ? [
-    { label: '本次命中', value: `${adminRewards.total} 条` },
-    { label: '当前页', value: `第 ${adminRewards.page + 1} 页` },
-    { label: '每页条数', value: `${adminRewards.size} 条` },
-    { label: '当前状态', value: adminRewards.items.length ? '已同步' : '已查询但无结果' },
-  ] : [
-    { label: '本次命中', value: '待同步' },
-    { label: '当前页', value: '待同步' },
-    { label: '每页条数', value: '待同步' },
-    { label: '当前状态', value: '待查询' },
-  ]
   const riskPageLabel = riskEvents
     ? `本次命中 ${riskEvents.total} 条，当前第 ${riskEvents.page + 1} 页，每页 ${riskEvents.size} 条。`
     : '先执行一次风险事件查询'
-  const pendingRiskCount = riskEvents?.items?.filter((item) => item.riskStatus === 'PENDING').length ?? 0
-  const failedLinkyRequestCount = linkyWebhookLogs?.items?.filter((item) => item.requestStatus === 'FAILED' || item.requestStatus === 'REJECTED').length ?? 0
-  const processedLinkyRequestCount = linkyWebhookLogs?.items?.filter((item) => item.requestStatus === 'PROCESSED').length ?? 0
-  const replayedLinkyRequestCount = linkyReplayRecords?.items?.filter((item) => item.hitCount > 1).length
-    ?? linkyWebhookLogs?.items?.filter((item) => item.replayRecordStatus === 'REPLAYED').length
-    ?? 0
-  const adminTaskCards = buildAdminTaskCards({
-    adminLoggedIn: Boolean(adminSession),
-    overviewLoaded: Boolean(adminOverview),
-    pendingRiskCount,
-    failedLinkyRequests: failedLinkyRequestCount,
-    replayedLinkyRequests: replayedLinkyRequestCount,
-  })
   const rewardEmptyState = buildEmptyStatePreset('reward', hasQueriedAdminRewards)
   const riskEmptyState = buildEmptyStatePreset('risk', hasQueriedRiskEvents)
   const linkyWebhookEmptyState = buildEmptyStatePreset('linky-webhook', hasQueriedLinkyWebhookLogs)
@@ -778,18 +864,15 @@ function ConsoleApp() {
   const relationPreview = adminRelation
     ? buildRelationPreview(adminRelation, relationAdjustInviterId)
     : null
-  const relationContextItems = adminRelation ? [
-    { label: '目标用户', value: `用户 #${adminRelation.userId}` },
-    { label: '绑定来源', value: adminRelation.bindSource || '未设置' },
-    { label: '国家 / 跨国家', value: `${adminRelation.countryCode || '未设置'} / ${adminRelation.crossCountry ? '跨国家' : '同国家'}` },
-    { label: '当前锁定状态', value: statusToProductLabel(adminRelation.lockStatus) },
-  ] : []
-  const relationTimelineItems = adminRelation ? [
-    { label: '绑定时间', value: formatDateTime(adminRelation.bindTime) },
-    { label: '锁定时间', value: adminRelation.lockTime ? formatDateTime(adminRelation.lockTime) : '未锁定' },
-    { label: '一级上级', value: adminRelation.level1InviterId ?? '未设置' },
-    { label: '二级 / 三级上级', value: `${adminRelation.level2InviterId ?? '未设置'} / ${adminRelation.level3InviterId ?? '未设置'}` },
-  ] : []
+  const activeOwnershipItem = adminOwnership?.items.find((item) => item.ownershipStatus === 'ACTIVE')
+  const isJointWorkbenchReady = Boolean(adminOwnership || adminRelation)
+  const jointAuditFocus = auditQuery.moduleName || '全部'
+  const adminShortcutCards = buildAdminWorkspaceShortcuts({
+    adminLoggedIn: Boolean(adminSession),
+    overviewLoaded: Boolean(adminOverview),
+    pendingRiskCount,
+  })
+  const adminSectionLinks = buildAdminSectionLinks()
   const selectedLinkyTitle = selectedLinkyDrawer?.kind === 'webhook'
     ? buildLinkyWebhookHeadline(selectedLinkyDrawer.item)
     : selectedLinkyDrawer?.item.linkyOrderId
@@ -814,29 +897,23 @@ function ConsoleApp() {
           <div className="hero-badges">
             <Badge label="Fenxiao" tone="primary" />
             <Badge label="Distribution Console" tone="neutral" />
-            <Badge label={viewMode === 'admin' ? currentAdminProductLabel : 'Linky'} tone="success" />
+            <Badge label={currentAdminProductLabel} tone="success" />
           </div>
           <p className="eyebrow">Distribution Console</p>
-          <h1>{viewMode === 'admin' ? '多产品分销运营后台' : '分销用户工作台'}</h1>
+          <h1>多产品分销运营后台</h1>
           <p className="subtext">
-            {viewMode === 'admin'
-              ? '后台按分销动作组织：概览、邀请码、绑定关系、收益记录、异常处理。产品只是选择维度，Linky 只是当前其中一个产品。'
-              : '围绕当前产品完成分销接入、邀请扩散和奖励同步，先把单个分销用户工作流跑顺。'}
+            后台按分销动作组织：概览、邀请码、绑定关系、收益记录、异常处理。产品只是选择维度，Linky 只是当前其中一个产品。
           </p>
         </div>
         <div className="hero-actions">
-          {viewMode === 'admin' ? (
-            <label className="hero-select-field">
-              当前产品
-              <select value={adminProduct} onChange={(e) => setAdminProduct(e.target.value as AdminProductKey)}>
-                {ADMIN_PRODUCT_OPTIONS.map((item) => (
-                  <option key={item.value} value={item.value}>{item.label}</option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <button className={`switch-chip ${viewMode === 'user' ? 'active' : ''}`} onClick={() => setViewMode('user')}>用户工作台</button>
-          <button className={`switch-chip ${viewMode === 'admin' ? 'active' : ''}`} onClick={() => setViewMode('admin')}>运营后台</button>
+          <label className="hero-select-field">
+            当前产品
+            <select value={adminProduct} onChange={(e) => setAdminProduct(e.target.value as AdminProductKey)}>
+              {ADMIN_PRODUCT_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
+            </select>
+          </label>
           {session ? <button className="ghost-btn" onClick={handleLogout}>退出用户会话</button> : null}
         </div>
       </header>
@@ -854,40 +931,41 @@ function ConsoleApp() {
       ) : (
         <section className="alert-banner info">
           <strong>当前建议</strong>
-          <span>{viewMode === 'user' ? '先完成当前产品的分销接入，再同步用户工作台数据。' : '先看总览，再查邀请码、绑定关系、收益记录；产品事件排查放到高级入口里做。'}</span>
+          <span>先看总览，再查邀请码、绑定关系、收益记录；产品事件排查放到高级入口里做。</span>
         </section>
       )}
 
       <section className="overview-grid">
-        {viewMode === 'user'
-          ? userSummaryItems.map((item) => <SummaryCard key={item.label} {...item} />)
-          : adminSummaryItems.map((item) => <SummaryCard key={item.label} {...item} />)}
+        {adminSummaryItems.map((item) => <SummaryCard key={item.label} {...item} />)}
       </section>
 
-      {viewMode === 'admin' ? (
-        <section className="ops-priority-board">
-          <div className="ops-task-grid">
-            {adminTaskCards.map((item) => <TaskCard key={item.title} {...item} />)}
+      <section className="ops-priority-board">
+          <div className="admin-nav-strip" id="admin-modules" aria-label="后台模块导航">
+            {adminSectionLinks.map((item) => (
+              <a key={item.label} className="admin-nav-chip" href={item.href}>{item.label}</a>
+            ))}
           </div>
-          <DiagnosticBanner
-            eyebrow="Advanced Ops"
-            tone={linkyDiagnosticSnapshot.tone}
-            title={showingProductSpecificDiagnostics ? `${currentAdminProductLabel} 产品事件概况` : '高级排查默认收起'}
-            description={showingProductSpecificDiagnostics ? linkyDiagnosticSnapshot.summary : '默认先按多产品主流程看概览、邀请码、绑定关系、收益记录和异常处理；切到具体产品后再进高级排查。'}
-          />
+          <PanelSection
+            sectionId="admin-start"
+            eyebrow="Start Here"
+            title="先做这 4 件事"
+            description="首页只保留最关键的动作：先登录、再看总览、再管邀请码与对外入口，最后按问题进入具体模块。"
+          >
+            <div className="admin-shortcut-grid">
+              {adminShortcutCards.map((item) => (
+                <ShortcutCard key={item.title} {...item} />
+              ))}
+            </div>
+          </PanelSection>
         </section>
-      ) : null}
 
-      <div className={`console-layout ${viewMode === 'admin' ? 'admin-layout' : 'user-layout'}`}>
+      <div className="console-layout admin-layout">
         <main className="console-main">
-          {viewMode === 'user' ? (
-            <>
-              <JourneyStrip items={userJourneySteps} />
-
               <PanelSection
+                sectionId="admin-onboarding"
                 eyebrow="Onboarding"
                 title="分销接入"
-                description="先保存 profile 创建令牌，再创建或接入用户分销档案。"
+                description="把内部接入、邀请码生成和基础数据同步统一收进运营后台。"
                 action={<button className="primary-btn" onClick={handleProfileCreateTokenSave}>保存接入令牌</button>}
               >
                 <div className="stack-gap">
@@ -917,30 +995,28 @@ function ConsoleApp() {
                     <button className="primary-btn" type="submit" disabled={loading || !canCreateProfile}>创建 / 接入</button>
                   </form>
                   {session ? (
-                    <InfoCard title="已接入用户会话" tone="success">
+                    <InfoCard title="当前用户会话" tone="success">
                       <InfoRow label="用户 ID" value={session.userId} />
                       <InfoRow label="邀请码" value={session.inviteCode} />
                       <InfoRow label="国家 / 语言" value={`${session.countryCode} / ${session.languageCode}`} />
                       <InfoRow label="Access Token" value={session.accessToken} code />
                       <div className="action-row top-gap">
                         <button className="ghost-btn small-btn" type="button" onClick={() => handleCopyInviteCode(session.inviteCode)}>复制邀请码</button>
-                        <button className="primary-btn small-btn" type="button" onClick={() => openBindPage(session.inviteCode)}>打开绑定页</button>
+                        <button className="primary-btn small-btn" type="button" onClick={handleLoadDashboard} disabled={!canLoadData || loading}>同步当前用户收益</button>
                       </div>
                     </InfoCard>
                   ) : (
-                    <EmptyState
-                      title="用户会话待接入"
-                      description="完成一次接入后，这里会显示当前用户身份、邀请码和令牌信息。"
-                    />
+                    <EmptyState title="当前用户会话待接入" description="完成一次接入后，这里会显示当前用户身份、邀请码和令牌信息。" />
                   )}
                 </div>
               </PanelSection>
 
               <PanelSection
-                eyebrow="Workspace"
-                title="用户工作台"
-                description="集中看邀请规模、有效用户和奖励状态。"
-                action={<button className="primary-btn" onClick={handleLoadDashboard} disabled={!canLoadData || loading}>刷新用户工作台</button>}
+                sectionId="admin-user-facts"
+                eyebrow="User Snapshot"
+                title="当前用户收益快照"
+                description="把原来独立用户后台里的收益、团队和奖励快照收进运营后台。"
+                action={<button className="primary-btn" onClick={handleLoadDashboard} disabled={!canLoadData || loading}>刷新当前用户收益</button>}
               >
                 <div className="stats-grid">
                   <Metric label="邀请人数" value={home?.invitedUsers} hint="直属与裂变邀请总量" tone="neutral" />
@@ -950,53 +1026,52 @@ function ConsoleApp() {
                   <Metric label="冻结奖励" value={home?.frozenReward} hint="仍在冻结周期内" tone="warning" />
                   <Metric label="风险冻结" value={home?.riskHoldReward} hint="因风控暂时冻结" tone="danger" />
                 </div>
+                <div className="content-grid two-columns entity-grid top-gap-xl">
+                  <PanelSection eyebrow="Team" title="直属团队" description="看当前用户的一度团队关系和锁定状态。">
+                    {team?.items?.length ? (
+                      <DataTable
+                        headers={['用户ID', '邀请码', '国家', '有效用户', '确认收益', '锁定状态', '绑定时间']}
+                        rows={team.items.map((item) => [
+                          item.userId,
+                          item.inviteCode,
+                          item.countryCode,
+                          item.effectiveUser ? '是' : '否',
+                          item.confirmedIncomeTotal,
+                          item.lockStatus,
+                          item.bindTime,
+                        ])}
+                        emptyText="暂无团队数据"
+                      />
+                    ) : (
+                      <EmptyState title="直属团队待同步" description="创建用户后并产生下级绑定，这里会显示一度团队成员。" />
+                    )}
+                  </PanelSection>
+
+                  <PanelSection eyebrow="Rewards" title="奖励明细" description="快速看来源用户、奖励层级和当前奖励状态。">
+                    {rewards?.items?.length ? (
+                      <DataTable
+                        headers={['来源用户', '层级', '奖励金额', '状态', '计算时间']}
+                        rows={rewards.items.map((item) => [
+                          item.sourceUserId,
+                          item.rewardLevel,
+                          item.rewardAmount,
+                          item.rewardStatus,
+                          item.calculatedAt,
+                        ])}
+                        emptyText="暂无奖励数据"
+                      />
+                    ) : (
+                      <EmptyState title="奖励记录待同步" description="当用户链路产生收益事件后，这里会显示对应奖励明细。" />
+                    )}
+                  </PanelSection>
+                </div>
               </PanelSection>
 
-              <div className="content-grid two-columns entity-grid">
-                <PanelSection eyebrow="Team" title="直属团队" description="看当前用户的一度团队关系和锁定状态。">
-                  {team?.items?.length ? (
-                    <DataTable
-                      headers={['用户ID', '邀请码', '国家', '有效用户', '确认收益', '锁定状态', '绑定时间']}
-                      rows={team.items.map((item) => [
-                        item.userId,
-                        item.inviteCode,
-                        item.countryCode,
-                        item.effectiveUser ? '是' : '否',
-                        item.confirmedIncomeTotal,
-                        item.lockStatus,
-                        item.bindTime,
-                      ])}
-                      emptyText="暂无团队数据"
-                    />
-                  ) : (
-                    <EmptyState title="直属团队待同步" description="创建用户后并产生下级绑定，这里会显示一度团队成员。" />
-                  )}
-                </PanelSection>
-
-                <PanelSection eyebrow="Rewards" title="奖励明细" description="快速看来源用户、奖励层级和当前奖励状态。">
-                  {rewards?.items?.length ? (
-                    <DataTable
-                      headers={['来源用户', '层级', '奖励金额', '状态', '计算时间']}
-                      rows={rewards.items.map((item) => [
-                        item.sourceUserId,
-                        item.rewardLevel,
-                        item.rewardAmount,
-                        item.rewardStatus,
-                        item.calculatedAt,
-                      ])}
-                      emptyText="暂无奖励数据"
-                    />
-                  ) : (
-                    <EmptyState title="奖励记录待同步" description="当用户链路产生收益事件后，这里会显示对应奖励明细。" />
-                  )}
-                </PanelSection>
-              </div>
-            </>
-          ) : (
-            <>
               <PanelSection
-                eyebrow="Security"
-                title="运营登录"
+                sectionId="admin-login"
+                eyebrow="Access"
+                title="进入运营后台"
+                description="先拿口令建立后台会话；进来之后再按概览、邀请码、收益、绑定和异常去处理。"
                 action={adminSession ? <button className="ghost-btn" onClick={handleAdminLogout}>退出后台</button> : undefined}
               >
                 {adminSession ? (
@@ -1017,6 +1092,7 @@ function ConsoleApp() {
               </PanelSection>
 
               <PanelSection
+                sectionId="admin-overview"
                 eyebrow="Overview"
                 title="分销概览"
                 description="按当前产品视角看邀请码、绑定关系、收益和异常总况。"
@@ -1032,69 +1108,58 @@ function ConsoleApp() {
                 </div>
               </PanelSection>
 
+              <PanelSection
+                sectionId="admin-invite-ops"
+                eyebrow="Invite & Entry"
+                title="邀请码与对外入口"
+                description="这里统一打开和复制对外三页。"
+              >
+                <InfoCard title="对外网页入口" tone="success">
+                  <InlineHint text="常用顺序：先生成邀请码，再绑定关系，最后看收益。" />
+                  {publicEntryLinks.map((item) => (
+                    <div key={item.key} className="public-entry-item">
+                      <InfoRow label={item.label} value={item.url} code />
+                      <div className="action-row top-gap public-entry-actions">
+                        <button className="ghost-btn small-btn" type="button" onClick={() => openExternalLandingPage(item.path)}>打开页面</button>
+                        <button className="ghost-btn small-btn" type="button" onClick={() => copyPublicEntryLink(item.url)}>复制链接</button>
+                      </div>
+                    </div>
+                  ))}
+                </InfoCard>
+              </PanelSection>
+
               <div className="content-grid two-columns entity-grid">
                 <PanelSection
+                  sectionId="admin-rewards"
                   eyebrow="Rewards"
                   title="收益记录管理"
                   description="按受益用户、状态和时间范围查奖励记录。"
                   action={<button className="primary-btn" onClick={handleLoadAdminRewards} disabled={loading || !canLoadAdmin}>查询收益记录</button>}
                 >
-                  <div className="content-grid two-columns nested-grid admin-workspace-grid reward-layout-grid">
-                    <InfoCard title="筛选条件" tone="neutral">
-                      <div className="query-shell soft-query-shell compact-query-shell">
-                        <div className="grid-form compact-form">
-                          <label>
-                            受益用户 ID
-                            <input value={adminRewardQuery.beneficiaryUserId} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, beneficiaryUserId: e.target.value })} placeholder="例如 11001" />
-                          </label>
-                          <label>
-                            状态
-                            <select value={adminRewardQuery.status} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, status: e.target.value })}>
-                              <option value="">全部</option>
-                              <option value="FROZEN">FROZEN</option>
-                              <option value="AVAILABLE">AVAILABLE</option>
-                              <option value="RISK_HOLD">RISK_HOLD</option>
-                            </select>
-                          </label>
-                          <label>
-                            开始时间
-                            <input type="datetime-local" value={adminRewardQuery.startAt} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, startAt: e.target.value })} />
-                          </label>
-                          <label>
-                            结束时间
-                            <input type="datetime-local" value={adminRewardQuery.endAt} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, endAt: e.target.value })} />
-                          </label>
-                          <label>
-                            页码
-                            <input type="number" min="0" value={adminRewardQuery.page} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, page: e.target.value })} placeholder="0" />
-                          </label>
-                          <label>
-                            每页条数
-                            <input type="number" min="1" max="100" value={adminRewardQuery.size} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, size: e.target.value })} placeholder="10" />
-                          </label>
-                        </div>
-                        <InlineHint text={rewardPageLabel} />
-                        <div className="table-toolbar compact-toolbar">
-                          <button className="ghost-btn small-btn" onClick={() => handleAdminRewardPageChange(Number(adminRewardQuery.page) - 1)} disabled={loading || !hasRewardPrevPage}>上一页</button>
-                          <button className="ghost-btn small-btn" onClick={() => handleAdminRewardPageChange(Number(adminRewardQuery.page) + 1)} disabled={loading || !hasRewardNextPage}>下一页</button>
-                        </div>
+                  <InfoCard title="筛选条件" tone="neutral">
+                    <div className="query-shell soft-query-shell compact-query-shell">
+                      <div className="grid-form compact-form exception-filter-grid">
+                        <label>
+                          受益用户 ID
+                          <input value={adminRewardQuery.beneficiaryUserId} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, beneficiaryUserId: e.target.value })} placeholder="例如 11001" />
+                        </label>
+                        <label>
+                          状态
+                          <select value={adminRewardQuery.status} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, status: e.target.value })}>
+                            <option value="">全部</option>
+                            <option value="FROZEN">FROZEN</option>
+                            <option value="AVAILABLE">AVAILABLE</option>
+                            <option value="RISK_HOLD">RISK_HOLD</option>
+                          </select>
+                        </label>
                       </div>
-                    </InfoCard>
-
-                    <div className="stack-gap compact-stack">
-                      <InfoCard title="奖励排查概览" tone="success">
-                        <div className="stack-gap compact-stack">
-                          <DetailGrid items={rewardResultItems} />
-                          <DetailGrid items={rewardSummaryItems} />
-                        </div>
-                      </InfoCard>
-
-                      <ToastStack
-                        tone="neutral"
-                        items={['先按受益用户或状态缩小范围，再继续看奖励层级与来源用户。']}
-                      />
+                      <InlineHint text={rewardPageLabel} />
+                      <div className="table-toolbar compact-toolbar">
+                        <button className="ghost-btn small-btn" onClick={() => handleAdminRewardPageChange(Number(adminRewardQuery.page) - 1)} disabled={loading || !hasRewardPrevPage}>上一页</button>
+                        <button className="ghost-btn small-btn" onClick={() => handleAdminRewardPageChange(Number(adminRewardQuery.page) + 1)} disabled={loading || !hasRewardNextPage}>下一页</button>
+                      </div>
                     </div>
-                  </div>
+                  </InfoCard>
 
                   {adminRewards?.items?.length ? (
                     <DataTable
@@ -1110,11 +1175,84 @@ function ConsoleApp() {
                       emptyText="暂无后台奖励数据"
                     />
                   ) : (
-                    <EmptyState title={rewardEmptyState.title} description={rewardEmptyState.description} actionLabel={rewardEmptyState.actionLabel} />
+                    <EmptyState title="暂无后台奖励数据" description="先按受益用户或状态查一页。" actionLabel={rewardEmptyState.actionLabel} />
                   )}
                 </PanelSection>
 
                 <PanelSection
+                  sectionId="admin-ownership"
+                  eyebrow="Ownership"
+                  title="产品归属管理"
+                  description="按用户 ID 查看当前产品归属，并支持人工修正。"
+                  action={<button className="primary-btn" onClick={handleLoadOwnership} disabled={loading || !ownershipQueryUserId || !canLoadAdmin}>查询产品归属</button>}
+                >
+                  <InfoCard title="查询入口" tone="neutral">
+                    <div className="grid-form compact-form single-line">
+                      <label>
+                        用户 ID
+                        <input value={ownershipQueryUserId} onChange={(e) => setOwnershipQueryUserId(e.target.value)} placeholder="例如 10003" />
+                      </label>
+                    </div>
+                    <InlineHint text="先查当前用户已落在哪些产品，再决定是否需要人工切换归属。" />
+                  </InfoCard>
+                  {adminOwnership ? (
+                    <div className="stack-gap relation-workbench">
+                      <InfoCard title="当前产品归属" tone="success">
+                        <InfoRow label="用户 ID" value={adminOwnership.userId} />
+                        <InfoRow label="当前 ACTIVE 归属" value={adminOwnership.items.find((item) => item.ownershipStatus === 'ACTIVE')?.productCode || '-'} />
+                        <InfoRow label="归属记录数" value={adminOwnership.items.length} />
+                      </InfoCard>
+
+                      <DataTable
+                        headers={['产品', '状态', '来源', '来源记录', '生效时间']}
+                        rows={adminOwnership.items.map((item) => [
+                          item.productCode,
+                          renderStatusBadge(item.ownershipStatus),
+                          item.ownershipSource,
+                          item.sourceRecordId ? `${item.sourceRecordType} #${item.sourceRecordId}` : item.sourceRecordType,
+                          formatDateTime(item.effectiveAt),
+                        ])}
+                        emptyText="暂无产品归属记录"
+                      />
+                    </div>
+                  ) : (
+                    <EmptyState title="暂无产品归属结果" description="输入用户 ID 后查询，这里会显示产品归属、来源记录和人工修正入口。" />
+                  )}
+
+                  <InfoCard title="人工修正" tone="neutral">
+                    <div className="grid-form compact-form">
+                      <label>
+                        目标产品编码
+                        <input value={ownershipCorrectionProductCode} onChange={(e) => setOwnershipCorrectionProductCode(e.target.value)} placeholder="例如 LINKY" />
+                      </label>
+                      <label>
+                        修正备注
+                        <input value={ownershipCorrectionNote} onChange={(e) => setOwnershipCorrectionNote(e.target.value)} placeholder="例如：人工修正产品归属" />
+                      </label>
+                    </div>
+                    <InlineHint text={adminOwnership ? '提交后，原 ACTIVE 归属会转成 CORRECTED，目标产品归属会切成 ACTIVE。' : '先查一位用户，再提交产品归属修正。'} />
+                    <div className="table-toolbar">
+                      <button className="primary-btn small-btn" onClick={handleCorrectOwnership} disabled={ownershipCorrectionLoading || !canLoadAdmin || !ownershipCorrectionProductCode.trim() || !adminOwnership}>提交产品归属修正</button>
+                      <button className="ghost-btn small-btn" onClick={handleLoadOwnershipAudit} disabled={!canLoadAdmin}>查看 ownership 审计</button>
+                    </div>
+                  </InfoCard>
+
+                  <InfoCard title="联合处置视图" tone="success">
+                    <InfoRow label="当前用户" value={(adminOwnership?.userId ?? adminRelation?.userId ?? ownershipQueryUserId) || '-'} />
+                    <InfoRow label="当前 ACTIVE 归属" value={activeOwnershipItem?.productCode || '待同步'} />
+                    <InfoRow label="当前一级上级" value={adminRelation?.level1InviterId ?? '待同步'} />
+                    <InfoRow label="当前审计焦点" value={jointAuditFocus} />
+                    <InlineHint text={isJointWorkbenchReady ? '现在可以在同一块里看产品归属、绑定关系和审计入口。' : '先查产品归属，再把绑定关系和审计同步进来。'} />
+                    <div className="table-toolbar">
+                      <button className="primary-btn small-btn" onClick={handleLoadJointWorkbench} disabled={!canLoadAdmin || !ownershipQueryUserId.trim() || loading}>一键联合查询</button>
+                      <button className="ghost-btn small-btn" onClick={handleSyncOwnershipRelation} disabled={!canLoadAdmin || (!adminOwnership && !ownershipQueryUserId.trim())}>同步绑定关系</button>
+                      <button className="ghost-btn small-btn" onClick={handleLoadJointAudit} disabled={!canLoadAdmin}>查看联合审计</button>
+                    </div>
+                  </InfoCard>
+                </PanelSection>
+
+                <PanelSection
+                  sectionId="admin-bindings"
                   eyebrow="Bindings"
                   title="绑定关系管理"
                   description="按用户 ID 查看当前邀请关系，并支持人工修正。"
@@ -1145,30 +1283,20 @@ function ConsoleApp() {
                       </div>
 
                       <div className="content-grid two-columns nested-grid admin-workspace-grid workspace-grid">
-                        <InfoCard title="查询上下文" tone="neutral">
-                          <DetailGrid items={relationContextItems} />
-                        </InfoCard>
-                        <InfoCard title="关键时间" tone="success">
-                          <DetailGrid items={relationTimelineItems} />
-                        </InfoCard>
-                      </div>
-
-                      <div className="content-grid two-columns nested-grid admin-workspace-grid workspace-grid">
-                        <InfoCard title="当前关系快照" tone="neutral">
+                        <InfoCard title="当前关系" tone="neutral">
                           <InfoRow label="当前一级上级" value={adminRelation.level1InviterId ?? '-'} />
                           <InfoRow label="当前二级上级" value={adminRelation.level2InviterId ?? '-'} />
                           <InfoRow label="当前三级上级" value={adminRelation.level3InviterId ?? '-'} />
                           <InfoRow label="当前来源" value={adminRelation.bindSource} />
                         </InfoCard>
-                        <InfoCard title="修正后预览" tone="success">
+                        <InfoCard title="修正预览" tone="success">
                           <InfoRow label="修正后一级上级" value={relationPreview?.nextLevel1InviterId ?? '-'} />
                           <InfoRow label="修正后来源" value={relationPreview?.nextBindSource ?? 'MANUAL'} />
                           <InfoRow label="变更说明" value={relationPreview?.summary ?? '保持当前关系'} />
-                          <InfoRow label="操作建议" value={adminRelation.lockStatus === 'LOCKED' ? '当前关系已锁定，不能手工修改。' : '先确认预览，再提交人工修正。'} />
                         </InfoCard>
                       </div>
 
-                      <InfoCard title="人工修正操作区" tone="neutral">
+                      <InfoCard title="人工修正" tone="neutral">
                         <div className="grid-form compact-form">
                           <label>
                             人工修正后的一级上级用户 ID
@@ -1179,14 +1307,7 @@ function ConsoleApp() {
                             <input value={relationAdjustNote} onChange={(e) => setRelationAdjustNote(e.target.value)} placeholder="例如：人工修正绑定关系" />
                           </label>
                         </div>
-                        <ToastStack
-                          tone={adminRelation.lockStatus === 'LOCKED' ? 'warning' : 'neutral'}
-                          items={[
-                            adminRelation.lockStatus === 'LOCKED'
-                              ? '当前关系已锁定，请先回审计或走解锁流程。'
-                              : '先确认预览，再决定是否提交人工修正。',
-                          ]}
-                        />
+                        <InlineHint text={adminRelation.lockStatus === 'LOCKED' ? '当前关系已锁定，请先解锁后再人工修正。' : '确认预览无误后再提交人工修正。'} />
                         <div className="table-toolbar">
                           <button className="primary-btn small-btn" onClick={openRelationAdjustConfirm} disabled={relationAdjustLoading || !canLoadAdmin || adminRelation.lockStatus === 'LOCKED'}>预览后确认修正</button>
                           <button className="ghost-btn small-btn" onClick={() => setRelationAdjustInviterId('')} disabled={relationAdjustLoading}>设为根关系</button>
@@ -1194,25 +1315,20 @@ function ConsoleApp() {
                       </InfoCard>
                     </div>
                   ) : (
-                    <div className="stack-gap relation-empty-workbench">
-                      <EmptyState title="暂无关系链结果" description="输入用户 ID 后查询，这里会显示查询上下文、关键时间、关系快照和人工修正预览。" />
-                      <ToastStack
-                        tone="neutral"
-                        items={['输入目标用户 ID 后，系统会展示关系快照与修正预览。']}
-                      />
-                    </div>
+                    <EmptyState title="暂无关系链结果" description="输入用户 ID 后查询，这里会显示当前关系和修正预览。" />
                   )}
                 </PanelSection>
               </div>
 
               <PanelSection
+                sectionId="admin-exceptions"
                 eyebrow="Exceptions"
                 title="异常处理"
-                description="先看待处理异常，再决定是否进入更深的产品事件排查。"
+                description="默认先看待处理异常。"
                 action={<button className="primary-btn" onClick={handleLoadRiskEvents} disabled={loading || !canLoadAdmin}>查询异常</button>}
               >
-                <div className="query-shell">
-                  <div className="grid-form compact-form">
+                <div className="query-shell compact-query-shell">
+                  <div className="grid-form compact-form exception-filter-grid">
                     <label>
                       用户 ID
                       <input value={riskQuery.userId} onChange={(e) => setRiskQuery({ ...riskQuery, userId: e.target.value })} placeholder="例如 13002" />
@@ -1226,24 +1342,8 @@ function ConsoleApp() {
                         <option value="IGNORED">IGNORED</option>
                       </select>
                     </label>
-                    <label>
-                      开始时间
-                      <input type="datetime-local" value={riskQuery.startAt} onChange={(e) => setRiskQuery({ ...riskQuery, startAt: e.target.value })} />
-                    </label>
-                    <label>
-                      结束时间
-                      <input type="datetime-local" value={riskQuery.endAt} onChange={(e) => setRiskQuery({ ...riskQuery, endAt: e.target.value })} />
-                    </label>
-                    <label>
-                      页码
-                      <input type="number" min="0" value={riskQuery.page} onChange={(e) => setRiskQuery({ ...riskQuery, page: e.target.value })} placeholder="0" />
-                    </label>
-                    <label>
-                      每页条数
-                      <input type="number" min="1" max="100" value={riskQuery.size} onChange={(e) => setRiskQuery({ ...riskQuery, size: e.target.value })} placeholder="10" />
-                    </label>
                   </div>
-                  <InlineHint text={riskPageLabel} />
+                  <InlineHint text={riskQuery.riskStatus ? riskPageLabel : '默认先查 PENDING；没有结果再切全部。'} />
                   <div className="table-toolbar">
                     <button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) - 1)} disabled={loading || !hasRiskPrevPage}>上一页</button>
                     <button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) + 1)} disabled={loading || !hasRiskNextPage}>下一页</button>
@@ -1258,13 +1358,12 @@ function ConsoleApp() {
                           <div className="risk-event-head">
                             <div>
                               <strong>风险事件 #{item.id}</strong>
-                              <p>用户 #{item.userId} · {item.riskType} · {formatDateTime(item.detectedAt)}</p>
+                              <p>用户 #{item.userId} · {item.riskType}</p>
                             </div>
                             {renderStatusBadge(item.riskStatus)}
                           </div>
                           <div className="risk-event-meta">
-                            <span>等级 {item.riskLevel}</span>
-                            <span>处理信息：{item.handledAt ? `${formatDateTime(item.handledAt)} / #${item.handledBy ?? 0}` : '未处理'}</span>
+                            <span>{item.handledAt ? `${formatDateTime(item.handledAt)} / #${item.handledBy ?? 0}` : '未处理'}</span>
                             <span>备注：{item.resultNote || '暂无'}</span>
                           </div>
                           <label className="note-field">
@@ -1282,11 +1381,12 @@ function ConsoleApp() {
                     })}
                   </div>
                 ) : (
-                  <EmptyState title={riskEmptyState.title} description={riskEmptyState.description} actionLabel={riskEmptyState.actionLabel} />
+                  <EmptyState title="暂无异常结果" description="先查 PENDING，没有结果再放宽条件。" actionLabel={riskEmptyState.actionLabel} />
                 )}
               </PanelSection>
 
               <PanelSection
+                sectionId="admin-advanced"
                 eyebrow="Advanced"
                 title="高级排查"
                 description="默认把产品事件日志、重复回放和审计日志收起来，只在需要时展开。"
@@ -1453,6 +1553,7 @@ function ConsoleApp() {
                       <select value={auditQuery.moduleName} onChange={(e) => setAuditQuery({ ...auditQuery, moduleName: e.target.value })}>
                         <option value="risk_event">risk_event</option>
                         <option value="relation">relation</option>
+                        <option value="ownership">ownership</option>
                         <option value="">全部</option>
                       </select>
                     </label>
@@ -1484,52 +1585,14 @@ function ConsoleApp() {
                 </PanelSection>
               </>
             ) : null}
-            </>
-          )}
         </main>
 
         <aside className="console-side">
-          {viewMode === 'user' ? (
-            <>
-              <PanelSection eyebrow="Start Here" title="三步完成接入" description="把首页先收成明确动作，不再堆一排说明文案。">
-                <JourneyStrip items={userJourneySteps} compact />
-                <div className="focus-card-grid top-gap">
-                  {userFocusCards.map((item) => (
-                    <FocusCard key={item.title} {...item} />
-                  ))}
-                </div>
-                <div className="action-row top-gap">
-                  <button className="primary-btn" type="button" onClick={handleLoadDashboard} disabled={!canLoadData || loading}>刷新用户工作台</button>
-                </div>
-              </PanelSection>
-
-              <PanelSection eyebrow="Access" title="当前环境入口">
-                <InfoCard title="本地 / 部署入口" tone="neutral">
-                  <InfoRow label="本地后端" value="http://localhost:8080" code />
-                  <InfoRow label="前端开发" value="http://localhost:5173" code />
-                  <InfoRow label="Docker 前端" value="http://localhost:8088" code />
-                  <InfoRow label="健康检查" value="http://localhost:8080/actuator/health" code />
-                  <InfoRow label="部署文件" value="deploy/docker-compose.yml" code />
-                </InfoCard>
-              </PanelSection>
-
-              <PanelSection eyebrow="Next" title="继续推进建议">
-                <RoadmapList
-                  items={[
-                    { title: '接入完成后先看团队', desc: '确认直属绑定是否正确，再看有效用户和锁定状态。' },
-                    { title: '奖励异常再进明细', desc: '奖励没有起来时，优先核对来源用户、层级和状态。' },
-                    { title: '后台能力继续拆模块', desc: '等用户链路稳定后，再继续补风控、关系修正和更细权限。' },
-                  ]}
-                />
-              </PanelSection>
-            </>
-          ) : (
-            <>
               <PanelSection eyebrow="Guide" title="多产品分销后台优先级">
                 <ToastStack
                   tone="neutral"
                   items={[
-                    '主后台先围绕概览、邀请码、绑定关系、收益记录、异常处理组织，产品事件排查放到高级入口。',
+                    '后台先按动作理解：登录 → 看总览 → 管邀请码与对外入口 → 再按收益 / 绑定 / 异常分模块处理。',
                     adminProduct === 'ALL' ? '当前是全部产品视角，适合先看总盘子。' : `当前聚焦 ${currentAdminProductLabel}，适合继续看该产品的绑定、收益和事件链路。`,
                   ]}
                 />
@@ -1555,12 +1618,11 @@ function ConsoleApp() {
                   ]}
                 />
               </PanelSection>
-            </>
-          )}
         </aside>
       </div>
 
       {selectedLinkyDrawer ? (
+
         <DrawerDialog
           title={selectedLinkyTitle}
           subtitle={selectedLinkyDrawer.kind === 'webhook' ? 'Linky webhook 详情' : 'Linky replay 详情'}
@@ -1615,9 +1677,9 @@ function ConsoleApp() {
   )
 }
 
-function PanelSection({ eyebrow, title, description, action, children }: { eyebrow: string; title: string; description?: string; action?: React.ReactNode; children: React.ReactNode }) {
+function PanelSection({ eyebrow, title, description, action, children, sectionId }: { eyebrow: string; title: string; description?: string; action?: React.ReactNode; children: React.ReactNode; sectionId?: string }) {
   return (
-    <section className="panel-card">
+    <section className="panel-card" id={sectionId}>
       <div className="panel-head">
         <div>
           <p className="panel-eyebrow">{eyebrow}</p>
@@ -1642,19 +1704,6 @@ function SummaryCard({ label, value, hint }: { label: string; value: string; hin
   )
 }
 
-function TaskCard({ title, value, hint, tone }: { title: string; value: string; hint: string; tone: 'neutral' | 'primary' | 'success' | 'warning' | 'danger' }) {
-  return (
-    <div className={`task-card tone-${tone}`}>
-      <span>{title}</span>
-      <div className="task-card-status-row">
-        <strong>{value}</strong>
-        <span className={`task-status-pill tone-${tone}`}>{value}</span>
-      </div>
-      <p>{hint}</p>
-    </div>
-  )
-}
-
 function DiagnosticBanner({ eyebrow, title, description, tone }: { eyebrow: string; title: string; description: string; tone: 'success' | 'warning' | 'danger' }) {
   return (
     <div className={`diagnostic-banner tone-${tone}`}>
@@ -1662,6 +1711,17 @@ function DiagnosticBanner({ eyebrow, title, description, tone }: { eyebrow: stri
       <h3>{title}</h3>
       <p>{description}</p>
     </div>
+  )
+}
+
+function ShortcutCard({ title, value, description, tone, href, cta }: AdminWorkspaceShortcut) {
+  return (
+    <a className={`shortcut-card tone-${tone}`} href={href}>
+      <span>{title}</span>
+      <strong>{value}</strong>
+      <p>{description}</p>
+      <em>{cta}</em>
+    </a>
   )
 }
 
@@ -1706,19 +1766,6 @@ function InfoRow({ label, value, code = false }: { label: string; value: React.R
   )
 }
 
-function DetailGrid({ items }: { items: Array<{ label: string; value: React.ReactNode }> }) {
-  return (
-    <div className="detail-grid">
-      {items.map((item) => (
-        <div className="detail-tile" key={item.label}>
-          <span>{item.label}</span>
-          <strong>{item.value}</strong>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 function EmptyState({ title, description, actionLabel }: { title: string; description: string; actionLabel?: string }) {
   const stateLabel = title.includes('登录')
     ? '待登录'
@@ -1747,32 +1794,6 @@ function RoadmapList({ items }: { items: Array<{ title: string; desc: string }> 
           <p>{item.desc}</p>
         </div>
       ))}
-    </div>
-  )
-}
-
-function JourneyStrip({ items, compact = false }: { items: Array<{ step: string; title: string; description: string; status: 'pending' | 'active' | 'ready' }>; compact?: boolean }) {
-  return (
-    <div className={`journey-strip ${compact ? 'compact' : ''}`}>
-      {items.map((item) => (
-        <div className={`journey-step ${item.status}`} key={item.step}>
-          <span className="journey-step-number">{item.step}</span>
-          <div>
-            <strong>{item.title}</strong>
-            <p>{item.description}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function FocusCard({ title, value, description, tone }: { title: string; value: string; description: string; tone: 'neutral' | 'primary' | 'success' | 'warning' }) {
-  return (
-    <div className={`focus-card tone-${tone}`}>
-      <span>{title}</span>
-      <strong>{value}</strong>
-      <p>{description}</p>
     </div>
   )
 }
@@ -1844,23 +1865,6 @@ function StatusBadge({ status }: { status: string }) {
   }
   const normalized = badgeMap[status] || { label: status, tone: 'primary' as const }
   return <span className={`badge badge-${normalized.tone}`}>{normalized.label}</span>
-}
-
-function statusToProductLabel(status: string) {
-  const labelMap: Record<string, string> = {
-    AVAILABLE: '已可用',
-    HANDLED: '已处理',
-    PROCESSED: '已处理',
-    IGNORED: '已忽略',
-    PENDING: '待处理',
-    LOCKED: '已锁定',
-    RISK_HOLD: '风控冻结',
-    FROZEN: '已冻结',
-    FAILED: '异常',
-    REJECTED: '已拒绝',
-    UNLOCKED: '未锁定',
-  }
-  return labelMap[status] || status
 }
 
 function renderStatusBadge(status: string) {
@@ -2024,8 +2028,8 @@ function BindLandingPage() {
       productLabel: '产品',
       productHelper: '暂时仅开放 Linky',
       kicker: 'FLEXIBLE REMOTE REWARD PROGRAM',
-      heroTitle: '在家用手机做推广，先绑定邀请码，再锁定后续奖励归属',
-      heroSubtitle: '原理很简单：邀请码 + WhatsApp + 8位账号 先登记，后续这条线的关系和奖励再按你名下计算。',
+      heroTitle: '先绑定邀请码，锁定后续奖励归属',
+      heroSubtitle: '填写邀请码、WhatsApp 和 8 位账号，先把关系登记进去。',
       chips: ['居家灵活用工', '金币奖励链路', '手机即可开始'],
       floating: ['🏠 居家', '📱 手机', '🪙 金币'],
       stats: ['先绑定', '再推广', '后归因'],
@@ -2256,7 +2260,10 @@ function BindLandingPage() {
     setLoading(true)
     setError('')
     try {
-      const response = await registerInviteBinding(form)
+      const response = await registerInviteBinding({
+        productCode: product,
+        ...form,
+      })
       setResult(response)
     } catch (err) {
       setError(err instanceof Error ? err.message : copy.failure)
@@ -2277,9 +2284,8 @@ function BindLandingPage() {
             <strong className="bind-brand">Referral Hub</strong>
           </div>
           <div className="bind-topbar-controls">
-            <label className="bind-select-group">
-              <span>{copy.languageLabel}</span>
-              <select value={locale} onChange={(event) => setLocale(event.target.value as keyof typeof copyByLocale)}>
+            <label className="bind-select-group bind-select-inline topbar-pill-control">
+              <select aria-label={copy.languageLabel} value={locale} onChange={(event) => setLocale(event.target.value as keyof typeof copyByLocale)}>
                 <option value="zh">中文</option>
                 <option value="en">English</option>
                 <option value="es">Español</option>
@@ -2291,9 +2297,9 @@ function BindLandingPage() {
         </header>
 
         <nav className="entry-link-bar">
-          <a className="entry-link active" href="/bind">{copy.navBind}</a>
-          <a className="entry-link" href="/invite">{copy.navInvite}</a>
-          <a className="entry-link" href="/earnings">{copy.navEarnings}</a>
+          <a className="entry-link active topbar-pill-control" href="/bind">{copy.navBind}</a>
+          <a className="entry-link topbar-pill-control" href="/invite">{copy.navInvite}</a>
+          <a className="entry-link topbar-pill-control" href="/earnings">{copy.navEarnings}</a>
         </nav>
 
         <div className="bind-stage">
@@ -2401,11 +2407,11 @@ const externalPageCopyByLocale = {
     languageLabel: '语言',
     inviteKicker: 'INVITE CODE ENTRY',
     inviteTitle: '生成我的邀请码',
-    inviteSubtitle: '填完产品、WhatsApp 和 app 账户，一键生成邀请码。',
+    inviteSubtitle: '填完信息，马上生成并复制你的邀请码。',
     productLabel: '产品',
     whatsappLabel: 'WhatsApp 号码',
     appAccountLabel: 'app 账户（8位数字）',
-    generateButton: '一键生成邀请码',
+    generateButton: '立即生成邀请码',
     generating: '生成中...',
     myInviteCode: '我的邀请码',
     copyInviteCode: '一键复制邀请码',
@@ -2416,23 +2422,63 @@ const externalPageCopyByLocale = {
     earningsKicker: 'EARNINGS ENTRY',
     earningsTitle: '查看我的人收益',
     earningsSubtitle: '看两部分：被邀请人的收益 + 你的提成。',
+    boardTitle: '你的收益会在这里持续更新',
+    boardSubtitle: '从邀请码、绑定到奖励到账，这一页会持续帮你看清进度。',
+    boardBadgeCode: '邀请码固定不变',
+    boardBadgeBind: '绑定后自动累计',
+    boardBadgeStatus: '到账状态一目了然',
     noSession: '还没有用户会话，请先去“生成我的邀请码”页面生成邀请码。',
+    noSessionTitle: '先生成你的邀请码',
+    noSessionHint: '还没开始邀请也没关系。先生成邀请码，再去完成绑定，收益会自动累计到这里。',
+    noSessionPrimary: '去生成我的邀请码',
+    noSessionSecondary: '去绑定关系',
     inviteeIncome: '被邀请人的收益',
+    inviteeIncomeBadge: '已确认',
     myCommission: '你的提成',
+    myCommissionBadge: '累计提成',
     availableReward: '可用奖励',
+    availableRewardBadge: '可立即查看',
+    frozenReward: '冻结奖励',
+    riskHoldReward: '风险冻结',
     inviteeIncomeHint: '来自你的下线成员累计确认收益。',
     myCommissionHint: '按奖励记录汇总出来的你的分销提成。',
     availableRewardHint: '当前已经进入可结算状态的奖励。',
-    earningsOverview: '收益概览',
+    earningsOverview: '我的收益概览',
+    overviewCardTitle: '当前邀请码与收益总览',
+    overviewBadge: '邀请码 / 团队 / 奖励',
+    progressTitle: '当前邀请进度',
+    progressCardTitle: '绑定完成后人数和收益会持续更新',
+    progressBadge: '进度追踪',
+    progressHint: '邀请码固定不变；完成绑定后，邀请人数、有效人数和收益会逐步更新。',
+    settlementTitle: '奖励到账说明',
+    settlementCardTitle: '冻结中 → 可结算 → 风险冻结',
+    settlementBadge: '到账路径',
+    settlementHint: '奖励会先进入冻结，满足结算条件后转为可用；如触发风控，会暂时进入风险冻结。',
+    nextStepsTitle: '接下来你可以继续做',
+    nextInvite: '继续去生成邀请码',
+    nextBind: '继续去绑定关系',
     inviteCode: '邀请码',
     invitedUsers: '邀请人数',
     effectiveUsers: '有效人数',
     totalReward: '总奖励',
     rewardRecords: '收益记录',
+    rewardActivityTitle: '最近奖励动态',
+    rewardActivityHint: '每一笔奖励都会显示状态和时间，方便你确认什么时候到账。',
+    rewardStatusGuideTitle: '状态说明',
+    rewardStatusGuideFrozen: '冻结中：奖励正在等待结算',
+    rewardStatusGuideAvailable: '可结算：奖励已经可以使用',
+    rewardStatusGuideRiskHold: '风险冻结：奖励暂时进入风控复核',
     loading: '加载中...',
     noRewards: '暂时还没有收益记录。',
+    emptyRewardsTitle: '还没有收益记录',
+    emptyRewardsHint: '先去生成邀请码并完成绑定，后续有收益会自动显示在这里。',
+    emptyRewardsAction: '去生成我的邀请码',
     rewardLine: '被邀请人收益层级',
     commissionTail: '你的提成',
+    rewardStatusFrozen: '冻结中',
+    rewardStatusAvailable: '可结算',
+    rewardStatusRiskHold: '风险冻结',
+    rewardStatusDefault: '处理中',
   },
   en: {
     navBind: 'Binding page',
@@ -2456,23 +2502,63 @@ const externalPageCopyByLocale = {
     earningsKicker: 'EARNINGS ENTRY',
     earningsTitle: 'View my team earnings',
     earningsSubtitle: 'See two parts: invitee earnings + your commission.',
+    boardTitle: 'Your earnings will keep updating here',
+    boardSubtitle: 'From invite code to binding to reward settlement, this page helps you track the whole progress clearly.',
+    boardBadgeCode: 'Invite code stays the same',
+    boardBadgeBind: 'Accumulates after binding',
+    boardBadgeStatus: 'Settlement status at a glance',
     noSession: 'No user session yet. Generate your invite code first.',
+    noSessionTitle: 'Generate your invite code first',
+    noSessionHint: 'No invites yet, and that is okay. Generate your invite code first, then complete the binding step. Earnings will start to accumulate here automatically.',
+    noSessionPrimary: 'Generate my invite code',
+    noSessionSecondary: 'Go to binding page',
     inviteeIncome: 'Invitee earnings',
+    inviteeIncomeBadge: 'Confirmed',
     myCommission: 'Your commission',
+    myCommissionBadge: 'Total commission',
     availableReward: 'Available reward',
+    availableRewardBadge: 'Ready to view',
+    frozenReward: 'Frozen reward',
+    riskHoldReward: 'Risk hold',
     inviteeIncomeHint: 'Confirmed earnings from your downstream members.',
     myCommissionHint: 'Your commission aggregated from reward records.',
     availableRewardHint: 'Rewards already available for settlement.',
-    earningsOverview: 'Earnings overview',
+    earningsOverview: 'My earnings overview',
+    overviewCardTitle: 'Current invite code and reward snapshot',
+    overviewBadge: 'Invite code / Team / Rewards',
+    progressTitle: 'Current invite progress',
+    progressCardTitle: 'After binding, users and rewards will keep updating here',
+    progressBadge: 'Progress tracking',
+    progressHint: 'Your invite code stays the same. After binding is completed, invited users, effective users, and rewards will update here step by step.',
+    settlementTitle: 'How reward settlement works',
+    settlementCardTitle: 'Frozen → Available → Risk hold',
+    settlementBadge: 'Settlement path',
+    settlementHint: 'Rewards usually enter frozen status first, become available after settlement conditions are met, and may move into risk hold if a risk review is triggered.',
+    nextStepsTitle: 'What you can do next',
+    nextInvite: 'Generate another invite code',
+    nextBind: 'Go to binding page',
     inviteCode: 'Invite code',
     invitedUsers: 'Invited users',
     effectiveUsers: 'Effective users',
     totalReward: 'Total reward',
     rewardRecords: 'Reward records',
+    rewardActivityTitle: 'Recent reward activity',
+    rewardActivityHint: 'Each reward shows its status and time so you can see when it becomes available.',
+    rewardStatusGuideTitle: 'Status guide',
+    rewardStatusGuideFrozen: 'Frozen: reward is waiting for settlement',
+    rewardStatusGuideAvailable: 'Available: reward is ready to use',
+    rewardStatusGuideRiskHold: 'Risk hold: reward is under risk review for now',
     loading: 'Loading...',
     noRewards: 'No reward records yet.',
+    emptyRewardsTitle: 'No reward records yet',
+    emptyRewardsHint: 'Generate an invite code and complete the binding flow first. Once earnings are created, they will show up here automatically.',
+    emptyRewardsAction: 'Generate my invite code',
     rewardLine: 'Invitee reward level',
     commissionTail: 'your commission',
+    rewardStatusFrozen: 'Frozen',
+    rewardStatusAvailable: 'Available',
+    rewardStatusRiskHold: 'Risk hold',
+    rewardStatusDefault: 'Processing',
   },
   es: {
     navBind: 'Página de vínculo',
@@ -2496,23 +2582,63 @@ const externalPageCopyByLocale = {
     earningsKicker: 'EARNINGS ENTRY',
     earningsTitle: 'Ver ganancias de mi equipo',
     earningsSubtitle: 'Mira dos partes: ganancias del invitado + tu comisión.',
+    boardTitle: 'Tus ganancias se actualizarán aquí continuamente',
+    boardSubtitle: 'Desde el código de invitación hasta el vínculo y la liquidación, esta página te ayuda a seguir todo el progreso con claridad.',
+    boardBadgeCode: 'El código no cambia',
+    boardBadgeBind: 'Se acumula después del vínculo',
+    boardBadgeStatus: 'Estado visible de un vistazo',
     noSession: 'Todavía no hay sesión. Genera tu código primero.',
+    noSessionTitle: 'Primero genera tu código',
+    noSessionHint: 'Si todavía no empezaste a invitar, no pasa nada. Genera tu código primero y luego completa el vínculo. Las ganancias se acumularán aquí automáticamente.',
+    noSessionPrimary: 'Generar mi código',
+    noSessionSecondary: 'Ir a la página de vínculo',
     inviteeIncome: 'Ganancias del invitado',
+    inviteeIncomeBadge: 'Confirmadas',
     myCommission: 'Tu comisión',
+    myCommissionBadge: 'Comisión acumulada',
     availableReward: 'Recompensa disponible',
+    availableRewardBadge: 'Lista para ver',
+    frozenReward: 'Recompensa congelada',
+    riskHoldReward: 'Retención por riesgo',
     inviteeIncomeHint: 'Ganancias confirmadas de tus miembros referidos.',
     myCommissionHint: 'Tu comisión agregada desde los registros.',
     availableRewardHint: 'Recompensas ya disponibles para liquidación.',
-    earningsOverview: 'Resumen de ganancias',
+    earningsOverview: 'Resumen de mis ganancias',
+    overviewCardTitle: 'Código actual y resumen de ganancias',
+    overviewBadge: 'Código / Equipo / Recompensas',
+    progressTitle: 'Progreso actual de invitación',
+    progressCardTitle: 'Después del vínculo, usuarios y recompensas seguirán actualizándose aquí',
+    progressBadge: 'Seguimiento',
+    progressHint: 'Tu código no cambia. Después del vínculo, invitados, usuarios efectivos y recompensas se actualizarán aquí paso a paso.',
+    settlementTitle: 'Cómo se acredita la recompensa',
+    settlementCardTitle: 'Congelada → Disponible → Retención por riesgo',
+    settlementBadge: 'Ruta de acreditación',
+    settlementHint: 'La recompensa primero pasa por congelación, luego se vuelve disponible al cumplir las condiciones y puede entrar en retención por riesgo si se activa una revisión.',
+    nextStepsTitle: 'Qué puedes hacer ahora',
+    nextInvite: 'Seguir para generar mi código',
+    nextBind: 'Seguir para vincular relación',
     inviteCode: 'Código',
     invitedUsers: 'Invitados',
     effectiveUsers: 'Usuarios efectivos',
     totalReward: 'Recompensa total',
     rewardRecords: 'Registros de recompensa',
+    rewardActivityTitle: 'Actividad reciente de recompensas',
+    rewardActivityHint: 'Cada recompensa muestra su estado y hora para que puedas confirmar cuándo se acredita.',
+    rewardStatusGuideTitle: 'Guía de estados',
+    rewardStatusGuideFrozen: 'Congelada: la recompensa está esperando liquidación',
+    rewardStatusGuideAvailable: 'Disponible: la recompensa ya se puede usar',
+    rewardStatusGuideRiskHold: 'Retención por riesgo: la recompensa está en revisión temporal',
     loading: 'Cargando...',
     noRewards: 'Todavía no hay registros.',
+    emptyRewardsTitle: 'Todavía no hay registros',
+    emptyRewardsHint: 'Primero genera tu código y completa el vínculo. Cuando aparezcan ganancias, se verán aquí automáticamente.',
+    emptyRewardsAction: 'Generar mi código',
     rewardLine: 'Nivel de recompensa del invitado',
     commissionTail: 'tu comisión',
+    rewardStatusFrozen: 'Congelada',
+    rewardStatusAvailable: 'Disponible',
+    rewardStatusRiskHold: 'Retención por riesgo',
+    rewardStatusDefault: 'En proceso',
   },
   id: {
     navBind: 'Halaman bind',
@@ -2536,23 +2662,63 @@ const externalPageCopyByLocale = {
     earningsKicker: 'EARNINGS ENTRY',
     earningsTitle: 'Lihat penghasilan tim saya',
     earningsSubtitle: 'Lihat dua bagian: penghasilan bawahan + komisi kamu.',
+    boardTitle: 'Penghasilan kamu akan terus diperbarui di sini',
+    boardSubtitle: 'Dari kode undangan, bind, sampai reward masuk, halaman ini membantu kamu melihat progresnya dengan jelas.',
+    boardBadgeCode: 'Kode undangan tetap sama',
+    boardBadgeBind: 'Otomatis akumulasi setelah bind',
+    boardBadgeStatus: 'Status reward langsung kelihatan',
     noSession: 'Belum ada sesi pengguna. Buat kode undangan dulu.',
+    noSessionTitle: 'Buat kode undangan dulu',
+    noSessionHint: 'Kalau belum mulai mengundang juga tidak masalah. Buat kode undangan dulu, lalu selesaikan bind. Penghasilan akan otomatis terkumpul di sini.',
+    noSessionPrimary: 'Buat kode undangan saya',
+    noSessionSecondary: 'Ke halaman bind',
     inviteeIncome: 'Penghasilan bawahan',
+    inviteeIncomeBadge: 'Terkonfirmasi',
     myCommission: 'Komisi kamu',
+    myCommissionBadge: 'Komisi terkumpul',
     availableReward: 'Reward tersedia',
+    availableRewardBadge: 'Siap dilihat',
+    frozenReward: 'Reward dibekukan',
+    riskHoldReward: 'Tertahan risiko',
     inviteeIncomeHint: 'Akumulasi penghasilan terkonfirmasi dari tim kamu.',
     myCommissionHint: 'Komisi kamu yang dihitung dari catatan reward.',
     availableRewardHint: 'Reward yang sudah bisa diproses.',
-    earningsOverview: 'Ringkasan penghasilan',
+    earningsOverview: 'Ringkasan penghasilan saya',
+    overviewCardTitle: 'Kode undangan saat ini dan ringkasan reward',
+    overviewBadge: 'Kode / Tim / Reward',
+    progressTitle: 'Progres undangan saat ini',
+    progressCardTitle: 'Setelah bind selesai, pengguna dan reward akan terus diperbarui di sini',
+    progressBadge: 'Lacak progres',
+    progressHint: 'Kode undangan kamu tetap sama. Setelah bind selesai, jumlah undangan, pengguna efektif, dan reward akan diperbarui bertahap di sini.',
+    settlementTitle: 'Cara reward masuk',
+    settlementCardTitle: 'Dibekukan → Tersedia → Tertahan risiko',
+    settlementBadge: 'Alur reward',
+    settlementHint: 'Reward biasanya masuk ke status beku dulu, lalu menjadi tersedia setelah syarat terpenuhi, dan bisa masuk ke penahanan risiko bila ada review risiko.',
+    nextStepsTitle: 'Langkah berikutnya',
+    nextInvite: 'Lanjut buat kode undangan',
+    nextBind: 'Lanjut ke halaman bind',
     inviteCode: 'Kode undangan',
     invitedUsers: 'Jumlah undangan',
     effectiveUsers: 'Pengguna efektif',
     totalReward: 'Total reward',
     rewardRecords: 'Catatan reward',
+    rewardActivityTitle: 'Aktivitas reward terbaru',
+    rewardActivityHint: 'Setiap reward menampilkan status dan waktunya supaya kamu tahu kapan reward masuk.',
+    rewardStatusGuideTitle: 'Penjelasan status',
+    rewardStatusGuideFrozen: 'Dibekukan: reward masih menunggu settlement',
+    rewardStatusGuideAvailable: 'Tersedia: reward sudah bisa dipakai',
+    rewardStatusGuideRiskHold: 'Tertahan risiko: reward sedang masuk review risiko',
     loading: 'Memuat...',
     noRewards: 'Belum ada catatan reward.',
+    emptyRewardsTitle: 'Belum ada catatan reward',
+    emptyRewardsHint: 'Buat kode undangan dan selesaikan bind dulu. Setelah ada penghasilan, catatannya akan otomatis muncul di sini.',
+    emptyRewardsAction: 'Buat kode undangan saya',
     rewardLine: 'Level reward bawahan',
     commissionTail: 'komisi kamu',
+    rewardStatusFrozen: 'Dibekukan',
+    rewardStatusAvailable: 'Tersedia',
+    rewardStatusRiskHold: 'Tertahan risiko',
+    rewardStatusDefault: 'Diproses',
   },
   pt: {
     navBind: 'Página de vínculo',
@@ -2576,23 +2742,63 @@ const externalPageCopyByLocale = {
     earningsKicker: 'EARNINGS ENTRY',
     earningsTitle: 'Ver ganhos da minha equipe',
     earningsSubtitle: 'Veja duas partes: ganhos do convidado + sua comissão.',
+    boardTitle: 'Seus ganhos vão continuar sendo atualizados aqui',
+    boardSubtitle: 'Do código de convite ao vínculo e à liquidação, esta página ajuda você a acompanhar todo o progresso com clareza.',
+    boardBadgeCode: 'O código não muda',
+    boardBadgeBind: 'Acumula depois do vínculo',
+    boardBadgeStatus: 'Status visível de imediato',
     noSession: 'Ainda não há sessão. Gere seu código primeiro.',
+    noSessionTitle: 'Gere seu código primeiro',
+    noSessionHint: 'Se você ainda não começou a convidar, tudo bem. Gere seu código primeiro e depois conclua o vínculo. Os ganhos vão começar a aparecer aqui automaticamente.',
+    noSessionPrimary: 'Gerar meu código',
+    noSessionSecondary: 'Ir para a página de vínculo',
     inviteeIncome: 'Ganhos dos convidados',
+    inviteeIncomeBadge: 'Confirmados',
     myCommission: 'Sua comissão',
+    myCommissionBadge: 'Comissão acumulada',
     availableReward: 'Recompensa disponível',
+    availableRewardBadge: 'Pronta para ver',
+    frozenReward: 'Recompensa congelada',
+    riskHoldReward: 'Bloqueio de risco',
     inviteeIncomeHint: 'Ganhos confirmados dos membros da sua equipe.',
     myCommissionHint: 'Sua comissão somada a partir dos registros.',
     availableRewardHint: 'Recompensas já disponíveis para liquidação.',
-    earningsOverview: 'Resumo de ganhos',
+    earningsOverview: 'Resumo dos meus ganhos',
+    overviewCardTitle: 'Código atual e visão geral das recompensas',
+    overviewBadge: 'Código / Equipe / Recompensas',
+    progressTitle: 'Progresso atual dos convites',
+    progressCardTitle: 'Depois do vínculo, usuários e recompensas continuarão sendo atualizados aqui',
+    progressBadge: 'Acompanhar progresso',
+    progressHint: 'Seu código de convite não muda. Depois do vínculo, convidados, usuários efetivos e recompensas serão atualizados aqui aos poucos.',
+    settlementTitle: 'Como a recompensa entra',
+    settlementCardTitle: 'Congelada → Disponível → Bloqueio de risco',
+    settlementBadge: 'Caminho da recompensa',
+    settlementHint: 'A recompensa normalmente entra primeiro como congelada, vira disponível após cumprir as condições e pode ir para bloqueio de risco se houver revisão.',
+    nextStepsTitle: 'Próximos passos',
+    nextInvite: 'Continuar para gerar meu código',
+    nextBind: 'Continuar para vincular relação',
     inviteCode: 'Código de convite',
     invitedUsers: 'Convidados',
     effectiveUsers: 'Usuários efetivos',
     totalReward: 'Recompensa total',
     rewardRecords: 'Registros de recompensa',
+    rewardActivityTitle: 'Atividade recente de recompensas',
+    rewardActivityHint: 'Cada recompensa mostra o status e o horário para você acompanhar quando ela entra.',
+    rewardStatusGuideTitle: 'Guia de status',
+    rewardStatusGuideFrozen: 'Congelada: a recompensa está aguardando liquidação',
+    rewardStatusGuideAvailable: 'Disponível: a recompensa já pode ser usada',
+    rewardStatusGuideRiskHold: 'Bloqueio de risco: a recompensa está em revisão temporária',
     loading: 'Carregando...',
     noRewards: 'Ainda não há registros.',
+    emptyRewardsTitle: 'Ainda não há registros',
+    emptyRewardsHint: 'Gere seu código e conclua o vínculo primeiro. Quando houver ganhos, eles aparecerão aqui automaticamente.',
+    emptyRewardsAction: 'Gerar meu código',
     rewardLine: 'Nível de recompensa do convidado',
     commissionTail: 'sua comissão',
+    rewardStatusFrozen: 'Congelada',
+    rewardStatusAvailable: 'Disponível',
+    rewardStatusRiskHold: 'Bloqueio de risco',
+    rewardStatusDefault: 'Em processamento',
   },
 } as const
 
@@ -2663,9 +2869,8 @@ function InviteCodePage() {
             <p>{copy.inviteSubtitle}</p>
           </div>
           <div className="route-nav-links">
-            <label className="bind-select-group route-select-group">
-              <span>{copy.languageLabel}</span>
-              <select value={locale} onChange={(event) => setLocale(event.target.value as keyof typeof externalPageCopyByLocale)}>
+            <label className="bind-select-group route-select-group route-select-inline topbar-pill-control">
+              <select aria-label={copy.languageLabel} value={locale} onChange={(event) => setLocale(event.target.value as keyof typeof externalPageCopyByLocale)}>
                 <option value="zh">中文</option>
                 <option value="en">English</option>
                 <option value="es">Español</option>
@@ -2673,9 +2878,9 @@ function InviteCodePage() {
                 <option value="pt">Português</option>
               </select>
             </label>
-            <a href="/bind">{copy.navBind}</a>
-            <a href="/invite">{copy.navInvite}</a>
-            <a href="/earnings">{copy.navEarnings}</a>
+            <a className="topbar-pill-control" href="/bind">{copy.navBind}</a>
+            <a className="topbar-pill-control active" href="/invite">{copy.navInvite}</a>
+            <a className="topbar-pill-control" href="/earnings">{copy.navEarnings}</a>
           </div>
         </header>
 
@@ -2765,8 +2970,16 @@ function EarningsPage() {
     void loadData()
   }, [session])
 
+  function getRewardStatusLabel(status?: string) {
+    if (status === 'FROZEN') return copy.rewardStatusFrozen
+    if (status === 'AVAILABLE') return copy.rewardStatusAvailable
+    if (status === 'RISK_HOLD') return copy.rewardStatusRiskHold
+    return copy.rewardStatusDefault
+  }
+
   const inviteeIncome = team?.items.reduce((sum, item) => sum + item.confirmedIncomeTotal, 0) ?? 0
   const myCommission = rewards?.items.reduce((sum, item) => sum + item.rewardAmount, 0) ?? 0
+  const rewardItems = rewards?.items ?? []
 
   return (
     <div className="page-shell route-page-shell">
@@ -2778,9 +2991,8 @@ function EarningsPage() {
             <p>{copy.earningsSubtitle}</p>
           </div>
           <div className="route-nav-links">
-            <label className="bind-select-group route-select-group">
-              <span>{copy.languageLabel}</span>
-              <select value={locale} onChange={(event) => setLocale(event.target.value as keyof typeof externalPageCopyByLocale)}>
+            <label className="bind-select-group route-select-group route-select-inline topbar-pill-control">
+              <select aria-label={copy.languageLabel} value={locale} onChange={(event) => setLocale(event.target.value as keyof typeof externalPageCopyByLocale)}>
                 <option value="zh">中文</option>
                 <option value="en">English</option>
                 <option value="es">Español</option>
@@ -2788,36 +3000,73 @@ function EarningsPage() {
                 <option value="pt">Português</option>
               </select>
             </label>
-            <a href="/bind">{copy.navBind}</a>
-            <a href="/invite">{copy.navInvite}</a>
-            <a href="/earnings">{copy.navEarnings}</a>
+            <a className="topbar-pill-control" href="/bind">{copy.navBind}</a>
+            <a className="topbar-pill-control" href="/invite">{copy.navInvite}</a>
+            <a className="topbar-pill-control active" href="/earnings">{copy.navEarnings}</a>
           </div>
         </header>
 
         {error ? <div className="route-banner route-banner-error">{error}</div> : null}
-        {!session ? <div className="route-banner route-banner-error">{copy.noSession}</div> : null}
 
-        <div className="route-grid three-columns-route">
-          <div className="route-panel">
-            <p className="route-label">{copy.inviteeIncome}</p>
+        <div className="route-panel route-board-panel top-gap-xl">
+          <p className="route-label">{copy.earningsOverview}</p>
+          <h2>{copy.boardTitle}</h2>
+          <p className="route-caption route-board-copy">{copy.boardSubtitle}</p>
+          <div className="route-badge-row">
+            <span className="route-board-badge">{copy.boardBadgeCode}</span>
+            <span className="route-board-badge">{copy.boardBadgeBind}</span>
+            <span className="route-board-badge">{copy.boardBadgeStatus}</span>
+          </div>
+        </div>
+
+        {!session ? (
+          <div className="route-panel route-onboarding-panel top-gap-xl">
+            <p className="route-label">{copy.noSessionTitle}</p>
+            <h2>{copy.noSessionTitle}</h2>
+            <p className="route-caption route-onboarding-copy">{copy.noSessionHint}</p>
+            <div className="route-action-row">
+              <a className="primary-btn" href="/invite">{copy.noSessionPrimary}</a>
+              <a className="ghost-btn" href="/bind">{copy.noSessionSecondary}</a>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="route-grid three-columns-route top-gap-xl">
+          <div className="route-panel route-metric-panel">
+            <div className="route-metric-head">
+              <p className="route-label">{copy.inviteeIncome}</p>
+              <span className="route-metric-pill">{copy.inviteeIncomeBadge}</span>
+            </div>
             <h2>{formatMoney(inviteeIncome)}</h2>
             <p className="route-caption">{copy.inviteeIncomeHint}</p>
           </div>
-          <div className="route-panel">
-            <p className="route-label">{copy.myCommission}</p>
+          <div className="route-panel route-metric-panel">
+            <div className="route-metric-head">
+              <p className="route-label">{copy.myCommission}</p>
+              <span className="route-metric-pill">{copy.myCommissionBadge}</span>
+            </div>
             <h2>{formatMoney(myCommission)}</h2>
             <p className="route-caption">{copy.myCommissionHint}</p>
           </div>
-          <div className="route-panel">
-            <p className="route-label">{copy.availableReward}</p>
+          <div className="route-panel route-metric-panel">
+            <div className="route-metric-head">
+              <p className="route-label">{copy.availableReward}</p>
+              <span className="route-metric-pill">{copy.availableRewardBadge}</span>
+            </div>
             <h2>{formatMoney(home?.availableReward)}</h2>
             <p className="route-caption">{copy.availableRewardHint}</p>
           </div>
         </div>
 
         <div className="route-grid two-columns-route top-gap-xl">
-          <div className="route-panel">
-            <p className="route-label">{copy.earningsOverview}</p>
+          <div className="route-panel route-detail-card">
+            <div className="route-detail-card-head">
+              <div>
+                <p className="route-label">{copy.earningsOverview}</p>
+                <h3 className="route-section-title">{copy.overviewCardTitle}</h3>
+              </div>
+              <span className="route-detail-badge">{copy.overviewBadge}</span>
+            </div>
             <div className="route-detail-list compact">
               <div><span>{copy.inviteCode}</span><strong>{home?.inviteCode || session?.inviteCode || '--'}</strong></div>
               <div><span>{copy.invitedUsers}</span><strong>{home?.invitedUsers ?? '--'}</strong></div>
@@ -2826,19 +3075,81 @@ function EarningsPage() {
             </div>
           </div>
 
+          <div className="route-panel route-detail-card">
+            <div className="route-detail-card-head">
+              <div>
+                <p className="route-label">{copy.progressTitle}</p>
+                <h3 className="route-section-title">{copy.progressCardTitle}</h3>
+              </div>
+              <span className="route-detail-badge">{copy.progressBadge}</span>
+            </div>
+            <div className="route-detail-list compact">
+              <div><span>{copy.frozenReward}</span><strong>{formatMoney(home?.frozenReward)}</strong></div>
+              <div><span>{copy.availableReward}</span><strong>{formatMoney(home?.availableReward)}</strong></div>
+              <div><span>{copy.riskHoldReward}</span><strong>{formatMoney(home?.riskHoldReward)}</strong></div>
+            </div>
+            <p className="route-caption route-panel-copy">{copy.progressHint}</p>
+          </div>
+        </div>
+
+        <div className="route-grid two-columns-route top-gap-xl">
           <div className="route-panel">
             <p className="route-label">{copy.rewardRecords}</p>
-            {loading ? <p className="route-caption">{copy.loading}</p> : rewards?.items?.length ? (
+            <h3 className="route-section-title">{copy.rewardActivityTitle}</h3>
+            <p className="route-caption route-panel-copy">{copy.rewardActivityHint}</p>
+            <div className="route-status-guide">
+              <strong>{copy.rewardStatusGuideTitle}</strong>
+              <ul>
+                <li>{copy.rewardStatusGuideFrozen}</li>
+                <li>{copy.rewardStatusGuideAvailable}</li>
+                <li>{copy.rewardStatusGuideRiskHold}</li>
+              </ul>
+            </div>
+            {loading ? <p className="route-caption">{copy.loading}</p> : rewardItems.length ? (
               <div className="route-record-list">
-                {rewards.items.slice(0, 6).map((item, index) => (
+                {rewardItems.slice(0, 6).map((item, index) => (
                   <div className="route-record-item" key={`${item.sourceUserId}-${item.calculatedAt}-${index}`}>
-                    <strong>用户 #{item.sourceUserId}</strong>
+                    <div className="route-record-topline">
+                      <strong>用户 #{item.sourceUserId}</strong>
+                      <span className={`route-status-pill status-${item.rewardStatus.toLowerCase()}`}>{getRewardStatusLabel(item.rewardStatus)}</span>
+                    </div>
                     <span>{copy.rewardLine} {item.rewardLevel} · {copy.commissionTail} {formatMoney(item.rewardAmount)}</span>
                     <em>{formatDateTime(item.calculatedAt)}</em>
                   </div>
                 ))}
               </div>
-            ) : <p className="route-caption">{copy.noRewards}</p>}
+            ) : (
+              <div className="route-empty-state">
+                <strong>{copy.emptyRewardsTitle}</strong>
+                <p>{copy.emptyRewardsHint}</p>
+                <a className="ghost-btn" href="/invite">{copy.emptyRewardsAction}</a>
+              </div>
+            )}
+          </div>
+
+          <div className="route-panel route-detail-card">
+            <div className="route-detail-card-head">
+              <div>
+                <p className="route-label">{copy.settlementTitle}</p>
+                <h3 className="route-section-title">{copy.settlementCardTitle}</h3>
+              </div>
+              <span className="route-detail-badge">{copy.settlementBadge}</span>
+            </div>
+            <div className="route-detail-list compact">
+              <div><span>{copy.totalReward}</span><strong>{formatMoney(home?.totalReward)}</strong></div>
+              <div><span>{copy.frozenReward}</span><strong>{formatMoney(home?.frozenReward)}</strong></div>
+              <div><span>{copy.availableReward}</span><strong>{formatMoney(home?.availableReward)}</strong></div>
+              <div><span>{copy.riskHoldReward}</span><strong>{formatMoney(home?.riskHoldReward)}</strong></div>
+            </div>
+            <p className="route-caption route-panel-copy">{copy.settlementHint}</p>
+          </div>
+        </div>
+
+        <div className="route-panel top-gap-xl">
+          <p className="route-label">{copy.nextStepsTitle}</p>
+          <div className="route-action-row">
+            <a className="primary-btn" href="/invite">{copy.nextInvite}</a>
+            <a className="ghost-btn" href="/bind">{copy.nextBind}</a>
           </div>
         </div>
       </section>
@@ -2854,4 +3165,5 @@ function App() {
   return <ConsoleApp />
 }
 
+export { ConsoleApp }
 export default App

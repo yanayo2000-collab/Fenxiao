@@ -44,9 +44,9 @@ public class LocalRewardRuleSeeder implements CommandLineRunner {
     List<RewardRule> seedDefaults() {
         LocalDateTime now = LocalDateTime.now(clock);
         List<RewardRule> seededRules = new ArrayList<>();
-        seedIfMissing(seededRules, 1, new BigDecimal("0.15"), now);
-        seedIfMissing(seededRules, 2, new BigDecimal("0.05"), now);
-        seedIfMissing(seededRules, 3, new BigDecimal("0.02"), now);
+        seedIfMissing(seededRules, 1, new BigDecimal("0.10"), now);
+        seedIfMissing(seededRules, 2, new BigDecimal("0.02"), now);
+        seedIfMissing(seededRules, 3, new BigDecimal("0.005"), now);
         return seededRules;
     }
 

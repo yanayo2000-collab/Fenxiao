@@ -52,7 +52,7 @@ class RewardCalculationServiceTest {
         assertThat(records).extracting(RewardRecord::getBeneficiaryUserId)
                 .containsExactly(9004L, 9003L, 9002L);
         assertThat(records).extracting(RewardRecord::getRewardAmount)
-                .containsExactly(new BigDecimal("15.000000"), new BigDecimal("5.000000"), new BigDecimal("2.000000"));
+                .containsExactly(new BigDecimal("10.000000"), new BigDecimal("2.000000"), new BigDecimal("0.500000"));
         assertThat(records).extracting(RewardRecord::getRewardStatus)
                 .containsOnly(RewardStatus.FROZEN);
     }
@@ -78,8 +78,8 @@ class RewardCalculationServiceTest {
     }
 
     private void seedRules() {
-        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 1, new BigDecimal("0.15"), 7, 1L));
-        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 2, new BigDecimal("0.05"), 7, 1L));
-        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 3, new BigDecimal("0.02"), 7, 1L));
+        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 1, new BigDecimal("0.10"), 7, 1L));
+        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 2, new BigDecimal("0.02"), 7, 1L));
+        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 3, new BigDecimal("0.005"), 7, 1L));
     }
 }

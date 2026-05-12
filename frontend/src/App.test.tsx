@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import App, { ConsoleApp } from './App'
+import App, { ConsoleApp, formatBusinessRewardLevel } from './App'
 
 type FakeStorage = {
   getItem: (key: string) => string | null
@@ -219,5 +219,12 @@ describe('Earnings landing page', () => {
     expect(markup).toContain('邀请码 / 团队 / 奖励')
     expect(markup).toContain('进度追踪')
     expect(markup).toContain('到账路径')
+  })
+
+  it('maps technical reward levels to business second, third, and fourth level labels', () => {
+    expect(formatBusinessRewardLevel(1, 'zh')).toBe('业务二级收益')
+    expect(formatBusinessRewardLevel(2, 'zh')).toBe('业务三级收益')
+    expect(formatBusinessRewardLevel(3, 'zh')).toBe('业务四级收益')
+    expect(formatBusinessRewardLevel(4, 'zh')).toBe('业务层级 4 收益')
   })
 })

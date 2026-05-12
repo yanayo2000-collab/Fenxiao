@@ -2250,6 +2250,23 @@ function formatMoney(value?: number | null) {
   }).format(value)
 }
 
+export function formatBusinessRewardLevel(rewardLevel?: number | null, locale: string = 'zh') {
+  if (locale === 'zh') {
+    const labels: Record<number, string> = {
+      1: '业务二级收益',
+      2: '业务三级收益',
+      3: '业务四级收益',
+    }
+    return labels[rewardLevel ?? 0] ?? `业务层级 ${rewardLevel ?? '-'} 收益`
+  }
+  const labels: Record<number, string> = {
+    1: 'Business second-level reward',
+    2: 'Business third-level reward',
+    3: 'Business fourth-level reward',
+  }
+  return labels[rewardLevel ?? 0] ?? `Business level ${rewardLevel ?? '-'} reward`
+}
+
 const externalPageCopyByLocale = {
   zh: {
     navBind: '绑定页',
@@ -2989,7 +3006,7 @@ function EarningsPage() {
                       <strong>用户 #{item.sourceUserId}</strong>
                       <span className={`route-status-pill status-${item.rewardStatus.toLowerCase()}`}>{getRewardStatusLabel(item.rewardStatus)}</span>
                     </div>
-                    <span>{copy.rewardLine} {item.rewardLevel} · {copy.commissionTail} {formatMoney(item.rewardAmount)}</span>
+                    <span>{formatBusinessRewardLevel(item.rewardLevel, locale)} · {copy.commissionTail} {formatMoney(item.rewardAmount)}</span>
                     <em>{formatDateTime(item.calculatedAt)}</em>
                   </div>
                 ))}

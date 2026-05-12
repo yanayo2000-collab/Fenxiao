@@ -60,7 +60,7 @@ describe('App external landing pages', () => {
   })
 })
 
-describe('ConsoleApp admin ownership workspace', () => {
+describe('ConsoleApp admin core distribution workspace', () => {
   beforeEach(() => {
     const localStorage = createStorage()
     Object.defineProperty(globalThis, 'window', {
@@ -86,17 +86,19 @@ describe('ConsoleApp admin ownership workspace', () => {
     expect(markup).not.toContain('分销用户工作台')
   })
 
-  it('renders an ownership management workspace in admin mode with query, correction, and joint ownership-relation triage', () => {
+  it('keeps only the core distribution modules in admin mode', () => {
     const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
 
-    expect(markup).toContain('产品归属管理')
-    expect(markup).toContain('查询产品归属')
-    expect(markup).toContain('目标产品编码')
-    expect(markup).toContain('查看 ownership 审计')
-    expect(markup).toContain('联合处置视图')
-    expect(markup).toContain('一键联合查询')
-    expect(markup).toContain('同步绑定关系')
-    expect(markup).toContain('查看联合审计')
+    expect(markup).toContain('分销接入')
+    expect(markup).toContain('分销概览')
+    expect(markup).toContain('邀请码与对外入口')
+    expect(markup).toContain('收益记录管理')
+    expect(markup).toContain('绑定关系管理')
+    expect(markup).not.toContain('产品归属管理')
+    expect(markup).not.toContain('异常处理')
+    expect(markup).not.toContain('高级排查')
+    expect(markup).not.toContain('>当前环境入口<')
+    expect(markup).not.toContain('下一批后台能力')
   })
 })
 
@@ -139,6 +141,22 @@ describe('Earnings landing page', () => {
     expect(markup).not.toContain('工作台')
   })
 
+  it('renders a clear linky eligibility verification workspace in admin mode', () => {
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+
+    expect(markup).toContain('Linky 资格核验')
+    expect(markup).toContain('Linky 账号')
+    expect(markup).toContain('刷新资格结果')
+    expect(markup).toContain('公会归属会直接决定这个账号能不能注册分销；如果当前公会后台查不到，只能判定未在我方公会命中，外部归属仍待确认。')
+  })
+
+  it('renders invite code as a required field for profile onboarding in admin mode', () => {
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+
+    expect(markup).toContain('邀请码（必填，首批运营请填写初始邀请码）')
+    expect(markup).toContain('required=""')
+  })
+
   it('renders a clear no-session onboarding state for first-time users', () => {
     mountEarningsPage(false)
     const markup = renderToStaticMarkup(<App />)
@@ -155,6 +173,8 @@ describe('Earnings landing page', () => {
     expect(markup).toContain('奖励到账说明')
     expect(markup).toContain('冻结奖励')
     expect(markup).toContain('风险冻结')
+    expect(markup).toContain('发起提现申请')
+    expect(markup).toContain('提现只会按可用奖励里的钻石数量生成申请单，后续由运营人工发放。')
     expect(markup).toContain('还没有收益记录')
     expect(markup).toContain('先去生成邀请码并完成绑定，后续有收益会自动显示在这里。')
   })

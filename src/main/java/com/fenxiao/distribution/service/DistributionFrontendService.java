@@ -47,7 +47,7 @@ public class DistributionFrontendService {
         long effectiveUsers = resolveEffectiveUsers(directRelations);
         BigDecimal totalReward = rewardRecordRepository.sumRewardAmountByBeneficiaryUserId(userId);
         BigDecimal frozenReward = rewardRecordRepository.sumRewardAmountByBeneficiaryUserIdAndStatus(userId, RewardStatus.FROZEN);
-        BigDecimal availableReward = rewardRecordRepository.sumRewardAmountByBeneficiaryUserIdAndStatus(userId, RewardStatus.AVAILABLE);
+        BigDecimal availableReward = rewardRecordRepository.sumWithdrawableRewardAmountByBeneficiaryUserId(userId);
         BigDecimal riskHoldReward = rewardRecordRepository.sumRewardAmountByBeneficiaryUserIdAndStatus(userId, RewardStatus.RISK_HOLD);
 
         return new DistributionHomeResponse(

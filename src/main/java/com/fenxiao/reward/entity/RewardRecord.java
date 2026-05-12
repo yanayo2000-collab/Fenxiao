@@ -66,6 +66,9 @@ public class RewardRecord extends BaseEntity {
     @Column(name = "risk_reason", length = 255)
     private String riskReason;
 
+    @Column(name = "withdraw_status", nullable = false, length = 32)
+    private String withdrawStatus;
+
     protected RewardRecord() {
     }
 
@@ -129,6 +132,10 @@ public class RewardRecord extends BaseEntity {
         return riskReason;
     }
 
+    public String getWithdrawStatus() {
+        return withdrawStatus;
+    }
+
     public static RewardRecord create(String sourceEventId,
                                       Long beneficiaryUserId,
                                       Long sourceUserId,
@@ -152,6 +159,7 @@ public class RewardRecord extends BaseEntity {
         record.calculatedAt = eventTime;
         record.unfreezeAt = eventTime.plusDays(freezeDays);
         record.riskFlag = false;
+        record.withdrawStatus = "UNCLAIMED";
         return record;
     }
 
@@ -173,5 +181,17 @@ public class RewardRecord extends BaseEntity {
             return;
         }
         this.rewardStatus = RewardStatus.AVAILABLE;
+    }
+
+    public void markClaimedInRequest() {
+        this.withdrawStatus = "CLAIMED_IN_REQUEST";
+    }
+
+    public void markPaidOut() {
+        this.withdrawStatus = "PAID_OUT";
+    }
+
+    public void resetWithdrawClaim() {
+        this.withdrawStatus = "UNCLAIMED";
     }
 }

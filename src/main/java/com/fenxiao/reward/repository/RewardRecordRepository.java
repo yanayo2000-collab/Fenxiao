@@ -24,6 +24,10 @@ public interface RewardRecordRepository extends JpaRepository<RewardRecord, Long
 
     List<RewardRecord> findByBeneficiaryUserIdAndRewardStatusOrderByIdDesc(Long beneficiaryUserId, RewardStatus rewardStatus);
 
+    List<RewardRecord> findByBeneficiaryUserIdAndRewardStatusAndWithdrawStatusOrderByIdDesc(Long beneficiaryUserId,
+                                                                                            RewardStatus rewardStatus,
+                                                                                            String withdrawStatus);
+
     List<RewardRecord> findByBeneficiaryUserIdAndRewardStatus(Long beneficiaryUserId, RewardStatus rewardStatus);
 
     List<RewardRecord> findByBeneficiaryUserIdAndRewardStatusIn(Long beneficiaryUserId, Collection<RewardStatus> rewardStatuses);
@@ -73,6 +77,9 @@ public interface RewardRecordRepository extends JpaRepository<RewardRecord, Long
 
     @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId = :beneficiaryUserId and r.rewardStatus = :status")
     BigDecimal sumRewardAmountByBeneficiaryUserIdAndStatus(Long beneficiaryUserId, RewardStatus status);
+
+    @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId = :beneficiaryUserId and r.rewardStatus = com.fenxiao.reward.domain.RewardStatus.AVAILABLE and r.withdrawStatus = 'UNCLAIMED'")
+    BigDecimal sumWithdrawableRewardAmountByBeneficiaryUserId(Long beneficiaryUserId);
 
     @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId in :beneficiaryUserIds")
     BigDecimal sumRewardAmountByBeneficiaryUserIdIn(Collection<Long> beneficiaryUserIds);

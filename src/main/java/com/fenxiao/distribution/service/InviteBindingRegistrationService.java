@@ -21,17 +21,20 @@ public class InviteBindingRegistrationService {
     private final DistributionRelationRepository distributionRelationRepository;
     private final DistributionBindingService distributionBindingService;
     private final UserProductOwnershipService userProductOwnershipService;
+    private final LinkyRegistrationEligibilityService linkyRegistrationEligibilityService;
 
     public InviteBindingRegistrationService(UserDistributionProfileRepository userDistributionProfileRepository,
                                             InviteBindingRegistrationRepository inviteBindingRegistrationRepository,
                                             DistributionRelationRepository distributionRelationRepository,
                                             DistributionBindingService distributionBindingService,
-                                            UserProductOwnershipService userProductOwnershipService) {
+                                            UserProductOwnershipService userProductOwnershipService,
+                                            LinkyRegistrationEligibilityService linkyRegistrationEligibilityService) {
         this.userDistributionProfileRepository = userDistributionProfileRepository;
         this.inviteBindingRegistrationRepository = inviteBindingRegistrationRepository;
         this.distributionRelationRepository = distributionRelationRepository;
         this.distributionBindingService = distributionBindingService;
         this.userProductOwnershipService = userProductOwnershipService;
+        this.linkyRegistrationEligibilityService = linkyRegistrationEligibilityService;
     }
 
     public InviteBindingRegistration register(CreateInviteBindingRequest request) {
@@ -49,6 +52,7 @@ public class InviteBindingRegistrationService {
         if (inviteBindingRegistrationRepository.existsByLinkyAccount(normalizedLinkyAccount)) {
             throw new IllegalStateException("linky account already registered");
         }
+        linkyRegistrationEligibilityService.assertEligibleForRegistration(normalizedLinkyAccount);
 
         InviteBindingRegistration registration = InviteBindingRegistration.createActive(
                 normalizedProductCode,
@@ -76,6 +80,12 @@ public class InviteBindingRegistrationService {
                 "INVITE_BINDING",
                 "INVITE_BINDING_REGISTRATION",
                 saved.getId()
+        );
+        linkyRegistrationEligibilityService.attachRegisteredUser(
+                normalizedLinkyAccount,
+                inviteeUserId,
+                normalizedWhatsappNumber,
+                inviter.getInviteCode()
         );
         return saved;
     }

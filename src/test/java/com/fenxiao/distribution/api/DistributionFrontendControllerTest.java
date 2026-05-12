@@ -1,6 +1,7 @@
 package com.fenxiao.distribution.api;
 
 import com.fenxiao.distribution.service.DistributionBindingService;
+import com.fenxiao.distribution.service.LinkyRegistrationEligibilityService;
 import com.fenxiao.reward.service.RewardCalculationService;
 import com.fenxiao.rule.entity.RewardRule;
 import com.fenxiao.rule.repository.RewardRuleRepository;
@@ -36,6 +37,9 @@ class DistributionFrontendControllerTest {
 
     @Autowired
     private RewardCalculationService rewardCalculationService;
+
+    @Autowired
+    private LinkyRegistrationEligibilityService linkyRegistrationEligibilityService;
 
     @Autowired
     private RewardRuleRepository rewardRuleRepository;
@@ -117,6 +121,7 @@ class DistributionFrontendControllerTest {
         UserDistributionProfile inviter = distributionBindingService.createProfile(23001L, "ID", "id", null);
         String inviteCode = inviter.getInviteCode();
         distributionBindingService.ensureRootProfile(87654321L, "ID", "id");
+        linkyRegistrationEligibilityService.markEligible("87654321", "GUILD-001", "Our Linky Guild", 9001L, "prechecked");
 
         mockMvc.perform(post("/api/distribution/bindings/register")
                         .contentType(MediaType.APPLICATION_JSON)

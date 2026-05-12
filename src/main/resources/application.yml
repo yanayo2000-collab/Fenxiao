@@ -30,3 +30,9 @@ fenxiao:
   distribution:
     default-freeze-days: 7
     max-level-depth: 3
+
+app:
+  distribution:
+    linky-guild-probe-script: ${LINKY_GUILD_PROBE_SCRIPT:scripts/linke_guild_probe.py}
+    linky-oauth-token: ${LINKE_OAUTH_TOKEN:}
+    linky-oauth-token-secret: ${LINKE_OAUTH_TOKEN_SECRET:}

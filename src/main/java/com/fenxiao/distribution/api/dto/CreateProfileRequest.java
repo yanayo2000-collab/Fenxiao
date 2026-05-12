@@ -8,6 +8,6 @@ public record CreateProfileRequest(
         @NotNull @Positive Long userId,
         @NotBlank String countryCode,
         @NotBlank String languageCode,
-        String inviteCode
+        @NotBlank String inviteCode
 ) {
 }

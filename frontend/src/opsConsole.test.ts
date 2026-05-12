@@ -8,7 +8,7 @@ import {
 } from './opsConsole'
 
 describe('buildAdminTaskCards', () => {
-  it('highlights login and overview before advanced operations are available', () => {
+  it('highlights login, overview, invite entry, and main distribution flow before advanced operations are available', () => {
     expect(buildAdminTaskCards({
       adminLoggedIn: false,
       overviewLoaded: false,
@@ -26,41 +26,41 @@ describe('buildAdminTaskCards', () => {
         title: '分销概览',
         value: '待同步',
         tone: 'primary',
-        hint: '先同步一次总览，确认当前多产品分销盘子的邀请、收益和异常概况。',
+        hint: '先同步一次总览，确认当前邀请码、绑定和收益总况。',
       },
       {
-        title: '异常处理',
-        value: '已清空',
-        tone: 'success',
-        hint: '当前没有待处理异常，可以继续查看绑定关系和收益走势。',
+        title: '邀请码入口',
+        value: '三页已就位',
+        tone: 'primary',
+        hint: 'invite / bind / earnings 三个对外入口已经集中到后台，适合直接发给用户。',
       },
       {
-        title: '产品事件排查',
-        value: '已稳定',
-        tone: 'success',
-        hint: '高级排查里再按具体产品查看事件日志和重复回放，Linky 只是其中一个产品。',
+        title: '绑定与收益',
+        value: '保持主链清晰',
+        tone: 'neutral',
+        hint: '这一版后台先聚焦接入、绑定和收益，不再把治理型和调试型模块放在首页主入口。',
       },
     ])
   })
 
-  it('elevates exceptions and product event anomalies when operational data exists', () => {
+  it('keeps the fourth card focused on the core distribution flow even when non-core anomalies exist', () => {
     expect(buildAdminTaskCards({
       adminLoggedIn: true,
       overviewLoaded: true,
       pendingRiskCount: 3,
       failedLinkyRequests: 2,
       replayedLinkyRequests: 4,
-    })[2]).toEqual({
-      title: '异常处理',
-      value: '3 条待处理',
-      tone: 'danger',
-      hint: '优先处理待确认异常，避免绑定关系、收益状态或事件回传长期卡住。',
+    })[3]).toEqual({
+      title: '绑定与收益',
+      value: '先看主链，不进高级排查',
+      tone: 'neutral',
+      hint: '这一版后台先聚焦接入、绑定和收益，不再把治理型和调试型模块放在首页主入口。',
     })
   })
 })
 
 describe('buildAdminWorkspaceShortcuts', () => {
-  it('guides operators through login, overview, invite entry and module routing before admin data exists', () => {
+  it('guides operators through login, overview, invite entry and main distribution routing before admin data exists', () => {
     expect(buildAdminWorkspaceShortcuts({
       adminLoggedIn: false,
       overviewLoaded: false,
@@ -69,7 +69,7 @@ describe('buildAdminWorkspaceShortcuts', () => {
       {
         title: '先登录后台',
         value: '现在去做',
-        description: '第一步先建立后台会话，不然大部分模块都只是占位。',
+        description: '第一步先建立后台会话，不然核心模块都只是占位。',
         tone: 'primary',
         href: '#admin-login',
         cta: '去登录',
@@ -91,35 +91,45 @@ describe('buildAdminWorkspaceShortcuts', () => {
         cta: '去看入口',
       },
       {
-        title: '按问题进入模块',
-        value: '按场景操作',
-        description: '查收益去收益记录，查归属去绑定关系，查回传去高级排查。',
+        title: '处理绑定与收益',
+        value: '主链优先',
+        description: '查收益去收益记录，查关系去绑定关系，这一版先不把治理和调试模块放到首页主线。',
         tone: 'neutral',
         href: '#admin-modules',
-        cta: '查看模块',
+        cta: '查看主链模块',
       },
     ])
   })
 
-  it('surfaces pending exceptions as the primary next-step warning', () => {
+  it('keeps shortcut emphasis on the core chain even when non-core anomalies exist', () => {
     expect(buildAdminWorkspaceShortcuts({
       adminLoggedIn: true,
       overviewLoaded: false,
       pendingRiskCount: 2,
     })[3]).toEqual({
-      title: '按问题进入模块',
-      value: '2 个异常待处理',
-      description: '先处理异常，再回头看绑定和收益，避免误判。',
-      tone: 'warning',
+      title: '处理绑定与收益',
+      value: '主链优先',
+      description: '查收益去收益记录，查关系去绑定关系，这一版先不把治理和调试模块放到首页主线。',
+      tone: 'neutral',
       href: '#admin-modules',
-      cta: '查看模块',
+      cta: '查看主链模块',
     })
   })
 })
 
 describe('buildAdminSectionLinks', () => {
-  it('keeps the operator navigation focused on core modules before advanced diagnostics', () => {
+  it('keeps the operator navigation focused on the core distribution flow', () => {
     expect(buildAdminSectionLinks()).toEqual([
+      {
+        label: '分销接入',
+        description: '创建分销档案时邀请码必填，首批运营也从初始邀请码进入。',
+        href: '#admin-onboarding',
+      },
+      {
+        label: '分销概览',
+        description: '先看邀请码、绑定和收益总况。',
+        href: '#admin-overview',
+      },
       {
         label: '邀请码与对外入口',
         description: '统一管理 invite / bind / earnings 三个对外页面，适合发给渠道、客服或用户。',
@@ -127,28 +137,13 @@ describe('buildAdminSectionLinks', () => {
       },
       {
         label: '收益记录',
-        description: '奖励没起来、金额不对、状态异常时，先从这里查。',
+        description: '奖励没起来、金额不对时，先从这里查。',
         href: '#admin-rewards',
       },
       {
-        label: '产品归属',
-        description: '查单个用户当前归属到哪个产品，必要时做人工修正。',
-        href: '#admin-ownership',
-      },
-      {
         label: '绑定关系',
-        description: '用户归属错了、需要人工修正关系时，从这里进。',
+        description: '用户关系错了、需要人工修正时，从这里进。',
         href: '#admin-bindings',
-      },
-      {
-        label: '异常处理',
-        description: '有待处理风险、冻结、忽略或人工复核需求时，从这里进。',
-        href: '#admin-exceptions',
-      },
-      {
-        label: '高级排查',
-        description: '只有产品事件链路出问题时再展开，避免主后台一上来太重。',
-        href: '#admin-advanced',
       },
     ])
   })

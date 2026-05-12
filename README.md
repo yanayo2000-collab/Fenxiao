@@ -193,6 +193,14 @@ Linky 对接协议见：`docs/linky-integration.md`
 - 后台 replay 回看接口：`GET /admin/distribution/linky-replay-records`
 - 运营前端已内置 Linky 排查台，可直接查询 webhook 日志和 replay record
 
+当前 Linky 注册资格 / 提现链路现状：
+- 注册前已接入 Linky 资格校验：本地无资格记录时，会自动 probe 并刷新注册资格
+- 后台已提供资格刷新入口：`POST /admin/distribution/linky-eligibility-checks/{linkyAccount}/refresh`
+- 用户收益页已支持提现申请：`POST /api/distribution/withdraw-requests/{userId}`
+- 提现申请只会占用 `AVAILABLE + UNCLAIMED` 奖励，避免同一笔奖励重复申请
+- 后台已提供提现申请列表：`GET /admin/distribution/withdraw-requests`
+- 当前提现流程仍是“生成申请单 + 运营人工发放”，尚未补发放完成/驳回动作
+
 ## 一期后续增强方向
 
 1. Linky 正式收益同步接入（已补适配入口、字段别名兼容、基础签名校验与时间窗防重放，待对接真实上游字段与回放明细策略）

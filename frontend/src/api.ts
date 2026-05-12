@@ -174,6 +174,16 @@ export type OwnershipDetailResponse = {
   items: OwnershipItemResponse[]
 }
 
+export type LinkyEligibilityCheckResponse = {
+  linkyAccount: string
+  guildId: string | null
+  guildName: string | null
+  guildCheckStatus: string
+  registrationEligibility: string
+  checkedAt: string | null
+  remark: string | null
+}
+
 export type LinkyWebhookLogListItem = {
   id: number
   linkyOrderId: string | null
@@ -219,7 +229,48 @@ export type LinkyReplayRecordListResponse = {
   size: number
 }
 
+export type WithdrawRequestResponse = {
+  requestNo: string
+  userId: number
+  requestedDiamondAmount: number
+  requestStatus: string
+  requestWeek: string
+  requestedAt: string
+}
+
+export type AdminWithdrawRequestItem = {
+  requestNo: string
+  userId: number
+  requestedDiamondAmount: number
+  requestStatus: string
+  requestWeek: string
+  requestedAt: string
+}
+
+export type AdminWithdrawRequestListResponse = {
+  items: AdminWithdrawRequestItem[]
+  total: number
+  page: number
+  size: number
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+
+function extractErrorMessage(text: string, status: number): string {
+  if (!text) {
+    return `request failed: ${status}`
+  }
+
+  try {
+    const parsed = JSON.parse(text) as { message?: string; error?: string }
+    if (parsed.message && parsed.message.trim()) return parsed.message
+    if (parsed.error && parsed.error.trim()) return parsed.error
+  } catch {
+    // ignore non-json response
+  }
+
+  return text
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -232,7 +283,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(text || `request failed: ${response.status}`)
+    throw new Error(extractErrorMessage(text, response.status))
   }
 
   return response.json() as Promise<T>
@@ -287,6 +338,15 @@ export function getDistributionTeam(userId: number, accessToken: string) {
 
 export function getDistributionRewards(userId: number, accessToken: string) {
   return request<RewardListResponse>(`/api/distribution/rewards/${userId}`, {
+    headers: {
+      'X-Distribution-Token': accessToken,
+    },
+  })
+}
+
+export function createWithdrawRequest(userId: number, accessToken: string) {
+  return request<WithdrawRequestResponse>(`/api/distribution/withdraw-requests/${userId}`, {
+    method: 'POST',
     headers: {
       'X-Distribution-Token': accessToken,
     },
@@ -426,6 +486,34 @@ export function getAdminAuditLogs(adminSessionToken: string, filters?: {
   if (filters?.size !== undefined) params.set('size', String(filters.size))
   const query = params.toString()
   return request<AuditLogListResponse>(`/admin/distribution/audit-logs${query ? `?${query}` : ''}`, {
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+  })
+}
+
+export function refreshAdminLinkyEligibility(adminSessionToken: string, linkyAccount: string) {
+  return request<LinkyEligibilityCheckResponse>(`/admin/distribution/linky-eligibility-checks/${encodeURIComponent(linkyAccount)}/refresh`, {
+    method: 'POST',
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+  })
+}
+
+export function getAdminWithdrawRequests(adminSessionToken: string, filters?: {
+  userId?: number
+  status?: string
+  page?: number
+  size?: number
+}) {
+  const params = new URLSearchParams()
+  if (filters?.userId !== undefined) params.set('userId', String(filters.userId))
+  if (filters?.status) params.set('status', filters.status)
+  if (filters?.page !== undefined) params.set('page', String(filters.page))
+  if (filters?.size !== undefined) params.set('size', String(filters.size))
+  const query = params.toString()
+  return request<AdminWithdrawRequestListResponse>(`/admin/distribution/withdraw-requests${query ? `?${query}` : ''}`, {
     headers: {
       'X-Admin-Session': adminSessionToken,
     },

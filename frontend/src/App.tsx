@@ -6,6 +6,7 @@ import {
   correctAdminOwnership,
   createAdminSession,
   createProfile,
+  createWithdrawRequest,
   getAdminAuditLogs,
   getAdminLinkyReplayRecords,
   getAdminLinkyWebhookLogs,
@@ -14,15 +15,19 @@ import {
   getAdminRelation,
   getAdminRewards,
   getAdminRiskEvents,
+  getAdminWithdrawRequests,
   getDistributionHome,
   getDistributionRewards,
   getDistributionTeam,
   issueInviteCode,
+  refreshAdminLinkyEligibility,
   registerInviteBinding,
+  type AdminWithdrawRequestListResponse,
   type AuditLogListResponse,
   type DistributionHomeResponse,
   type InviteBindingResponse,
   type IssueInviteCodeResponse,
+  type LinkyEligibilityCheckResponse,
   type LinkyReplayRecordListResponse,
   type LinkyWebhookLogListResponse,
   type OverviewReportResponse,
@@ -32,6 +37,7 @@ import {
   type RewardListResponse,
   type RiskEventListResponse,
   type TeamListResponse,
+  type WithdrawRequestResponse,
 } from './api'
 import {
   buildLinkyReplaySummary,
@@ -44,6 +50,8 @@ import {
   buildLinkyWebhookDetailSections,
   buildLinkyWebhookHeadline,
 } from './linkyDetails'
+void buildLinkyReplaySummary
+void buildLinkyWebhookSummary
 import {
   buildAdminSectionLinks,
   buildAdminWorkspaceShortcuts,
@@ -164,6 +172,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
   const [rewards, setRewards] = useState<RewardListResponse | null>(null)
   const [adminOverview, setAdminOverview] = useState<OverviewReportResponse | null>(null)
   const [adminRewards, setAdminRewards] = useState<RewardListResponse | null>(null)
+  const [adminWithdrawRequests, setAdminWithdrawRequests] = useState<AdminWithdrawRequestListResponse | null>(null)
   const [riskEvents, setRiskEvents] = useState<RiskEventListResponse | null>(null)
   const [auditLogs, setAuditLogs] = useState<AuditLogListResponse | null>(null)
   const [adminOwnership, setAdminOwnership] = useState<OwnershipDetailResponse | null>(null)
@@ -187,6 +196,12 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
     status: '',
     startAt: '',
     endAt: '',
+    page: '0',
+    size: '10',
+  })
+  const [adminWithdrawQuery, setAdminWithdrawQuery] = useState({
+    userId: '',
+    status: '',
     page: '0',
     size: '10',
   })
@@ -225,6 +240,9 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
   const [ownershipCorrectionNote, setOwnershipCorrectionNote] = useState('')
   const [ownershipCorrectionLoading, setOwnershipCorrectionLoading] = useState(false)
   const [relationQueryUserId, setRelationQueryUserId] = useState('')
+  const [linkyEligibilityAccount, setLinkyEligibilityAccount] = useState('')
+  const [linkyEligibilityResult, setLinkyEligibilityResult] = useState<LinkyEligibilityCheckResponse | null>(null)
+  const [linkyEligibilityLoading, setLinkyEligibilityLoading] = useState(false)
   const [relationAdjustInviterId, setRelationAdjustInviterId] = useState('')
   const [relationAdjustNote, setRelationAdjustNote] = useState('')
   const [relationBeforeAdjust, setRelationBeforeAdjust] = useState<RelationDetailResponse | null>(null)
@@ -234,7 +252,10 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
 
   const canLoadData = useMemo(() => Boolean(session?.userId && session?.accessToken), [session])
   const canLoadAdmin = useMemo(() => Boolean(adminSession?.sessionToken), [adminSession])
-  const canCreateProfile = useMemo(() => Boolean(profileCreateToken.trim() && form.userId.trim()), [profileCreateToken, form.userId])
+  const canCreateProfile = useMemo(
+    () => Boolean(profileCreateToken.trim() && form.userId.trim() && form.inviteCode.trim()),
+    [profileCreateToken, form.userId, form.inviteCode],
+  )
   const currentAdminProductLabel = ADMIN_PRODUCT_OPTIONS.find((item) => item.value === adminProduct)?.label ?? '全部产品'
   const activeAdminProductCode = adminProduct === 'ALL' ? undefined : adminProduct
   const showingProductSpecificDiagnostics = adminProduct === 'LINKY'
@@ -262,9 +283,11 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
   useEffect(() => {
     setAdminOverview(null)
     setAdminRewards(null)
+    setAdminWithdrawRequests(null)
     setRiskEvents(null)
     setAdminOwnership(null)
     setAdminRelation(null)
+    setLinkyEligibilityResult(null)
     setLinkyWebhookLogs(null)
     setLinkyReplayRecords(null)
     setHasQueriedAdminRewards(false)
@@ -291,6 +314,25 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
       setHasQueriedAdminRewards(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载奖励列表失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function loadAdminWithdrawRequests(query = adminWithdrawQuery) {
+    if (!adminSession) return
+    setLoading(true)
+    setError('')
+    try {
+      const result = await getAdminWithdrawRequests(adminSession.sessionToken, {
+        userId: query.userId ? Number(query.userId) : undefined,
+        status: query.status || undefined,
+        page: Number(query.page || 0),
+        size: Number(query.size || 10),
+      })
+      setAdminWithdrawRequests(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载提现申请失败')
     } finally {
       setLoading(false)
     }
@@ -411,7 +453,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
         userId: Number(form.userId),
         countryCode: form.countryCode.trim().toUpperCase(),
         languageCode: form.languageCode.trim(),
-        inviteCode: form.inviteCode.trim() || undefined,
+        inviteCode: form.inviteCode.trim(),
       })
       const nextSession = saveUserSession(profile)
       setSession(nextSession)
@@ -454,9 +496,11 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
     setAdminSession(null)
     setAdminOverview(null)
     setAdminRewards(null)
+    setAdminWithdrawRequests(null)
     setRiskEvents(null)
     setAuditLogs(null)
     setAdminRelation(null)
+    setLinkyEligibilityResult(null)
     setLinkyWebhookLogs(null)
     setLinkyReplayRecords(null)
     setHasQueriedAdminRewards(false)
@@ -614,6 +658,23 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
       setError(err instanceof Error ? err.message : '加载关系链失败')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleRefreshLinkyEligibility() {
+    if (!adminSession || !linkyEligibilityAccount.trim()) return
+    setLinkyEligibilityLoading(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const result = await refreshAdminLinkyEligibility(adminSession.sessionToken, linkyEligibilityAccount.trim())
+      setLinkyEligibilityResult(result)
+      setSuccessMessage(`Linky 账号 ${result.linkyAccount} 的资格结果已刷新：${formatEligibilitySummary(result)}`)
+    } catch (err) {
+      setLinkyEligibilityResult(null)
+      setError(err instanceof Error ? err.message : '刷新 Linky 资格失败')
+    } finally {
+      setLinkyEligibilityLoading(false)
     }
   }
 
@@ -890,6 +951,53 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
       })
     : null
 
+  void [
+    showAdvancedOps,
+    auditLogs,
+    linkyWebhookLoading,
+    linkyReplayLoading,
+    setOwnershipQueryUserId,
+    setOwnershipCorrectionProductCode,
+    setOwnershipCorrectionNote,
+    ownershipCorrectionLoading,
+    showingProductSpecificDiagnostics,
+    handleLoadLinkyWebhookLogs,
+    handleLoadLinkyReplayRecords,
+    handleLinkyWebhookPageChange,
+    handleLinkyReplayPageChange,
+    handleCopyFingerprint,
+    handleLoadRiskEvents,
+    handleRiskPageChange,
+    handleLoadOwnership,
+    handleLoadJointWorkbench,
+    handleSyncOwnershipRelation,
+    handleCorrectOwnership,
+    handleLoadOwnershipAudit,
+    handleLoadJointAudit,
+    updateRiskActionDraft,
+    openRiskActionConfirm,
+    riskPageLabel,
+    riskEmptyState,
+    linkyWebhookEmptyState,
+    linkyReplayEmptyState,
+    linkyDiagnosticSnapshot,
+    linkyWebhookPageLabel,
+    linkyReplayPageLabel,
+    hasRiskPrevPage,
+    hasRiskNextPage,
+    hasLinkyWebhookPrevPage,
+    hasLinkyWebhookNextPage,
+    hasLinkyReplayPrevPage,
+    hasLinkyReplayNextPage,
+    activeOwnershipItem,
+    isJointWorkbenchReady,
+    jointAuditFocus,
+    canHandleRisk,
+    canIgnoreRisk,
+    canFreezeRisk,
+    canUnfreezeRisk,
+  ]
+
   return (
     <div className="page-shell">
       <header className="hero-card">
@@ -902,7 +1010,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
           <p className="eyebrow">Distribution Console</p>
           <h1>多产品分销运营后台</h1>
           <p className="subtext">
-            后台按分销动作组织：概览、邀请码、绑定关系、收益记录、异常处理。产品只是选择维度，Linky 只是当前其中一个产品。
+            后台按分销主链组织：接入、邀请码、绑定关系、收益记录。产品只是选择维度，Linky 只是当前其中一个产品。
           </p>
         </div>
         <div className="hero-actions">
@@ -931,7 +1039,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
       ) : (
         <section className="alert-banner info">
           <strong>当前建议</strong>
-          <span>先看总览，再查邀请码、绑定关系、收益记录；产品事件排查放到高级入口里做。</span>
+          <span>先看总览，再处理邀请码、绑定关系和收益记录；这一版主后台不再把治理和调试模块放到首页主线。</span>
         </section>
       )}
 
@@ -989,8 +1097,8 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                       <input value={form.languageCode} onChange={(e) => setForm({ ...form, languageCode: e.target.value })} placeholder="id" />
                     </label>
                     <label>
-                      邀请码（可选）
-                      <input value={form.inviteCode} onChange={(e) => setForm({ ...form, inviteCode: e.target.value })} placeholder="ABCD1234" />
+                      邀请码（必填，首批运营请填写初始邀请码）
+                      <input required value={form.inviteCode} onChange={(e) => setForm({ ...form, inviteCode: e.target.value })} placeholder="ABCD1234" />
                     </label>
                     <button className="primary-btn" type="submit" disabled={loading || !canCreateProfile}>创建 / 接入</button>
                   </form>
@@ -1180,75 +1288,49 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                 </PanelSection>
 
                 <PanelSection
-                  sectionId="admin-ownership"
-                  eyebrow="Ownership"
-                  title="产品归属管理"
-                  description="按用户 ID 查看当前产品归属，并支持人工修正。"
-                  action={<button className="primary-btn" onClick={handleLoadOwnership} disabled={loading || !ownershipQueryUserId || !canLoadAdmin}>查询产品归属</button>}
+                  sectionId="admin-withdraw-requests"
+                  eyebrow="Withdraw"
+                  title="提现申请管理"
+                  description="查看用户已经提交的钻石提现申请单，供运营人工发放使用。"
+                  action={<button className="primary-btn" onClick={() => void loadAdminWithdrawRequests()} disabled={loading || !canLoadAdmin}>查询提现申请</button>}
                 >
-                  <InfoCard title="查询入口" tone="neutral">
-                    <div className="grid-form compact-form single-line">
-                      <label>
-                        用户 ID
-                        <input value={ownershipQueryUserId} onChange={(e) => setOwnershipQueryUserId(e.target.value)} placeholder="例如 10003" />
-                      </label>
+                  <InfoCard title="筛选条件" tone="neutral">
+                    <div className="query-shell soft-query-shell compact-query-shell">
+                      <div className="grid-form compact-form exception-filter-grid">
+                        <label>
+                          用户 ID
+                          <input value={adminWithdrawQuery.userId} onChange={(e) => setAdminWithdrawQuery({ ...adminWithdrawQuery, userId: e.target.value })} placeholder="例如 54001" />
+                        </label>
+                        <label>
+                          状态
+                          <select value={adminWithdrawQuery.status} onChange={(e) => setAdminWithdrawQuery({ ...adminWithdrawQuery, status: e.target.value })}>
+                            <option value="">全部</option>
+                            <option value="PENDING">PENDING</option>
+                            <option value="PAID_OUT">PAID_OUT</option>
+                            <option value="REJECTED">REJECTED</option>
+                          </select>
+                        </label>
+                      </div>
+                      <InlineHint text="这里只生成和查看提现申请单；真实发放仍由运营人工处理。" />
                     </div>
-                    <InlineHint text="先查当前用户已落在哪些产品，再决定是否需要人工切换归属。" />
                   </InfoCard>
-                  {adminOwnership ? (
-                    <div className="stack-gap relation-workbench">
-                      <InfoCard title="当前产品归属" tone="success">
-                        <InfoRow label="用户 ID" value={adminOwnership.userId} />
-                        <InfoRow label="当前 ACTIVE 归属" value={adminOwnership.items.find((item) => item.ownershipStatus === 'ACTIVE')?.productCode || '-'} />
-                        <InfoRow label="归属记录数" value={adminOwnership.items.length} />
-                      </InfoCard>
 
-                      <DataTable
-                        headers={['产品', '状态', '来源', '来源记录', '生效时间']}
-                        rows={adminOwnership.items.map((item) => [
-                          item.productCode,
-                          renderStatusBadge(item.ownershipStatus),
-                          item.ownershipSource,
-                          item.sourceRecordId ? `${item.sourceRecordType} #${item.sourceRecordId}` : item.sourceRecordType,
-                          formatDateTime(item.effectiveAt),
-                        ])}
-                        emptyText="暂无产品归属记录"
-                      />
-                    </div>
+                  {adminWithdrawRequests?.items?.length ? (
+                    <DataTable
+                      headers={['申请单号', '用户 ID', '申请钻石', '状态', '申请周', '申请时间']}
+                      rows={adminWithdrawRequests.items.map((item) => [
+                        item.requestNo,
+                        item.userId,
+                        item.requestedDiamondAmount,
+                        renderStatusBadge(item.requestStatus),
+                        item.requestWeek,
+                        formatDateTime(item.requestedAt),
+                      ])}
+                      emptyText="暂无提现申请"
+                    />
                   ) : (
-                    <EmptyState title="暂无产品归属结果" description="输入用户 ID 后查询，这里会显示产品归属、来源记录和人工修正入口。" />
+                    <EmptyState title="暂无提现申请" description="有用户发起提现后，这里会列出待处理申请单。" actionLabel="建议先按用户 ID 或状态查询" />
                   )}
-
-                  <InfoCard title="人工修正" tone="neutral">
-                    <div className="grid-form compact-form">
-                      <label>
-                        目标产品编码
-                        <input value={ownershipCorrectionProductCode} onChange={(e) => setOwnershipCorrectionProductCode(e.target.value)} placeholder="例如 LINKY" />
-                      </label>
-                      <label>
-                        修正备注
-                        <input value={ownershipCorrectionNote} onChange={(e) => setOwnershipCorrectionNote(e.target.value)} placeholder="例如：人工修正产品归属" />
-                      </label>
-                    </div>
-                    <InlineHint text={adminOwnership ? '提交后，原 ACTIVE 归属会转成 CORRECTED，目标产品归属会切成 ACTIVE。' : '先查一位用户，再提交产品归属修正。'} />
-                    <div className="table-toolbar">
-                      <button className="primary-btn small-btn" onClick={handleCorrectOwnership} disabled={ownershipCorrectionLoading || !canLoadAdmin || !ownershipCorrectionProductCode.trim() || !adminOwnership}>提交产品归属修正</button>
-                      <button className="ghost-btn small-btn" onClick={handleLoadOwnershipAudit} disabled={!canLoadAdmin}>查看 ownership 审计</button>
-                    </div>
-                  </InfoCard>
-
-                  <InfoCard title="联合处置视图" tone="success">
-                    <InfoRow label="当前用户" value={(adminOwnership?.userId ?? adminRelation?.userId ?? ownershipQueryUserId) || '-'} />
-                    <InfoRow label="当前 ACTIVE 归属" value={activeOwnershipItem?.productCode || '待同步'} />
-                    <InfoRow label="当前一级上级" value={adminRelation?.level1InviterId ?? '待同步'} />
-                    <InfoRow label="当前审计焦点" value={jointAuditFocus} />
-                    <InlineHint text={isJointWorkbenchReady ? '现在可以在同一块里看产品归属、绑定关系和审计入口。' : '先查产品归属，再把绑定关系和审计同步进来。'} />
-                    <div className="table-toolbar">
-                      <button className="primary-btn small-btn" onClick={handleLoadJointWorkbench} disabled={!canLoadAdmin || !ownershipQueryUserId.trim() || loading}>一键联合查询</button>
-                      <button className="ghost-btn small-btn" onClick={handleSyncOwnershipRelation} disabled={!canLoadAdmin || (!adminOwnership && !ownershipQueryUserId.trim())}>同步绑定关系</button>
-                      <button className="ghost-btn small-btn" onClick={handleLoadJointAudit} disabled={!canLoadAdmin}>查看联合审计</button>
-                    </div>
-                  </InfoCard>
                 </PanelSection>
 
                 <PanelSection
@@ -1265,7 +1347,34 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                         <input value={relationQueryUserId} onChange={(e) => setRelationQueryUserId(e.target.value)} placeholder="例如 10003" />
                       </label>
                     </div>
-                    <InlineHint text="适合运营、客服或风控定位单个用户的上下游关系。" />
+                    <InlineHint text="这里只处理分销主链：查当前关系、看预览、再决定是否人工修正。" />
+                  </InfoCard>
+                  <InfoCard title="Linky 资格核验" tone="neutral">
+                    <div className="grid-form compact-form single-line">
+                      <label>
+                        Linky 账号
+                        <input value={linkyEligibilityAccount} onChange={(e) => setLinkyEligibilityAccount(e.target.value)} placeholder="例如 12345678" />
+                      </label>
+                    </div>
+                    <InlineHint text="公会归属会直接决定这个账号能不能注册分销；如果当前公会后台查不到，只能判定未在我方公会命中，外部归属仍待确认。" />
+                    <div className="table-toolbar top-gap">
+                      <button className="primary-btn small-btn" onClick={handleRefreshLinkyEligibility} disabled={linkyEligibilityLoading || !canLoadAdmin || !linkyEligibilityAccount.trim()}>
+                        {linkyEligibilityLoading ? '刷新中…' : '刷新资格结果'}
+                      </button>
+                    </div>
+                    {linkyEligibilityResult ? (
+                      <div className="relation-grid top-gap">
+                        <RelationItem label="Linky 账号" value={linkyEligibilityResult.linkyAccount} />
+                        <RelationItem label="公会判定" value={renderEligibilityStatusBadge(linkyEligibilityResult.guildCheckStatus)} />
+                        <RelationItem label="注册资格" value={renderEligibilityStatusBadge(linkyEligibilityResult.registrationEligibility)} />
+                        <RelationItem label="公会 ID" value={linkyEligibilityResult.guildId ?? '-'} />
+                        <RelationItem label="公会名称" value={linkyEligibilityResult.guildName ?? '-'} />
+                        <RelationItem label="检查时间" value={linkyEligibilityResult.checkedAt ? formatDateTime(linkyEligibilityResult.checkedAt) : '-'} />
+                        <RelationItem label="结果说明" value={linkyEligibilityResult.remark ?? '-'} />
+                      </div>
+                    ) : (
+                      <EmptyState title="还没有资格结果" description="输入 Linky 账号后刷新，这里会显示当前公会归属和注册资格。" actionLabel="推荐先刷一条真实账号" />
+                    )}
                   </InfoCard>
                   {adminRelation ? (
                     <div className="stack-gap relation-workbench">
@@ -1319,302 +1428,15 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                   )}
                 </PanelSection>
               </div>
-
-              <PanelSection
-                sectionId="admin-exceptions"
-                eyebrow="Exceptions"
-                title="异常处理"
-                description="默认先看待处理异常。"
-                action={<button className="primary-btn" onClick={handleLoadRiskEvents} disabled={loading || !canLoadAdmin}>查询异常</button>}
-              >
-                <div className="query-shell compact-query-shell">
-                  <div className="grid-form compact-form exception-filter-grid">
-                    <label>
-                      用户 ID
-                      <input value={riskQuery.userId} onChange={(e) => setRiskQuery({ ...riskQuery, userId: e.target.value })} placeholder="例如 13002" />
-                    </label>
-                    <label>
-                      风险状态
-                      <select value={riskQuery.riskStatus} onChange={(e) => setRiskQuery({ ...riskQuery, riskStatus: e.target.value })}>
-                        <option value="">全部</option>
-                        <option value="PENDING">PENDING</option>
-                        <option value="HANDLED">HANDLED</option>
-                        <option value="IGNORED">IGNORED</option>
-                      </select>
-                    </label>
-                  </div>
-                  <InlineHint text={riskQuery.riskStatus ? riskPageLabel : '默认先查 PENDING；没有结果再切全部。'} />
-                  <div className="table-toolbar">
-                    <button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) - 1)} disabled={loading || !hasRiskPrevPage}>上一页</button>
-                    <button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) + 1)} disabled={loading || !hasRiskNextPage}>下一页</button>
-                  </div>
-                </div>
-                {riskEvents?.items?.length ? (
-                  <div className="risk-event-list">
-                    {riskEvents.items.map((item) => {
-                      const draftNote = riskActionDrafts[item.id] || ''
-                      return (
-                        <div className="risk-event-card" key={item.id}>
-                          <div className="risk-event-head">
-                            <div>
-                              <strong>风险事件 #{item.id}</strong>
-                              <p>用户 #{item.userId} · {item.riskType}</p>
-                            </div>
-                            {renderStatusBadge(item.riskStatus)}
-                          </div>
-                          <div className="risk-event-meta">
-                            <span>{item.handledAt ? `${formatDateTime(item.handledAt)} / #${item.handledBy ?? 0}` : '未处理'}</span>
-                            <span>备注：{item.resultNote || '暂无'}</span>
-                          </div>
-                          <label className="note-field">
-                            本次处理备注
-                            <input value={draftNote} onChange={(e) => updateRiskActionDraft(item.id, e.target.value)} placeholder="例如：人工复核通过 / 确认异常冻结" />
-                          </label>
-                          <div className="action-row">
-                            <button className="ghost-btn small-btn" onClick={() => openRiskActionConfirm(item, 'HANDLE')} disabled={riskActionLoadingId === item.id || !canHandleRisk(item.riskStatus)}>处理</button>
-                            <button className="ghost-btn small-btn" onClick={() => openRiskActionConfirm(item, 'IGNORE')} disabled={riskActionLoadingId === item.id || !canIgnoreRisk(item.riskStatus)}>忽略</button>
-                            <button className="ghost-btn small-btn warning-btn" onClick={() => openRiskActionConfirm(item, 'FREEZE_USER')} disabled={riskActionLoadingId === item.id || !canFreezeRisk(item.riskStatus)}>冻结用户</button>
-                            <button className="ghost-btn small-btn success-btn" onClick={() => openRiskActionConfirm(item, 'UNFREEZE_USER')} disabled={riskActionLoadingId === item.id || !canUnfreezeRisk(item.riskStatus)}>解冻用户</button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <EmptyState title="暂无异常结果" description="先查 PENDING，没有结果再放宽条件。" actionLabel={riskEmptyState.actionLabel} />
-                )}
-              </PanelSection>
-
-              <PanelSection
-                sectionId="admin-advanced"
-                eyebrow="Advanced"
-                title="高级排查"
-                description="默认把产品事件日志、重复回放和审计日志收起来，只在需要时展开。"
-                action={
-                  <button
-                    className="ghost-btn"
-                    onClick={() => setShowAdvancedOps((current) => !current)}
-                    disabled={!canLoadAdmin}
-                  >
-                    {showAdvancedOps ? '收起高级排查' : '展开高级排查'}
-                  </button>
-                }
-              >
-                <InfoCard title="当前排查范围" tone="neutral">
-                  <InfoRow label="产品" value={currentAdminProductLabel} />
-                  <InfoRow label="排查状态" value={showAdvancedOps ? '已展开' : '默认收起'} />
-                  <InfoRow label="说明" value={showingProductSpecificDiagnostics ? '当前可查看 Linky 的产品事件日志、重复回放和审计记录。' : '先在上方完成概览、绑定关系、收益记录和异常处理；切到具体产品后再展开高级排查。'} />
-                </InfoCard>
-              </PanelSection>
-
-              {showAdvancedOps && showingProductSpecificDiagnostics ? (
-                <>
-                  <PanelSection
-                    eyebrow="Product Events"
-                    title={`${currentAdminProductLabel} 产品事件日志`}
-                    description="当前先开放 Linky 的事件排查；后续接入其他产品时沿用同一块高级排查位。"
-                  >
-                    <DiagnosticBanner
-                      eyebrow="Triage"
-                      tone={linkyDiagnosticSnapshot.tone}
-                      title={linkyDiagnosticSnapshot.title}
-                      description={linkyDiagnosticSnapshot.summary}
-                    />
-                    <div className="content-grid two-columns entity-grid">
-                      <div className="stack-gap">
-                        <InfoCard title="事件日志查询" tone="neutral">
-                          <div className="query-shell soft-query-shell">
-                            <div className="grid-form compact-form">
-                              <label>
-                                Linky 订单号
-                                <input value={linkyWebhookQuery.linkyOrderId} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, linkyOrderId: e.target.value })} placeholder="例如 order-20260421-001" />
-                              </label>
-                              <label>
-                                用户 ID
-                                <input value={linkyWebhookQuery.userId} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, userId: e.target.value })} placeholder="例如 13002" />
-                              </label>
-                              <label>
-                                请求状态
-                                <select value={linkyWebhookQuery.requestStatus} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, requestStatus: e.target.value })}>
-                                  <option value="">全部</option>
-                                  <option value="PROCESSED">PROCESSED</option>
-                                  <option value="DUPLICATE">DUPLICATE</option>
-                                  <option value="REJECTED">REJECTED</option>
-                                  <option value="FAILED">FAILED</option>
-                                </select>
-                              </label>
-                              <label>
-                                页码
-                                <input type="number" min="0" value={linkyWebhookQuery.page} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, page: e.target.value })} />
-                              </label>
-                              <label>
-                                每页条数
-                                <input type="number" min="1" max="100" value={linkyWebhookQuery.size} onChange={(e) => setLinkyWebhookQuery({ ...linkyWebhookQuery, size: e.target.value })} />
-                              </label>
-                            </div>
-                            <div className="table-toolbar wrap-toolbar">
-                              <button className="primary-btn small-btn" onClick={handleLoadLinkyWebhookLogs} disabled={linkyWebhookLoading || !canLoadAdmin}>查询事件日志</button>
-                              <button className="ghost-btn small-btn" onClick={() => handleLinkyWebhookPageChange(Number(linkyWebhookQuery.page) - 1)} disabled={linkyWebhookLoading || !hasLinkyWebhookPrevPage}>上一页</button>
-                              <button className="ghost-btn small-btn" onClick={() => handleLinkyWebhookPageChange(Number(linkyWebhookQuery.page) + 1)} disabled={linkyWebhookLoading || !hasLinkyWebhookNextPage}>下一页</button>
-                            </div>
-                            <InlineHint text={linkyWebhookPageLabel} />
-                          </div>
-                        </InfoCard>
-
-                        {linkyWebhookLogs?.items?.length ? (
-                          <div className="linky-card-list">
-                            {linkyWebhookLogs.items.map((item) => (
-                              <div className="linky-log-card" key={item.id}>
-                                <div className="risk-event-head">
-                                  <div>
-                                    <strong>{item.linkyOrderId || `日志 #${item.id}`}</strong>
-                                    <p>用户 #{item.userId ?? '-'} · event {item.sourceEventId || '-'} · {formatDateTime(item.requestReceivedAt || undefined)}</p>
-                                  </div>
-                                  {renderStatusBadge(item.requestStatus)}
-                                </div>
-                                <div className="link-grid">
-                                  <InfoRow label="签名 / token" value={`${item.signatureStatus} / ${item.internalTokenStatus}`} />
-                                  <InfoRow label="时间窗 / 指纹" value={`${item.replayStatus} / ${item.replayRecordStatus}`} />
-                                  <InfoRow label="金额" value={item.incomeAmount !== null ? `${item.incomeAmount} ${item.currencyCode || ''}`.trim() : '-'} />
-                                  <InfoRow label="支付时间" value={item.paidAt ? formatDateTime(item.paidAt) : '-'} />
-                                </div>
-                                <p className="inline-hint strong-hint">{buildLinkyWebhookSummary(item)}</p>
-                                <div className="action-row top-gap">
-                                  <button className="ghost-btn small-btn" type="button" onClick={() => setSelectedLinkyDrawer({ kind: 'webhook', item })}>查看详情</button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <EmptyState title={linkyWebhookEmptyState.title} description={linkyWebhookEmptyState.description} actionLabel={linkyWebhookEmptyState.actionLabel} />
-                        )}
-                      </div>
-
-                      <div className="stack-gap">
-                        <InfoCard title="重复回放记录查询" tone="success">
-                          <div className="query-shell soft-query-shell">
-                            <div className="grid-form compact-form">
-                              <label>
-                                Linky 订单号
-                                <input value={linkyReplayQuery.linkyOrderId} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, linkyOrderId: e.target.value })} placeholder="例如 order-20260421-001" />
-                              </label>
-                              <label>
-                                用户 ID
-                                <input value={linkyReplayQuery.userId} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, userId: e.target.value })} placeholder="例如 13002" />
-                              </label>
-                              <label>
-                                页码
-                                <input type="number" min="0" value={linkyReplayQuery.page} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, page: e.target.value })} />
-                              </label>
-                              <label>
-                                每页条数
-                                <input type="number" min="1" max="100" value={linkyReplayQuery.size} onChange={(e) => setLinkyReplayQuery({ ...linkyReplayQuery, size: e.target.value })} />
-                              </label>
-                            </div>
-                            <div className="table-toolbar wrap-toolbar">
-                              <button className="primary-btn small-btn" onClick={handleLoadLinkyReplayRecords} disabled={linkyReplayLoading || !canLoadAdmin}>查询重复回放</button>
-                              <button className="ghost-btn small-btn" onClick={() => handleLinkyReplayPageChange(Number(linkyReplayQuery.page) - 1)} disabled={linkyReplayLoading || !hasLinkyReplayPrevPage}>上一页</button>
-                              <button className="ghost-btn small-btn" onClick={() => handleLinkyReplayPageChange(Number(linkyReplayQuery.page) + 1)} disabled={linkyReplayLoading || !hasLinkyReplayNextPage}>下一页</button>
-                            </div>
-                            <InlineHint text={linkyReplayPageLabel} />
-                          </div>
-                        </InfoCard>
-
-                        {linkyReplayRecords?.items?.length ? (
-                          <DataTable
-                            headers={['订单号', '用户', '首次命中', '最近命中', '摘要', '指纹', '操作']}
-                            rows={linkyReplayRecords.items.map((item) => [
-                              item.linkyOrderId || '-',
-                              item.userId ? `#${item.userId}` : '-',
-                              item.firstSeenAt ? formatDateTime(item.firstSeenAt) : '-',
-                              item.lastSeenAt ? formatDateTime(item.lastSeenAt) : '-',
-                              buildLinkyReplaySummary(item),
-                              <FingerprintCell fingerprint={item.requestFingerprint} onCopy={handleCopyFingerprint} />,
-                              <button className="ghost-btn small-btn" type="button" onClick={() => setSelectedLinkyDrawer({ kind: 'replay', item })}>查看详情</button>,
-                            ])}
-                            emptyText="暂无 replay 记录"
-                          />
-                        ) : (
-                          <EmptyState title={linkyReplayEmptyState.title} description={linkyReplayEmptyState.description} actionLabel={linkyReplayEmptyState.actionLabel} />
-                        )}
-                      </div>
-                    </div>
-                  </PanelSection>
-
-                  <PanelSection
-                    eyebrow="Audit"
-                    title="处理审计日志"
-                    description="记录异常处理与绑定关系修正，后续其他产品也走同一块审计区。"
-                    action={<button className="primary-btn" onClick={() => loadAuditLogs(auditQuery)} disabled={!canLoadAdmin}>刷新审计日志</button>}
-                  >
-                  <div className="grid-form compact-form">
-                    <label>
-                      模块
-                      <select value={auditQuery.moduleName} onChange={(e) => setAuditQuery({ ...auditQuery, moduleName: e.target.value })}>
-                        <option value="risk_event">risk_event</option>
-                        <option value="relation">relation</option>
-                        <option value="ownership">ownership</option>
-                        <option value="">全部</option>
-                      </select>
-                    </label>
-                    <label>
-                      页码
-                      <input type="number" min="0" value={auditQuery.page} onChange={(e) => setAuditQuery({ ...auditQuery, page: e.target.value })} />
-                    </label>
-                    <label>
-                      每页条数
-                      <input type="number" min="1" max="100" value={auditQuery.size} onChange={(e) => setAuditQuery({ ...auditQuery, size: e.target.value })} />
-                    </label>
-                  </div>
-                  {auditLogs?.items?.length ? (
-                    <DataTable
-                      headers={['时间', '模块', '动作', '目标ID', '操作人', '备注']}
-                      rows={auditLogs.items.map((item) => [
-                        formatDateTime(item.operatedAt),
-                        item.moduleName,
-                        renderStatusBadge(item.actionName),
-                        item.targetId,
-                        `${item.operatorRole} / #${item.operatorId}`,
-                        item.remark || '-',
-                      ])}
-                      emptyText="暂无处理记录"
-                    />
-                  ) : (
-                    <EmptyState title="暂无处理记录" description="执行一次异常处理或关系修正后，这里会沉淀最近的操作审计。" />
-                  )}
-                </PanelSection>
-              </>
-            ) : null}
         </main>
 
         <aside className="console-side">
-              <PanelSection eyebrow="Guide" title="多产品分销后台优先级">
+              <PanelSection eyebrow="Guide" title="当前主链顺序">
                 <ToastStack
                   tone="neutral"
                   items={[
-                    '后台先按动作理解：登录 → 看总览 → 管邀请码与对外入口 → 再按收益 / 绑定 / 异常分模块处理。',
-                    adminProduct === 'ALL' ? '当前是全部产品视角，适合先看总盘子。' : `当前聚焦 ${currentAdminProductLabel}，适合继续看该产品的绑定、收益和事件链路。`,
-                  ]}
-                />
-              </PanelSection>
-
-              <PanelSection eyebrow="Access" title="当前环境入口">
-                <InfoCard title="本地 / 部署入口" tone="neutral">
-                  <InfoRow label="本地后端" value="http://localhost:8080" code />
-                  <InfoRow label="前端开发" value="http://localhost:5173" code />
-                  <InfoRow label="Docker 前端" value="http://localhost:8088" code />
-                  <InfoRow label="健康检查" value="http://localhost:8080/actuator/health" code />
-                  <InfoRow label="部署文件" value="deploy/docker-compose.yml" code />
-                </InfoCard>
-              </PanelSection>
-
-              <PanelSection eyebrow="Next" title="下一批后台能力">
-                <RoadmapList
-                  items={[
-                    { title: '补产品级筛选能力', desc: '后续在概览、收益、异常查询接口里真正接上 product 参数。' },
-                    { title: '统一产品事件排查框架', desc: '把 Linky 事件日志这套排查能力抽象成通用产品事件模块。' },
-                    { title: '绑定关系修正审计增强', desc: '补足 before / after 和复核说明，保证人工修正可追溯。' },
-                    { title: '更细粒度后台权限', desc: '为收益处理、关系修正、产品事件排查拆开权限边界。' },
+                    '后台先按动作理解：登录 → 看总览 → 管邀请码与对外入口 → 再按收益 / 绑定分模块处理。',
+                    '产品归属、风险处置、审计和 Linky 事件排查已从主后台入口移出，避免首页继续变重。',
                   ]}
                 />
               </PanelSection>
@@ -1797,6 +1619,8 @@ function RoadmapList({ items }: { items: Array<{ title: string; desc: string }> 
     </div>
   )
 }
+void DiagnosticBanner
+void RoadmapList
 
 function ToastStack({ items, tone = 'neutral' }: { items: string[]; tone?: 'neutral' | 'success' | 'warning' }) {
   return (
@@ -1865,6 +1689,32 @@ function StatusBadge({ status }: { status: string }) {
   }
   const normalized = badgeMap[status] || { label: status, tone: 'primary' as const }
   return <span className={`badge badge-${normalized.tone}`}>{normalized.label}</span>
+}
+
+function renderEligibilityStatusBadge(status: string) {
+  const badgeMap: Record<string, { label: string; tone: 'primary' | 'neutral' | 'success' }> = {
+    MATCHED_OURS: { label: '我方公会', tone: 'success' },
+    JOINED_OTHER_GUILD: { label: '已加入别家公会', tone: 'primary' },
+    NOT_JOINED: { label: '未在我方公会命中', tone: 'neutral' },
+    ELIGIBLE: { label: '允许注册', tone: 'success' },
+    NOT_ELIGIBLE: { label: '不可注册', tone: 'primary' },
+  }
+  const normalized = badgeMap[status] || { label: status, tone: 'primary' as const }
+  return <span className={`badge badge-${normalized.tone}`}>{normalized.label}</span>
+}
+
+function formatEligibilitySummary(result: LinkyEligibilityCheckResponse) {
+  const guildSummary = result.guildName ? `，公会：${result.guildName}` : ''
+  switch (result.guildCheckStatus) {
+    case 'MATCHED_OURS':
+      return `命中我方公会，可注册${guildSummary}`
+    case 'JOINED_OTHER_GUILD':
+      return `已加入别家公会，不可注册${guildSummary}`
+    case 'NOT_JOINED':
+      return `当前公会后台未命中该账号，外部归属仍待确认，先不允许注册`
+    default:
+      return `${result.guildCheckStatus}${guildSummary}`
+  }
 }
 
 function renderStatusBadge(status: string) {
@@ -1945,6 +1795,7 @@ function FingerprintCell({ fingerprint, onCopy }: { fingerprint: string; onCopy:
     </div>
   )
 }
+void FingerprintCell
 
 function DrawerDialog({ title, subtitle, children, onClose }: { title: string; subtitle: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -2936,8 +2787,10 @@ function EarningsPage() {
   const [home, setHome] = useState<DistributionHomeResponse | null>(null)
   const [team, setTeam] = useState<TeamListResponse | null>(null)
   const [rewards, setRewards] = useState<RewardListResponse | null>(null)
+  const [withdrawRequest, setWithdrawRequest] = useState<WithdrawRequestResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   const copy = externalPageCopyByLocale[locale]
 
   useEffect(() => {
@@ -2969,6 +2822,28 @@ function EarningsPage() {
 
     void loadData()
   }, [session])
+
+  async function handleCreateWithdrawRequest() {
+    if (!session) return
+    setLoading(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const request = await createWithdrawRequest(session.userId, session.accessToken)
+      setWithdrawRequest(request)
+      setSuccessMessage(`提现申请已提交，申请单号 ${request.requestNo}，本次申请钻石 ${request.requestedDiamondAmount}。`)
+      const [homeData, rewardData] = await Promise.all([
+        getDistributionHome(session.userId, session.accessToken),
+        getDistributionRewards(session.userId, session.accessToken),
+      ])
+      setHome(homeData)
+      setRewards(rewardData)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '发起提现申请失败')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   function getRewardStatusLabel(status?: string) {
     if (status === 'FROZEN') return copy.rewardStatusFrozen
@@ -3007,6 +2882,7 @@ function EarningsPage() {
         </header>
 
         {error ? <div className="route-banner route-banner-error">{error}</div> : null}
+        {!error && successMessage ? <div className="route-banner route-banner-success">{successMessage}</div> : null}
 
         <div className="route-panel route-board-panel top-gap-xl">
           <p className="route-label">{copy.earningsOverview}</p>
@@ -3142,6 +3018,19 @@ function EarningsPage() {
               <div><span>{copy.riskHoldReward}</span><strong>{formatMoney(home?.riskHoldReward)}</strong></div>
             </div>
             <p className="route-caption route-panel-copy">{copy.settlementHint}</p>
+            <div className="route-action-row top-gap">
+              <button className="primary-btn" type="button" onClick={handleCreateWithdrawRequest} disabled={loading || !session || !home?.availableReward || home.availableReward <= 0}>
+                发起提现申请
+              </button>
+            </div>
+            <p className="route-caption route-panel-copy">提现只会按可用奖励里的钻石数量生成申请单，后续由运营人工发放。</p>
+            {withdrawRequest ? (
+              <div className="route-detail-list compact top-gap">
+                <div><span>最近申请单号</span><strong>{withdrawRequest.requestNo}</strong></div>
+                <div><span>申请钻石</span><strong>{withdrawRequest.requestedDiamondAmount}</strong></div>
+                <div><span>申请状态</span><strong>{withdrawRequest.requestStatus}</strong></div>
+              </div>
+            ) : null}
           </div>
         </div>
 

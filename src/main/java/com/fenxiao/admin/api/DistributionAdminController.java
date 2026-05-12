@@ -1,6 +1,8 @@
 package com.fenxiao.admin.api;
 
 import com.fenxiao.admin.api.dto.AuditLogListResponse;
+import com.fenxiao.admin.api.dto.LinkyEligibilityCheckRequest;
+import com.fenxiao.admin.api.dto.LinkyEligibilityCheckResponse;
 import com.fenxiao.admin.api.dto.LinkyReplayRecordListResponse;
 import com.fenxiao.admin.api.dto.LinkyWebhookLogListResponse;
 import com.fenxiao.admin.api.dto.ManualOwnershipCorrectionRequest;
@@ -11,6 +13,9 @@ import com.fenxiao.admin.api.dto.RelationDetailResponse;
 import com.fenxiao.admin.api.dto.RiskEventActionRequest;
 import com.fenxiao.admin.api.dto.RiskEventListItem;
 import com.fenxiao.admin.api.dto.RiskEventListResponse;
+import com.fenxiao.admin.api.dto.WithdrawRequestActionRequest;
+import com.fenxiao.admin.api.dto.WithdrawRequestItemResponse;
+import com.fenxiao.admin.api.dto.WithdrawRequestListResponse;
 import com.fenxiao.admin.service.AuditLogQueryService;
 import com.fenxiao.admin.service.DistributionReportService;
 import com.fenxiao.admin.service.LinkyReplayRecordService;
@@ -20,7 +25,11 @@ import com.fenxiao.admin.service.RelationAdjustmentService;
 import com.fenxiao.admin.service.RiskEventActionService;
 import com.fenxiao.admin.service.RiskEventQueryService;
 import com.fenxiao.common.security.DistributionAccessGuard;
+import com.fenxiao.distribution.entity.LinkyAccountBinding;
+import com.fenxiao.distribution.entity.WithdrawRequest;
 import com.fenxiao.distribution.service.DistributionQueryService;
+import com.fenxiao.distribution.service.LinkyRegistrationEligibilityService;
+import com.fenxiao.distribution.service.WithdrawRequestService;
 import com.fenxiao.reward.api.dto.RewardListResponse;
 import com.fenxiao.reward.domain.RewardStatus;
 import com.fenxiao.reward.service.RewardCalculationService;
@@ -54,6 +63,8 @@ public class DistributionAdminController {
     private final RiskEventActionService riskEventActionService;
     private final OwnershipAdminService ownershipAdminService;
     private final RelationAdjustmentService relationAdjustmentService;
+    private final LinkyRegistrationEligibilityService linkyRegistrationEligibilityService;
+    private final WithdrawRequestService withdrawRequestService;
     private final DistributionAccessGuard distributionAccessGuard;
 
     public DistributionAdminController(RewardCalculationService rewardCalculationService,
@@ -66,6 +77,8 @@ public class DistributionAdminController {
                                        RiskEventActionService riskEventActionService,
                                        OwnershipAdminService ownershipAdminService,
                                        RelationAdjustmentService relationAdjustmentService,
+                                       LinkyRegistrationEligibilityService linkyRegistrationEligibilityService,
+                                       WithdrawRequestService withdrawRequestService,
                                        DistributionAccessGuard distributionAccessGuard) {
         this.rewardCalculationService = rewardCalculationService;
         this.distributionQueryService = distributionQueryService;
@@ -77,6 +90,8 @@ public class DistributionAdminController {
         this.riskEventActionService = riskEventActionService;
         this.ownershipAdminService = ownershipAdminService;
         this.relationAdjustmentService = relationAdjustmentService;
+        this.linkyRegistrationEligibilityService = linkyRegistrationEligibilityService;
+        this.withdrawRequestService = withdrawRequestService;
         this.distributionAccessGuard = distributionAccessGuard;
     }
 
@@ -208,5 +223,86 @@ public class DistributionAdminController {
                                            @RequestParam(required = false) String product) {
         distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
         return distributionReportService.getOverview(product);
+    }
+
+    @PostMapping("/linky-eligibility-checks/{linkyAccount}/refresh")
+    public LinkyEligibilityCheckResponse refreshLinkyEligibility(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                                 @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+                                                                 @PathVariable String linkyAccount) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        LinkyAccountBinding binding = linkyRegistrationEligibilityService.refreshEligibilityFromProbe(linkyAccount);
+        return toLinkyEligibilityCheckResponse(binding);
+    }
+
+    @PostMapping("/linky-eligibility-checks")
+    public LinkyEligibilityCheckResponse upsertLinkyEligibility(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                                @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+                                                                @RequestBody LinkyEligibilityCheckRequest request) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        LinkyAccountBinding binding = switch ((request.result() == null ? "" : request.result().trim().toUpperCase())) {
+            case "MATCHED_OURS" -> linkyRegistrationEligibilityService.markEligible(request.linkyAccount(), request.guildId(), request.guildName(), 0L, request.remark());
+            case "JOINED_OTHER_GUILD" -> linkyRegistrationEligibilityService.markJoinedOtherGuild(request.linkyAccount(), request.guildId(), request.guildName(), 0L, request.remark());
+            case "NOT_JOINED" -> linkyRegistrationEligibilityService.markNotJoined(request.linkyAccount(), 0L, request.remark());
+            default -> throw new IllegalArgumentException("unsupported guild check result");
+        };
+        return toLinkyEligibilityCheckResponse(binding);
+    }
+
+    @GetMapping("/withdraw-requests")
+    public WithdrawRequestListResponse listWithdrawRequests(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                            @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+                                                            @RequestParam(required = false) Long userId,
+                                                            @RequestParam(required = false) String status,
+                                                            @RequestParam(defaultValue = "0") int page,
+                                                            @RequestParam(defaultValue = "20") int size) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        var requestPage = withdrawRequestService.listRequests(userId, status, page, size);
+        var items = requestPage.getContent().stream()
+                .map(this::toWithdrawRequestItemResponse)
+                .toList();
+        return new WithdrawRequestListResponse(items, requestPage.getTotalElements(), page, size);
+    }
+
+    @PostMapping("/withdraw-requests/{requestNo}/approve")
+    public WithdrawRequestItemResponse approveWithdrawRequest(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                              @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+                                                              @PathVariable String requestNo,
+                                                              @RequestBody(required = false) WithdrawRequestActionRequest request) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        WithdrawRequest withdrawRequest = withdrawRequestService.approveRequest(requestNo, 0L, request == null ? null : request.remark());
+        return toWithdrawRequestItemResponse(withdrawRequest);
+    }
+
+    @PostMapping("/withdraw-requests/{requestNo}/reject")
+    public WithdrawRequestItemResponse rejectWithdrawRequest(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                             @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+                                                             @PathVariable String requestNo,
+                                                             @RequestBody(required = false) WithdrawRequestActionRequest request) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        WithdrawRequest withdrawRequest = withdrawRequestService.rejectRequest(requestNo, 0L, request == null ? null : request.remark());
+        return toWithdrawRequestItemResponse(withdrawRequest);
+    }
+
+    private WithdrawRequestItemResponse toWithdrawRequestItemResponse(WithdrawRequest request) {
+        return new WithdrawRequestItemResponse(
+                request.getRequestNo(),
+                request.getUserId(),
+                request.getRequestedDiamondAmount(),
+                request.getRequestStatus(),
+                request.getRequestWeek(),
+                request.getRequestedAt().toString()
+        );
+    }
+
+    private LinkyEligibilityCheckResponse toLinkyEligibilityCheckResponse(LinkyAccountBinding binding) {
+        return new LinkyEligibilityCheckResponse(
+                binding.getLinkyAccount(),
+                binding.getGuildId(),
+                binding.getGuildName(),
+                binding.getGuildCheckStatus(),
+                binding.getRegistrationEligibility(),
+                binding.getCheckedAt() == null ? null : binding.getCheckedAt().toString(),
+                binding.getRemark()
+        );
     }
 }

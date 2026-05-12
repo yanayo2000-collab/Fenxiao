@@ -9,11 +9,14 @@ import com.fenxiao.distribution.api.dto.IssueInviteCodeRequest;
 import com.fenxiao.distribution.api.dto.IssueInviteCodeResponse;
 import com.fenxiao.distribution.api.dto.ProfileResponse;
 import com.fenxiao.distribution.api.dto.TeamListResponse;
+import com.fenxiao.distribution.api.dto.WithdrawRequestResponse;
 import com.fenxiao.distribution.entity.InviteBindingRegistration;
+import com.fenxiao.distribution.entity.WithdrawRequest;
 import com.fenxiao.distribution.service.DistributionBindingService;
 import com.fenxiao.distribution.service.DistributionFrontendService;
 import com.fenxiao.distribution.service.InviteBindingRegistrationService;
 import com.fenxiao.distribution.service.InviteCodeIssueService;
+import com.fenxiao.distribution.service.WithdrawRequestService;
 import com.fenxiao.reward.api.dto.RewardListResponse;
 import com.fenxiao.reward.domain.RewardStatus;
 import com.fenxiao.user.entity.UserDistributionProfile;
@@ -37,17 +40,20 @@ public class DistributionController {
     private final DistributionFrontendService distributionFrontendService;
     private final InviteBindingRegistrationService inviteBindingRegistrationService;
     private final InviteCodeIssueService inviteCodeIssueService;
+    private final WithdrawRequestService withdrawRequestService;
     private final DistributionAccessGuard distributionAccessGuard;
 
     public DistributionController(DistributionBindingService distributionBindingService,
                                   DistributionFrontendService distributionFrontendService,
                                   InviteBindingRegistrationService inviteBindingRegistrationService,
                                   InviteCodeIssueService inviteCodeIssueService,
+                                  WithdrawRequestService withdrawRequestService,
                                   DistributionAccessGuard distributionAccessGuard) {
         this.distributionBindingService = distributionBindingService;
         this.distributionFrontendService = distributionFrontendService;
         this.inviteBindingRegistrationService = inviteBindingRegistrationService;
         this.inviteCodeIssueService = inviteCodeIssueService;
+        this.withdrawRequestService = withdrawRequestService;
         this.distributionAccessGuard = distributionAccessGuard;
     }
 
@@ -130,5 +136,20 @@ public class DistributionController {
                                             @RequestParam(required = false) RewardStatus status) {
         distributionAccessGuard.assertUserAccess(userId, accessToken);
         return distributionFrontendService.getRewardDetails(userId, status);
+    }
+
+    @PostMapping("/withdraw-requests/{userId}")
+    public WithdrawRequestResponse createWithdrawRequest(@RequestHeader("X-Distribution-Token") String accessToken,
+                                                         @PathVariable Long userId) {
+        distributionAccessGuard.assertUserAccess(userId, accessToken);
+        WithdrawRequest request = withdrawRequestService.createRequest(userId);
+        return new WithdrawRequestResponse(
+                request.getRequestNo(),
+                request.getUserId(),
+                request.getRequestedDiamondAmount(),
+                request.getRequestStatus(),
+                request.getRequestWeek(),
+                request.getRequestedAt().toString()
+        );
     }
 }

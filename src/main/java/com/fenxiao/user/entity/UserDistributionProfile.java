@@ -35,6 +35,9 @@ public class UserDistributionProfile extends BaseEntity {
     @Column(name = "api_access_token", length = 64, unique = true)
     private String apiAccessToken;
 
+    @Column(name = "phone_number", unique = true, length = 32)
+    private String phoneNumber;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "distribution_role", nullable = false, length = 32)
     private DistributionRole distributionRole;
@@ -73,6 +76,10 @@ public class UserDistributionProfile extends BaseEntity {
 
     public String getApiAccessToken() {
         return apiAccessToken;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
     }
 
     public DistributionRole getDistributionRole() {
@@ -123,5 +130,9 @@ public class UserDistributionProfile extends BaseEntity {
 
     public void markAsNormalUser() {
         this.userStatus = UserStatus.NORMAL;
+    }
+
+    public void bindPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
     }
 }

@@ -9,6 +9,7 @@ import java.util.Optional;
 
 public interface UserDistributionProfileRepository extends JpaRepository<UserDistributionProfile, Long> {
     Optional<UserDistributionProfile> findByInviteCode(String inviteCode);
+    Optional<UserDistributionProfile> findByPhoneNumber(String phoneNumber);
     boolean existsByInviteCode(String inviteCode);
     long countByEffectiveUserTrue();
     long countByUserIdIn(Collection<Long> userIds);

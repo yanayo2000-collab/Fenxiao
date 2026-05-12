@@ -16,6 +16,10 @@ import com.fenxiao.admin.api.dto.RiskEventListResponse;
 import com.fenxiao.admin.api.dto.WithdrawRequestActionRequest;
 import com.fenxiao.admin.api.dto.WithdrawRequestItemResponse;
 import com.fenxiao.admin.api.dto.WithdrawRequestListResponse;
+import com.fenxiao.distribution.api.dto.GuildConfigRequest;
+import com.fenxiao.distribution.api.dto.GuildConfigResponse;
+import com.fenxiao.distribution.api.dto.GuildWeeklyReportResponse;
+import com.fenxiao.distribution.api.dto.LinkyBatchRefreshResponse;
 import com.fenxiao.admin.service.AuditLogQueryService;
 import com.fenxiao.admin.service.DistributionReportService;
 import com.fenxiao.admin.service.LinkyReplayRecordService;
@@ -28,6 +32,7 @@ import com.fenxiao.common.security.DistributionAccessGuard;
 import com.fenxiao.distribution.entity.LinkyAccountBinding;
 import com.fenxiao.distribution.entity.WithdrawRequest;
 import com.fenxiao.distribution.service.DistributionQueryService;
+import com.fenxiao.distribution.service.GuildAccountConfigService;
 import com.fenxiao.distribution.service.LinkyRegistrationEligibilityService;
 import com.fenxiao.distribution.service.WithdrawRequestService;
 import com.fenxiao.reward.api.dto.RewardListResponse;
@@ -46,8 +51,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Map;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
 @RestController
 @RequestMapping("/admin/distribution")
@@ -65,6 +74,7 @@ public class DistributionAdminController {
     private final RelationAdjustmentService relationAdjustmentService;
     private final LinkyRegistrationEligibilityService linkyRegistrationEligibilityService;
     private final WithdrawRequestService withdrawRequestService;
+    private final GuildAccountConfigService guildAccountConfigService;
     private final DistributionAccessGuard distributionAccessGuard;
 
     public DistributionAdminController(RewardCalculationService rewardCalculationService,
@@ -79,6 +89,7 @@ public class DistributionAdminController {
                                        RelationAdjustmentService relationAdjustmentService,
                                        LinkyRegistrationEligibilityService linkyRegistrationEligibilityService,
                                        WithdrawRequestService withdrawRequestService,
+                                       GuildAccountConfigService guildAccountConfigService,
                                        DistributionAccessGuard distributionAccessGuard) {
         this.rewardCalculationService = rewardCalculationService;
         this.distributionQueryService = distributionQueryService;
@@ -92,6 +103,7 @@ public class DistributionAdminController {
         this.relationAdjustmentService = relationAdjustmentService;
         this.linkyRegistrationEligibilityService = linkyRegistrationEligibilityService;
         this.withdrawRequestService = withdrawRequestService;
+        this.guildAccountConfigService = guildAccountConfigService;
         this.distributionAccessGuard = distributionAccessGuard;
     }
 
@@ -248,6 +260,59 @@ public class DistributionAdminController {
         return toLinkyEligibilityCheckResponse(binding);
     }
 
+
+    @PostMapping("/linky-eligibility-checks/batch-refresh")
+    public LinkyBatchRefreshResponse batchRefreshLinkyEligibility(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                                  @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        LinkyRegistrationEligibilityService.BatchRefreshResult result = linkyRegistrationEligibilityService.refreshAllEligibility();
+        return new LinkyBatchRefreshResponse(result.successCount(), result.failureCount());
+    }
+
+    @GetMapping("/guild-configs")
+    public java.util.List<GuildConfigResponse> listGuildConfigs(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                                @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+                                                                @RequestParam(defaultValue = "LINKY") String product) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        return guildAccountConfigService.list(product).stream().map(c -> new GuildConfigResponse(c.getId(), c.getProductCode(), c.getInviterUserId(), c.getGuildId(), c.getGuildName(), c.getGuildInviteCode(), c.isEnabled())).toList();
+    }
+
+    @PostMapping("/guild-configs")
+    public GuildConfigResponse upsertGuildConfig(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                 @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+                                                 @RequestBody GuildConfigRequest request) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        var c = guildAccountConfigService.upsert(request);
+        return new GuildConfigResponse(c.getId(), c.getProductCode(), c.getInviterUserId(), c.getGuildId(), c.getGuildName(), c.getGuildInviteCode(), c.isEnabled());
+    }
+
+    @GetMapping("/guild-configs/{guildId}/weekly-report")
+    public GuildWeeklyReportResponse guildWeeklyReport(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                       @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+                                                       @PathVariable String guildId,
+                                                       @RequestParam(defaultValue = "LINKY") String product,
+                                                       @RequestParam(defaultValue = "CURRENT") String week) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        return guildAccountConfigService.weeklyReport(product, guildId, week);
+    }
+
+    @GetMapping("/guild-configs/{guildId}/weekly-report/export")
+    public ResponseEntity<byte[]> exportGuildWeeklyReport(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                          @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+                                                          @PathVariable String guildId,
+                                                          @RequestParam(defaultValue = "LINKY") String product,
+                                                          @RequestParam(defaultValue = "CURRENT") String week) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        GuildWeeklyReportResponse report = guildAccountConfigService.weeklyReport(product, guildId, week);
+        String csv = "productCode,guildId,week,registeredUsers,incomeAmount,rewardAmount\n"
+                + report.productCode() + "," + report.guildId() + "," + report.week() + ","
+                + report.registeredUsers() + "," + report.incomeAmount() + "," + report.rewardAmount() + "\n";
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=guild-weekly-report.csv")
+                .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+                .body(csv.getBytes(StandardCharsets.UTF_8));
+    }
+
     @GetMapping("/withdraw-requests")
     public WithdrawRequestListResponse listWithdrawRequests(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
                                                             @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
@@ -281,6 +346,22 @@ public class DistributionAdminController {
         distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
         WithdrawRequest withdrawRequest = withdrawRequestService.rejectRequest(requestNo, 0L, request == null ? null : request.remark());
         return toWithdrawRequestItemResponse(withdrawRequest);
+    }
+
+
+    @GetMapping("/withdraw-requests/export")
+    public ResponseEntity<byte[]> exportWithdrawRequests(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+                                                         @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+                                                         @RequestParam(required = false) Long userId,
+                                                         @RequestParam(required = false) String status) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        var requestPage = withdrawRequestService.listRequests(userId, status, 0, 100);
+        StringBuilder csv = new StringBuilder("requestNo,userId,amount,status,week,requestedAt\n");
+        requestPage.getContent().forEach(r -> csv.append(r.getRequestNo()).append(',').append(r.getUserId()).append(',').append(r.getRequestedDiamondAmount()).append(',').append(r.getRequestStatus()).append(',').append(r.getRequestWeek()).append(',').append(r.getRequestedAt()).append('\n'));
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=withdraw-requests.csv")
+                .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+                .body(csv.toString().getBytes(StandardCharsets.UTF_8));
     }
 
     private WithdrawRequestItemResponse toWithdrawRequestItemResponse(WithdrawRequest request) {

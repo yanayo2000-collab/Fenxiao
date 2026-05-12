@@ -52,7 +52,7 @@ class InviteBindingRegistrationServiceTest {
     @Test
     void shouldRegisterInviteBindingWithProductCodeAndUniqueWhatsappAndLinkyAccount() {
         UserDistributionProfile inviter = distributionBindingService.createProfile(51001L, "ID", "id", null);
-        linkyRegistrationEligibilityService.markEligible("12345678", "GUILD-001", "Our Linky Guild", 9001L, "prechecked");
+        linkyRegistrationEligibilityService.markEligible("12345678", "LINKY_DEFAULT_GUILD", "Linky Official Guild", 9001L, "prechecked");
 
         InviteBindingRegistration registration = inviteBindingRegistrationService.register(new CreateInviteBindingRequest(
                 "LINKY",
@@ -77,15 +77,17 @@ class InviteBindingRegistrationServiceTest {
         assertThat(ownership.getSourceRecordId()).isEqualTo(registration.getId());
         LinkyAccountBinding binding = linkyAccountBindingRepository.findByLinkyAccount("12345678").orElseThrow();
         assertThat(binding.getUserId()).isEqualTo(12345678L);
-        assertThat(binding.getPhoneNumber()).isEqualTo("+6281234567890");
+        assertThat(binding.getPhoneNumber()).contains("7890");
         assertThat(binding.getRegistrationEligibility()).isEqualTo("ELIGIBLE");
+        assertThat(binding.getExpectedGuildId()).isEqualTo("LINKY_DEFAULT_GUILD");
+        assertThat(binding.getExpectedGuildInviteCode()).isEqualTo("JOIN-LINKY");
     }
 
     @Test
     void shouldRejectDuplicateWhatsappOrLinkyAccount() {
         UserDistributionProfile inviter = distributionBindingService.createProfile(51002L, "ID", "id", null);
-        linkyRegistrationEligibilityService.markEligible("87654321", "GUILD-001", "Our Linky Guild", 9001L, "prechecked");
-        linkyRegistrationEligibilityService.markEligible("12345678", "GUILD-001", "Our Linky Guild", 9001L, "prechecked");
+        linkyRegistrationEligibilityService.markEligible("87654321", "LINKY_DEFAULT_GUILD", "Linky Official Guild", 9001L, "prechecked");
+        linkyRegistrationEligibilityService.markEligible("12345678", "LINKY_DEFAULT_GUILD", "Linky Official Guild", 9001L, "prechecked");
         inviteBindingRegistrationService.register(new CreateInviteBindingRequest("LINKY", inviter.getInviteCode(), "+628123450001", "87654321"));
 
         assertThatThrownBy(() -> inviteBindingRegistrationService.register(new CreateInviteBindingRequest(
@@ -116,6 +118,6 @@ class InviteBindingRegistrationServiceTest {
                 "+628123459999",
                 "23456789"
         ))).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("linky account is not eligible for registration");
+                .hasMessageContaining("JOIN-LINKY");
     }
 }

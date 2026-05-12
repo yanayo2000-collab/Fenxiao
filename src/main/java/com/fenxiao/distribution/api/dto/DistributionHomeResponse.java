@@ -11,6 +11,14 @@ public record DistributionHomeResponse(
         BigDecimal totalReward,
         BigDecimal frozenReward,
         BigDecimal availableReward,
-        BigDecimal riskHoldReward
+        BigDecimal riskHoldReward,
+        long directInvitedUsers,
+        long secondLevelInvitedUsers,
+        long thirdLevelInvitedUsers,
+        long totalTeamUsers,
+        long directEffectiveUsers,
+        long secondLevelEffectiveUsers,
+        long thirdLevelEffectiveUsers,
+        long totalEffectiveUsers
 ) {
 }

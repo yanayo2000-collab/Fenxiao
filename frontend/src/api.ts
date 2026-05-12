@@ -254,6 +254,39 @@ export type AdminWithdrawRequestListResponse = {
   size: number
 }
 
+export type GuildWeeklyReportResponse = {
+  productCode: string
+  guildId: string
+  week: string
+  registeredUsers: number
+  incomeAmount: number
+  rewardAmount: number
+}
+
+export type GuildConfigResponse = {
+  id: number
+  productCode: string
+  inviterUserId: number | null
+  guildId: string
+  guildName: string
+  guildInviteCode: string
+  enabled: boolean
+}
+
+export type GuildConfigRequest = {
+  productCode: string
+  inviterUserId?: number | null
+  guildId: string
+  guildName: string
+  guildInviteCode: string
+  enabled?: boolean
+}
+
+export type LinkyBatchRefreshResponse = {
+  successCount: number
+  failureCount: number
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 function extractErrorMessage(text: string, status: number): string {
@@ -501,6 +534,15 @@ export function refreshAdminLinkyEligibility(adminSessionToken: string, linkyAcc
   })
 }
 
+export function refreshAdminLinkyEligibilityBatch(adminSessionToken: string) {
+  return request<LinkyBatchRefreshResponse>('/admin/distribution/linky-eligibility-checks/batch-refresh', {
+    method: 'POST',
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+  })
+}
+
 export function getAdminWithdrawRequests(adminSessionToken: string, filters?: {
   userId?: number
   status?: string
@@ -517,6 +559,39 @@ export function getAdminWithdrawRequests(adminSessionToken: string, filters?: {
     headers: {
       'X-Admin-Session': adminSessionToken,
     },
+  })
+}
+
+export function getAdminGuildWeeklyReport(adminSessionToken: string, guildId: string, filters?: {
+  product?: string
+  week?: string
+}) {
+  const params = new URLSearchParams()
+  if (filters?.product) params.set('product', filters.product)
+  if (filters?.week) params.set('week', filters.week)
+  const query = params.toString()
+  return request<GuildWeeklyReportResponse>(`/admin/distribution/guild-configs/${encodeURIComponent(guildId)}/weekly-report${query ? `?${query}` : ''}`, {
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+  })
+}
+
+export function getAdminGuildConfigs(adminSessionToken: string) {
+  return request<GuildConfigResponse[]>('/admin/distribution/guild-configs', {
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+  })
+}
+
+export function saveAdminGuildConfig(adminSessionToken: string, payload: GuildConfigRequest) {
+  return request<GuildConfigResponse>('/admin/distribution/guild-configs', {
+    method: 'POST',
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+    body: JSON.stringify(payload),
   })
 }
 

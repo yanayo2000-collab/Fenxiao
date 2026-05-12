@@ -121,7 +121,7 @@ class DistributionFrontendControllerTest {
         UserDistributionProfile inviter = distributionBindingService.createProfile(23001L, "ID", "id", null);
         String inviteCode = inviter.getInviteCode();
         distributionBindingService.ensureRootProfile(87654321L, "ID", "id");
-        linkyRegistrationEligibilityService.markEligible("87654321", "GUILD-001", "Our Linky Guild", 9001L, "prechecked");
+        linkyRegistrationEligibilityService.markEligible("87654321", "LINKY_DEFAULT_GUILD", "Linky Official Guild", 9001L, "prechecked");
 
         mockMvc.perform(post("/api/distribution/bindings/register")
                         .contentType(MediaType.APPLICATION_JSON)

@@ -40,6 +40,15 @@ public class LinkyAccountBinding extends BaseEntity {
     @Column(name = "guild_owner_group", length = 64)
     private String guildOwnerGroup;
 
+    @Column(name = "expected_guild_id", length = 64)
+    private String expectedGuildId;
+
+    @Column(name = "expected_guild_name", length = 128)
+    private String expectedGuildName;
+
+    @Column(name = "expected_guild_invite_code", length = 64)
+    private String expectedGuildInviteCode;
+
     @Column(name = "guild_check_status", nullable = false, length = 32)
     private String guildCheckStatus;
 
@@ -89,6 +98,10 @@ public class LinkyAccountBinding extends BaseEntity {
     public String getGuildOwnerGroup() {
         return guildOwnerGroup;
     }
+
+    public String getExpectedGuildId() { return expectedGuildId; }
+    public String getExpectedGuildName() { return expectedGuildName; }
+    public String getExpectedGuildInviteCode() { return expectedGuildInviteCode; }
 
     public String getGuildCheckStatus() {
         return guildCheckStatus;
@@ -155,5 +168,11 @@ public class LinkyAccountBinding extends BaseEntity {
         this.userId = userId;
         this.phoneNumber = phoneNumber;
         this.inviteCode = inviteCode;
+    }
+
+    public void setExpectedGuild(String guildId, String guildName, String guildInviteCode) {
+        this.expectedGuildId = guildId;
+        this.expectedGuildName = guildName;
+        this.expectedGuildInviteCode = guildInviteCode;
     }
 }

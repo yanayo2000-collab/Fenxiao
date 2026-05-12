@@ -86,4 +86,18 @@ public interface RewardRecordRepository extends JpaRepository<RewardRecord, Long
 
     @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId in :beneficiaryUserIds and r.rewardStatus = :status")
     BigDecimal sumRewardAmountByBeneficiaryUserIdInAndStatus(Collection<Long> beneficiaryUserIds, RewardStatus status);
+
+    long countByBeneficiaryUserIdAndRewardLevel(Long beneficiaryUserId, Integer rewardLevel);
+
+    @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId = :beneficiaryUserId and r.rewardLevel = :rewardLevel")
+    BigDecimal sumRewardAmountByBeneficiaryUserIdAndRewardLevel(Long beneficiaryUserId, Integer rewardLevel);
+
+    @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId = :beneficiaryUserId and r.calculatedAt >= :startAt and r.calculatedAt < :endAt")
+    BigDecimal sumRewardAmountByBeneficiaryUserIdAndCalculatedAtBetween(Long beneficiaryUserId, LocalDateTime startAt, LocalDateTime endAt);
+
+    @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId in :beneficiaryUserIds and r.calculatedAt >= :startAt and r.calculatedAt < :endAt")
+    BigDecimal sumRewardAmountByBeneficiaryUserIdInAndCalculatedAtBetween(Collection<Long> beneficiaryUserIds, LocalDateTime startAt, LocalDateTime endAt);
+
+    @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.sourceUserId in :sourceUserIds and r.calculatedAt >= :startAt and r.calculatedAt < :endAt")
+    BigDecimal sumRewardAmountBySourceUserIdInAndCalculatedAtBetween(Collection<Long> sourceUserIds, LocalDateTime startAt, LocalDateTime endAt);
 }

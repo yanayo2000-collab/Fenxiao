@@ -7,8 +7,11 @@ import com.fenxiao.distribution.api.dto.DistributionHomeResponse;
 import com.fenxiao.distribution.api.dto.InviteBindingResponse;
 import com.fenxiao.distribution.api.dto.IssueInviteCodeRequest;
 import com.fenxiao.distribution.api.dto.IssueInviteCodeResponse;
+import com.fenxiao.distribution.api.dto.PhoneCodeRequest;
+import com.fenxiao.distribution.api.dto.PhoneLoginRequest;
 import com.fenxiao.distribution.api.dto.ProfileResponse;
 import com.fenxiao.distribution.api.dto.TeamListResponse;
+import com.fenxiao.distribution.api.dto.WeeklyIncomeStatsResponse;
 import com.fenxiao.distribution.api.dto.WithdrawRequestResponse;
 import com.fenxiao.distribution.entity.InviteBindingRegistration;
 import com.fenxiao.distribution.entity.WithdrawRequest;
@@ -16,8 +19,10 @@ import com.fenxiao.distribution.service.DistributionBindingService;
 import com.fenxiao.distribution.service.DistributionFrontendService;
 import com.fenxiao.distribution.service.InviteBindingRegistrationService;
 import com.fenxiao.distribution.service.InviteCodeIssueService;
+import com.fenxiao.distribution.service.PhoneAuthService;
 import com.fenxiao.distribution.service.WithdrawRequestService;
 import com.fenxiao.reward.api.dto.RewardListResponse;
+import com.fenxiao.reward.api.dto.RewardSummaryResponse;
 import com.fenxiao.reward.domain.RewardStatus;
 import com.fenxiao.user.entity.UserDistributionProfile;
 import jakarta.validation.Valid;
@@ -41,6 +46,7 @@ public class DistributionController {
     private final InviteBindingRegistrationService inviteBindingRegistrationService;
     private final InviteCodeIssueService inviteCodeIssueService;
     private final WithdrawRequestService withdrawRequestService;
+    private final PhoneAuthService phoneAuthService;
     private final DistributionAccessGuard distributionAccessGuard;
 
     public DistributionController(DistributionBindingService distributionBindingService,
@@ -48,12 +54,14 @@ public class DistributionController {
                                   InviteBindingRegistrationService inviteBindingRegistrationService,
                                   InviteCodeIssueService inviteCodeIssueService,
                                   WithdrawRequestService withdrawRequestService,
+                                  PhoneAuthService phoneAuthService,
                                   DistributionAccessGuard distributionAccessGuard) {
         this.distributionBindingService = distributionBindingService;
         this.distributionFrontendService = distributionFrontendService;
         this.inviteBindingRegistrationService = inviteBindingRegistrationService;
         this.inviteCodeIssueService = inviteCodeIssueService;
         this.withdrawRequestService = withdrawRequestService;
+        this.phoneAuthService = phoneAuthService;
         this.distributionAccessGuard = distributionAccessGuard;
     }
 
@@ -116,6 +124,18 @@ public class DistributionController {
         );
     }
 
+
+    @PostMapping("/auth/phone-codes")
+    public Map<String, Object> issuePhoneCode(@Valid @RequestBody PhoneCodeRequest request) {
+        return Map.of("phoneNumber", request.phoneNumber(), "verificationCode", phoneAuthService.issueCode(request.phoneNumber()), "ttlMinutes", 10);
+    }
+
+    @PostMapping("/auth/phone-login")
+    public ProfileResponse phoneLogin(@Valid @RequestBody PhoneLoginRequest request) {
+        UserDistributionProfile profile = phoneAuthService.login(request);
+        return new ProfileResponse(profile.getUserId(), profile.getInviteCode(), profile.getCountryCode(), profile.getLanguageCode(), profile.getApiAccessToken());
+    }
+
     @GetMapping("/home/{userId}")
     public DistributionHomeResponse home(@RequestHeader("X-Distribution-Token") String accessToken,
                                          @PathVariable Long userId) {
@@ -138,11 +158,47 @@ public class DistributionController {
         return distributionFrontendService.getRewardDetails(userId, status);
     }
 
+
+    @GetMapping("/rewards/{userId}/summary")
+    public RewardSummaryResponse rewardSummary(@RequestHeader("X-Distribution-Token") String accessToken,
+                                               @PathVariable Long userId) {
+        distributionAccessGuard.assertUserAccess(userId, accessToken);
+        return distributionFrontendService.getRewardSummary(userId);
+    }
+
+    @GetMapping("/income-stats/weekly/{userId}")
+    public WeeklyIncomeStatsResponse weeklyStats(@RequestHeader("X-Distribution-Token") String accessToken,
+                                                 @PathVariable Long userId) {
+        distributionAccessGuard.assertUserAccess(userId, accessToken);
+        return distributionFrontendService.getWeeklyStats(userId);
+    }
+
+    @GetMapping("/withdraw-requests/{userId}")
+    public Map<String, Object> withdrawHistory(@RequestHeader("X-Distribution-Token") String accessToken,
+                                               @PathVariable Long userId,
+                                               @RequestParam(required = false) String status,
+                                               @RequestParam(defaultValue = "0") int page,
+                                               @RequestParam(defaultValue = "20") int size) {
+        distributionAccessGuard.assertUserAccess(userId, accessToken);
+        var requestPage = withdrawRequestService.listRequests(userId, status, page, size);
+        return Map.of("items", requestPage.getContent().stream().map(this::toWithdrawResponse).toList(), "total", requestPage.getTotalElements(), "page", page, "size", size);
+    }
+
     @PostMapping("/withdraw-requests/{userId}")
     public WithdrawRequestResponse createWithdrawRequest(@RequestHeader("X-Distribution-Token") String accessToken,
                                                          @PathVariable Long userId) {
         distributionAccessGuard.assertUserAccess(userId, accessToken);
         WithdrawRequest request = withdrawRequestService.createRequest(userId);
+        return new WithdrawRequestResponse(
+                request.getRequestNo(),
+                request.getUserId(),
+                request.getRequestedDiamondAmount(),
+                request.getRequestStatus(),
+                request.getRequestWeek(),
+                request.getRequestedAt().toString()
+        );
+    }
+    private WithdrawRequestResponse toWithdrawResponse(WithdrawRequest request) {
         return new WithdrawRequestResponse(
                 request.getRequestNo(),
                 request.getUserId(),

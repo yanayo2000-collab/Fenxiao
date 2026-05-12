@@ -8,6 +8,8 @@ import {
   createProfile,
   createWithdrawRequest,
   getAdminAuditLogs,
+  getAdminGuildConfigs,
+  getAdminGuildWeeklyReport,
   getAdminLinkyReplayRecords,
   getAdminLinkyWebhookLogs,
   getAdminOverview,
@@ -21,13 +23,19 @@ import {
   getDistributionTeam,
   issueInviteCode,
   refreshAdminLinkyEligibility,
+  refreshAdminLinkyEligibilityBatch,
   registerInviteBinding,
+  saveAdminGuildConfig,
   type AdminWithdrawRequestListResponse,
   type AuditLogListResponse,
   type DistributionHomeResponse,
+  type GuildConfigRequest,
+  type GuildConfigResponse,
+  type GuildWeeklyReportResponse,
   type InviteBindingResponse,
   type IssueInviteCodeResponse,
   type LinkyEligibilityCheckResponse,
+  type LinkyBatchRefreshResponse,
   type LinkyReplayRecordListResponse,
   type LinkyWebhookLogListResponse,
   type OverviewReportResponse,
@@ -243,6 +251,21 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
   const [linkyEligibilityAccount, setLinkyEligibilityAccount] = useState('')
   const [linkyEligibilityResult, setLinkyEligibilityResult] = useState<LinkyEligibilityCheckResponse | null>(null)
   const [linkyEligibilityLoading, setLinkyEligibilityLoading] = useState(false)
+  const [linkyBatchRefreshResult, setLinkyBatchRefreshResult] = useState<LinkyBatchRefreshResponse | null>(null)
+  const [linkyBatchRefreshLoading, setLinkyBatchRefreshLoading] = useState(false)
+  const [guildWeeklyQuery, setGuildWeeklyQuery] = useState({ guildId: '', week: 'CURRENT' })
+  const [guildWeeklyReport, setGuildWeeklyReport] = useState<GuildWeeklyReportResponse | null>(null)
+  const [guildWeeklyLoading, setGuildWeeklyLoading] = useState(false)
+  const [guildConfigs, setGuildConfigs] = useState<GuildConfigResponse[] | null>(null)
+  const [guildConfigLoading, setGuildConfigLoading] = useState(false)
+  const [guildConfigForm, setGuildConfigForm] = useState({
+    productCode: 'LINKY',
+    inviterUserId: '',
+    guildId: '',
+    guildName: '',
+    guildInviteCode: '',
+    enabled: true,
+  })
   const [relationAdjustInviterId, setRelationAdjustInviterId] = useState('')
   const [relationAdjustNote, setRelationAdjustNote] = useState('')
   const [relationBeforeAdjust, setRelationBeforeAdjust] = useState<RelationDetailResponse | null>(null)
@@ -288,6 +311,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
     setAdminOwnership(null)
     setAdminRelation(null)
     setLinkyEligibilityResult(null)
+    setLinkyBatchRefreshResult(null)
     setLinkyWebhookLogs(null)
     setLinkyReplayRecords(null)
     setHasQueriedAdminRewards(false)
@@ -675,6 +699,88 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
       setError(err instanceof Error ? err.message : '刷新 Linky 资格失败')
     } finally {
       setLinkyEligibilityLoading(false)
+    }
+  }
+
+  async function handleRefreshAllLinkyEligibility() {
+    if (!adminSession) return
+    setLinkyBatchRefreshLoading(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const result = await refreshAdminLinkyEligibilityBatch(adminSession.sessionToken)
+      setLinkyBatchRefreshResult(result)
+      setSuccessMessage(`已完成全部 Linky 资格批量刷新：成功 ${result.successCount} 条，失败 ${result.failureCount} 条。`)
+    } catch (err) {
+      setLinkyBatchRefreshResult(null)
+      setError(err instanceof Error ? err.message : '批量刷新 Linky 资格失败')
+    } finally {
+      setLinkyBatchRefreshLoading(false)
+    }
+  }
+
+  async function handleLoadGuildWeeklyReport() {
+    if (!adminSession || !guildWeeklyQuery.guildId.trim()) return
+    setGuildWeeklyLoading(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const result = await getAdminGuildWeeklyReport(adminSession.sessionToken, guildWeeklyQuery.guildId.trim(), {
+        product: activeAdminProductCode || 'LINKY',
+        week: guildWeeklyQuery.week || 'CURRENT',
+      })
+      setGuildWeeklyReport(result)
+      setSuccessMessage(`公会 ${result.guildId} 周报已更新：注册 ${result.registeredUsers} 人，收入 ${result.incomeAmount}，分佣 ${result.rewardAmount}。`)
+    } catch (err) {
+      setGuildWeeklyReport(null)
+      setError(err instanceof Error ? err.message : '加载公会周报失败')
+    } finally {
+      setGuildWeeklyLoading(false)
+    }
+  }
+
+  async function handleLoadGuildConfigs() {
+    if (!adminSession) return
+    setGuildConfigLoading(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const result = await getAdminGuildConfigs(adminSession.sessionToken)
+      setGuildConfigs(result)
+      setSuccessMessage(`已加载 ${result.length} 条公会配置。`)
+    } catch (err) {
+      setGuildConfigs(null)
+      setError(err instanceof Error ? err.message : '加载公会配置失败')
+    } finally {
+      setGuildConfigLoading(false)
+    }
+  }
+
+  async function handleSaveGuildConfig() {
+    if (!adminSession || !guildConfigForm.productCode.trim() || !guildConfigForm.guildId.trim() || !guildConfigForm.guildInviteCode.trim()) return
+    setGuildConfigLoading(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const payload: GuildConfigRequest = {
+        productCode: guildConfigForm.productCode.trim(),
+        inviterUserId: guildConfigForm.inviterUserId.trim() ? Number(guildConfigForm.inviterUserId) : null,
+        guildId: guildConfigForm.guildId.trim(),
+        guildName: guildConfigForm.guildName.trim(),
+        guildInviteCode: guildConfigForm.guildInviteCode.trim(),
+        enabled: guildConfigForm.enabled,
+      }
+      const saved = await saveAdminGuildConfig(adminSession.sessionToken, payload)
+      setGuildConfigs((current) => {
+        const list = current || []
+        const withoutSameScope = list.filter((item) => !(item.productCode === saved.productCode && item.inviterUserId === saved.inviterUserId))
+        return [saved, ...withoutSameScope]
+      })
+      setSuccessMessage(`公会配置已保存：${saved.productCode} / ${saved.inviterUserId ?? '默认公会'} → ${saved.guildInviteCode}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存公会配置失败')
+    } finally {
+      setGuildConfigLoading(false)
     }
   }
 
@@ -1361,7 +1467,22 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                       <button className="primary-btn small-btn" onClick={handleRefreshLinkyEligibility} disabled={linkyEligibilityLoading || !canLoadAdmin || !linkyEligibilityAccount.trim()}>
                         {linkyEligibilityLoading ? '刷新中…' : '刷新资格结果'}
                       </button>
+                      <button className="ghost-btn small-btn" onClick={handleRefreshAllLinkyEligibility} disabled={linkyBatchRefreshLoading || !canLoadAdmin}>
+                        {linkyBatchRefreshLoading ? '批量刷新中…' : '批量刷新全部 Linky 资格'}
+                      </button>
                     </div>
+                    <InlineHint text="批量刷新会逐个重查已登记 Linky ID 的公会归属，并返回成功/失败计数，失败账号保留在后台日志继续排查。" />
+                    {linkyBatchRefreshResult ? (
+                      <div className="relation-grid top-gap">
+                        <RelationItem label="成功数量" value={linkyBatchRefreshResult.successCount} />
+                        <RelationItem label="失败数量" value={linkyBatchRefreshResult.failureCount} />
+                      </div>
+                    ) : (
+                      <div className="relation-grid top-gap">
+                        <RelationItem label="成功数量" value="-" />
+                        <RelationItem label="失败数量" value="-" />
+                      </div>
+                    )}
                     {linkyEligibilityResult ? (
                       <div className="relation-grid top-gap">
                         <RelationItem label="Linky 账号" value={linkyEligibilityResult.linkyAccount} />
@@ -1374,6 +1495,95 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                       </div>
                     ) : (
                       <EmptyState title="还没有资格结果" description="输入 Linky 账号后刷新，这里会显示当前公会归属和注册资格。" actionLabel="推荐先刷一条真实账号" />
+                    )}
+                  </InfoCard>
+                  <InfoCard title="公会周报" tone="success">
+                    <div className="grid-form compact-form exception-filter-grid">
+                      <label>
+                        公会 ID
+                        <input value={guildWeeklyQuery.guildId} onChange={(e) => setGuildWeeklyQuery({ ...guildWeeklyQuery, guildId: e.target.value })} placeholder="例如 GUILD-A" />
+                      </label>
+                      <label>
+                        周期
+                        <select value={guildWeeklyQuery.week} onChange={(e) => setGuildWeeklyQuery({ ...guildWeeklyQuery, week: e.target.value })}>
+                          <option value="CURRENT">CURRENT</option>
+                          <option value="PREVIOUS">PREVIOUS</option>
+                        </select>
+                      </label>
+                    </div>
+                    <InlineHint text="周报会按公会归属聚合注册用户、本周收入和由这些用户贡献出的分佣。" />
+                    <div className="table-toolbar top-gap">
+                      <button className="primary-btn small-btn" onClick={handleLoadGuildWeeklyReport} disabled={guildWeeklyLoading || !canLoadAdmin || !guildWeeklyQuery.guildId.trim()}>
+                        {guildWeeklyLoading ? '查询中…' : '查询公会周报'}
+                      </button>
+                    </div>
+                    {guildWeeklyReport ? (
+                      <div className="relation-grid top-gap">
+                        <RelationItem label="产品" value={guildWeeklyReport.productCode} />
+                        <RelationItem label="公会 ID" value={guildWeeklyReport.guildId} />
+                        <RelationItem label="周期" value={guildWeeklyReport.week} />
+                        <RelationItem label="注册用户" value={guildWeeklyReport.registeredUsers} />
+                        <RelationItem label="收入金额" value={guildWeeklyReport.incomeAmount} />
+                        <RelationItem label="贡献分佣" value={guildWeeklyReport.rewardAmount} />
+                      </div>
+                    ) : (
+                      <EmptyState title="还没有公会周报" description="输入公会 ID 后查询，这里会显示真实聚合后的注册、收入和分佣数据。" />
+                    )}
+                  </InfoCard>
+                  <InfoCard title="公会配置管理" tone="neutral">
+                    <div className="grid-form compact-form exception-filter-grid">
+                      <label>
+                        产品
+                        <input value={guildConfigForm.productCode} onChange={(e) => setGuildConfigForm({ ...guildConfigForm, productCode: e.target.value })} placeholder="LINKY" />
+                      </label>
+                      <label>
+                        上级用户 ID（为空则为默认公会）
+                        <input value={guildConfigForm.inviterUserId} onChange={(e) => setGuildConfigForm({ ...guildConfigForm, inviterUserId: e.target.value })} placeholder="例如 1001" />
+                      </label>
+                      <label>
+                        Linky 公会 ID
+                        <input value={guildConfigForm.guildId} onChange={(e) => setGuildConfigForm({ ...guildConfigForm, guildId: e.target.value })} placeholder="例如 LINKY_GUILD_A" />
+                      </label>
+                      <label>
+                        公会名称
+                        <input value={guildConfigForm.guildName} onChange={(e) => setGuildConfigForm({ ...guildConfigForm, guildName: e.target.value })} placeholder="例如 Linky A Guild" />
+                      </label>
+                      <label>
+                        公会邀请码
+                        <input value={guildConfigForm.guildInviteCode} onChange={(e) => setGuildConfigForm({ ...guildConfigForm, guildInviteCode: e.target.value })} placeholder="例如 JOIN-A" />
+                      </label>
+                      <label>
+                        启用状态
+                        <select value={guildConfigForm.enabled ? 'ENABLED' : 'DISABLED'} onChange={(e) => setGuildConfigForm({ ...guildConfigForm, enabled: e.target.value === 'ENABLED' })}>
+                          <option value="ENABLED">启用</option>
+                          <option value="DISABLED">停用</option>
+                        </select>
+                      </label>
+                    </div>
+                    <InlineHint text="运营可以在这里维护上级分销人对应的 Linky 公会 ID 和邀请码；没有上级配置时会回落到默认公会。" />
+                    <div className="table-toolbar top-gap">
+                      <button className="ghost-btn small-btn" onClick={handleLoadGuildConfigs} disabled={guildConfigLoading || !canLoadAdmin}>
+                        {guildConfigLoading ? '查询中…' : '查询公会配置'}
+                      </button>
+                      <button className="primary-btn small-btn" onClick={handleSaveGuildConfig} disabled={guildConfigLoading || !canLoadAdmin || !guildConfigForm.productCode.trim() || !guildConfigForm.guildId.trim() || !guildConfigForm.guildInviteCode.trim()}>
+                        {guildConfigLoading ? '保存中…' : '保存公会配置'}
+                      </button>
+                    </div>
+                    {guildConfigs?.length ? (
+                      <DataTable
+                        headers={['产品', '上级用户', 'Linky 公会 ID', '公会名称', '公会邀请码', '启用状态']}
+                        rows={guildConfigs.map((item) => [
+                          item.productCode,
+                          item.inviterUserId ?? '默认公会',
+                          item.guildId,
+                          item.guildName,
+                          item.guildInviteCode,
+                          item.enabled ? '启用' : '停用',
+                        ])}
+                        emptyText="暂无公会配置"
+                      />
+                    ) : (
+                      <EmptyState title="暂无公会配置" description="点击查询公会配置加载现有映射；保存后会显示上级分销人对应的 Linky 公会邀请码。" />
                     )}
                   </InfoCard>
                   {adminRelation ? (
@@ -1868,6 +2078,17 @@ function formatDateTime(value?: string) {
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`
 }
 
+export function buildBindGuildInviteGuidance(message: string) {
+  const inviteCodeMatch = message.match(/invite code\s+([A-Za-z0-9_-]+)/i)
+  if (!inviteCodeMatch) return null
+  const inviteCode = inviteCodeMatch[1].replace(/[.。]$/, '')
+  return {
+    title: '请先加入指定 Linky 公会',
+    inviteCode,
+    description: `这个 Linky ID 还没有命中上级对应公会。请先用公会邀请码 ${inviteCode} 加入指定公会，再回来提交绑定。`,
+  }
+}
+
 function BindLandingPage() {
   const initialInviteCode = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('inviteCode') || ''
@@ -2098,6 +2319,7 @@ function BindLandingPage() {
   const [result, setResult] = useState<InviteBindingResponse | null>(null)
 
   const copy = copyByLocale[locale]
+  const guildInviteGuidance = error ? buildBindGuildInviteGuidance(error) : null
   const canSubmit = Boolean(form.inviteCode.trim() && form.whatsappNumber.trim() && form.linkyAccount.length === 8)
 
   useEffect(() => {
@@ -2166,8 +2388,15 @@ function BindLandingPage() {
 
             {error ? (
               <section className="bind-inline-banner bind-inline-banner-error">
-                <strong>{copy.failure}</strong>
-                <span>{error}</span>
+                <strong>{guildInviteGuidance?.title ?? copy.failure}</strong>
+                {guildInviteGuidance ? (
+                  <>
+                    <span>{guildInviteGuidance.description}</span>
+                    <span>对应 Linky 公会邀请码：<strong>{guildInviteGuidance.inviteCode}</strong></span>
+                  </>
+                ) : (
+                  <span>{error}</span>
+                )}
               </section>
             ) : result ? (
               <section className="bind-inline-banner bind-inline-banner-success">

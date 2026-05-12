@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import App, { ConsoleApp, formatBusinessRewardLevel } from './App'
+import App, { ConsoleApp, buildBindGuildInviteGuidance, formatBusinessRewardLevel } from './App'
 
 type FakeStorage = {
   getItem: (key: string) => string | null
@@ -57,6 +57,20 @@ describe('App external landing pages', () => {
     expect(markup).toContain('class="bind-select-group bind-select-inline topbar-pill-control"')
     expect(markup).toContain('class="entry-link active topbar-pill-control"')
     expect(markup).toContain('class="entry-link topbar-pill-control"')
+  })
+})
+
+describe('bind guild invite guidance', () => {
+  it('extracts the expected Linky guild invite code from backend errors', () => {
+    expect(buildBindGuildInviteGuidance('Please join expected Linky guild with invite code GUILD-88 before binding.')).toEqual({
+      title: '请先加入指定 Linky 公会',
+      inviteCode: 'GUILD-88',
+      description: '这个 Linky ID 还没有命中上级对应公会。请先用公会邀请码 GUILD-88 加入指定公会，再回来提交绑定。',
+    })
+  })
+
+  it('returns null for ordinary bind errors', () => {
+    expect(buildBindGuildInviteGuidance('WhatsApp number already exists')).toBeNull()
   })
 })
 
@@ -147,7 +161,32 @@ describe('Earnings landing page', () => {
     expect(markup).toContain('Linky 资格核验')
     expect(markup).toContain('Linky 账号')
     expect(markup).toContain('刷新资格结果')
+    expect(markup).toContain('批量刷新全部 Linky 资格')
+    expect(markup).toContain('批量刷新会逐个重查已登记 Linky ID 的公会归属，并返回成功/失败计数，失败账号保留在后台日志继续排查。')
+    expect(markup).toContain('成功数量')
+    expect(markup).toContain('失败数量')
     expect(markup).toContain('公会归属会直接决定这个账号能不能注册分销；如果当前公会后台查不到，只能判定未在我方公会命中，外部归属仍待确认。')
+  })
+
+  it('renders a guild weekly report workspace in admin mode', () => {
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+
+    expect(markup).toContain('公会周报')
+    expect(markup).toContain('公会 ID')
+    expect(markup).toContain('查询公会周报')
+    expect(markup).toContain('周报会按公会归属聚合注册用户、本周收入和由这些用户贡献出的分佣。')
+  })
+
+  it('renders a guild config management workspace in admin mode', () => {
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+
+    expect(markup).toContain('公会配置管理')
+    expect(markup).toContain('查询公会配置')
+    expect(markup).toContain('保存公会配置')
+    expect(markup).toContain('上级用户 ID（为空则为默认公会）')
+    expect(markup).toContain('公会邀请码')
+    expect(markup).toContain('启用状态')
+    expect(markup).toContain('运营可以在这里维护上级分销人对应的 Linky 公会 ID 和邀请码；没有上级配置时会回落到默认公会。')
   })
 
   it('renders invite code as a required field for profile onboarding in admin mode', () => {

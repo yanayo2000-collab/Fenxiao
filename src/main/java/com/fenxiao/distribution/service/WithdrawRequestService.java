@@ -4,6 +4,8 @@ import com.fenxiao.distribution.entity.WithdrawRequest;
 import com.fenxiao.distribution.entity.WithdrawRequestItem;
 import com.fenxiao.distribution.repository.WithdrawRequestItemRepository;
 import com.fenxiao.distribution.repository.WithdrawRequestRepository;
+import com.fenxiao.audit.entity.OperationAuditLog;
+import com.fenxiao.audit.repository.OperationAuditLogRepository;
 import com.fenxiao.reward.domain.RewardStatus;
 import com.fenxiao.reward.entity.RewardRecord;
 import com.fenxiao.reward.repository.RewardRecordRepository;
@@ -30,22 +32,26 @@ public class WithdrawRequestService {
     private final WithdrawRequestRepository withdrawRequestRepository;
     private final WithdrawRequestItemRepository withdrawRequestItemRepository;
     private final RewardRecordRepository rewardRecordRepository;
+    private final OperationAuditLogRepository operationAuditLogRepository;
     private final Clock clock;
 
     @Autowired
     public WithdrawRequestService(WithdrawRequestRepository withdrawRequestRepository,
                                   WithdrawRequestItemRepository withdrawRequestItemRepository,
-                                  RewardRecordRepository rewardRecordRepository) {
-        this(withdrawRequestRepository, withdrawRequestItemRepository, rewardRecordRepository, Clock.systemUTC());
+                                  RewardRecordRepository rewardRecordRepository,
+                                  OperationAuditLogRepository operationAuditLogRepository) {
+        this(withdrawRequestRepository, withdrawRequestItemRepository, rewardRecordRepository, operationAuditLogRepository, Clock.systemUTC());
     }
 
     WithdrawRequestService(WithdrawRequestRepository withdrawRequestRepository,
                            WithdrawRequestItemRepository withdrawRequestItemRepository,
                            RewardRecordRepository rewardRecordRepository,
+                           OperationAuditLogRepository operationAuditLogRepository,
                            Clock clock) {
         this.withdrawRequestRepository = withdrawRequestRepository;
         this.withdrawRequestItemRepository = withdrawRequestItemRepository;
         this.rewardRecordRepository = rewardRecordRepository;
+        this.operationAuditLogRepository = operationAuditLogRepository;
         this.clock = clock;
     }
 
@@ -75,20 +81,51 @@ public class WithdrawRequestService {
 
     public WithdrawRequest approveRequest(String requestNo, Long reviewerId, String remark) {
         WithdrawRequest request = getByRequestNo(requestNo);
+        String before = snapshot(request);
         List<RewardRecord> rewardRecords = loadRequestRewards(request);
         request.markPaidOut(reviewerId, remark, now());
         rewardRecords.forEach(RewardRecord::markPaidOut);
         rewardRecordRepository.saveAll(rewardRecords);
-        return withdrawRequestRepository.save(request);
+        WithdrawRequest saved = withdrawRequestRepository.save(request);
+        audit(saved, reviewerId, "APPROVE", before, snapshot(saved), remark);
+        return saved;
     }
 
     public WithdrawRequest rejectRequest(String requestNo, Long reviewerId, String reason) {
         WithdrawRequest request = getByRequestNo(requestNo);
+        String before = snapshot(request);
         List<RewardRecord> rewardRecords = loadRequestRewards(request);
         request.markRejected(reviewerId, reason, now());
         rewardRecords.forEach(RewardRecord::resetWithdrawClaim);
         rewardRecordRepository.saveAll(rewardRecords);
-        return withdrawRequestRepository.save(request);
+        WithdrawRequest saved = withdrawRequestRepository.save(request);
+        audit(saved, reviewerId, "REJECT", before, snapshot(saved), reason);
+        return saved;
+    }
+
+    private void audit(WithdrawRequest request, Long reviewerId, String action, String before, String after, String remark) {
+        if (operationAuditLogRepository == null) return;
+        operationAuditLogRepository.save(OperationAuditLog.create(
+                reviewerId == null ? 0L : reviewerId,
+                "ADMIN_SESSION",
+                "withdraw_request",
+                "withdraw_request",
+                request.getId(),
+                action,
+                before,
+                after,
+                null,
+                remark,
+                now()
+        ));
+    }
+
+    private String snapshot(WithdrawRequest request) {
+        return "requestNo=" + request.getRequestNo()
+                + ",userId=" + request.getUserId()
+                + ",status=" + request.getRequestStatus()
+                + ",requested=" + request.getRequestedDiamondAmount()
+                + ",approved=" + request.getApprovedDiamondAmount();
     }
 
     public Page<WithdrawRequest> listRequests(Long userId, String status, int page, int size) {

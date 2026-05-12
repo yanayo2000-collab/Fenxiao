@@ -158,7 +158,7 @@ class DistributionControllerTest {
     @Test
     void shouldRegisterInviteBindingUsingInviteCodeWhatsappAndLinkyAccount() throws Exception {
         String inviteCode = distributionBindingService.createProfile(53001L, "ID", "id", null).getInviteCode();
-        linkyRegistrationEligibilityService.markEligible("12345678", "GUILD-001", "Our Linky Guild", 9001L, "prechecked");
+        linkyRegistrationEligibilityService.markEligible("12345678", "LINKY_DEFAULT_GUILD", "Linky Official Guild", 9001L, "prechecked");
 
         mockMvc.perform(post("/api/distribution/bindings/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -180,8 +180,8 @@ class DistributionControllerTest {
     @Test
     void shouldRejectDuplicateBindingRegistration() throws Exception {
         String inviteCode = distributionBindingService.createProfile(53002L, "ID", "id", null).getInviteCode();
-        linkyRegistrationEligibilityService.markEligible("87654321", "GUILD-001", "Our Linky Guild", 9001L, "prechecked");
-        linkyRegistrationEligibilityService.markEligible("12345678", "GUILD-001", "Our Linky Guild", 9001L, "prechecked");
+        linkyRegistrationEligibilityService.markEligible("87654321", "LINKY_DEFAULT_GUILD", "Linky Official Guild", 9001L, "prechecked");
+        linkyRegistrationEligibilityService.markEligible("12345678", "LINKY_DEFAULT_GUILD", "Linky Official Guild", 9001L, "prechecked");
 
         mockMvc.perform(post("/api/distribution/bindings/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -220,7 +220,7 @@ class DistributionControllerTest {
                                 "linkyAccount", "23456789"
                         ))))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("linky account is not eligible for registration"));
+                .andExpect(jsonPath("$.message").value("Please join expected Linky guild with invite code JOIN-LINKY before binding."));
     }
 
     @Test

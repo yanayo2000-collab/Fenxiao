@@ -61,11 +61,41 @@ public class LinkyRegistrationEligibilityService {
         return binding;
     }
 
+    public LinkyAccountBinding assertEligibleForExpectedGuild(String linkyAccount, String expectedGuildId, String expectedGuildName, String expectedGuildInviteCode) {
+        LinkyAccountBinding binding = linkyAccountBindingRepository.findByLinkyAccount(linkyAccount)
+                .orElseGet(() -> refreshEligibilityFromProbe(linkyAccount));
+        binding.setExpectedGuild(expectedGuildId, expectedGuildName, expectedGuildInviteCode);
+        linkyAccountBindingRepository.save(binding);
+        if (!"ELIGIBLE".equals(binding.getRegistrationEligibility()) || binding.getGuildId() == null) {
+            throw new IllegalStateException("Please join expected Linky guild with invite code " + expectedGuildInviteCode + " before binding.");
+        }
+        if (!expectedGuildId.equals(binding.getGuildId())) {
+            throw new IllegalStateException("Linky account joined another guild. Please switch to " + expectedGuildName + " using invite code " + expectedGuildInviteCode + ".");
+        }
+        return binding;
+    }
+
+    public BatchRefreshResult refreshAllEligibility() {
+        long success = 0;
+        long failure = 0;
+        for (LinkyAccountBinding binding : linkyAccountBindingRepository.findAll()) {
+            try {
+                refreshEligibilityFromProbe(binding.getLinkyAccount());
+                success++;
+            } catch (RuntimeException ex) {
+                failure++;
+            }
+        }
+        return new BatchRefreshResult(success, failure);
+    }
+
     public LinkyAccountBinding attachRegisteredUser(String linkyAccount, Long userId, String phoneNumber, String inviteCode) {
         LinkyAccountBinding binding = assertEligibleForRegistration(linkyAccount);
         binding.attachRegistration(userId, phoneNumber, inviteCode);
         return linkyAccountBindingRepository.save(binding);
     }
+
+    public record BatchRefreshResult(long successCount, long failureCount) {}
 
     private LinkyAccountBinding findOrCreate(String linkyAccount) {
         return linkyAccountBindingRepository.findByLinkyAccount(linkyAccount)

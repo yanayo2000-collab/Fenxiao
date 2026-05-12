@@ -3,8 +3,12 @@ package com.fenxiao.admin.api;
 import com.fenxiao.distribution.service.DistributionBindingService;
 import com.fenxiao.distribution.service.LinkyGuildProbeClient;
 import com.fenxiao.distribution.service.LinkyGuildProbeResult;
+import com.fenxiao.distribution.service.LinkyRegistrationEligibilityService;
 import com.fenxiao.reward.entity.RewardRecord;
 import com.fenxiao.reward.repository.RewardRecordRepository;
+import com.fenxiao.reward.service.RewardCalculationService;
+import com.fenxiao.rule.entity.RewardRule;
+import com.fenxiao.rule.repository.RewardRuleRepository;
 import com.fenxiao.user.entity.UserDistributionProfile;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +45,15 @@ class DistributionAdminControllerTest {
 
     @Autowired
     private RewardRecordRepository rewardRecordRepository;
+
+    @Autowired
+    private LinkyRegistrationEligibilityService linkyRegistrationEligibilityService;
+
+    @Autowired
+    private RewardCalculationService rewardCalculationService;
+
+    @Autowired
+    private RewardRuleRepository rewardRuleRepository;
 
     @MockBean
     private LinkyGuildProbeClient linkyGuildProbeClient;
@@ -222,6 +235,39 @@ class DistributionAdminControllerTest {
     }
 
     @Test
+    void shouldReturnRealGuildWeeklyReportAndExport() throws Exception {
+        seedRewardRules();
+        String sessionToken = createAdminSessionToken("10.0.0.9");
+        UserDistributionProfile inviter = distributionBindingService.createProfile(63001L, "ID", "id", null);
+        UserDistributionProfile invitee = distributionBindingService.createProfile(63002L, "ID", "id", inviter.getInviteCode());
+        linkyRegistrationEligibilityService.markEligible("63000002", "GUILD-A", "Guild A", 9001L, "matched");
+        linkyRegistrationEligibilityService.attachRegisteredUser("63000002", invitee.getUserId(), "+6281234563002", inviter.getInviteCode());
+
+        rewardCalculationService.processIncomeEvent("guild-weekly-63002", invitee.getUserId(), new BigDecimal("100.00"), "DIAMOND", LocalDateTime.now());
+
+        mockMvc.perform(get("/admin/distribution/guild-configs/GUILD-A/weekly-report")
+                        .header("X-Admin-Session", sessionToken)
+                        .param("product", "LINKY")
+                        .param("week", "CURRENT")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.productCode").value("LINKY"))
+                .andExpect(jsonPath("$.guildId").value("GUILD-A"))
+                .andExpect(jsonPath("$.registeredUsers").value(1))
+                .andExpect(jsonPath("$.incomeAmount").value(100.0))
+                .andExpect(jsonPath("$.rewardAmount").value(10.0));
+
+        mockMvc.perform(get("/admin/distribution/guild-configs/GUILD-A/weekly-report/export")
+                        .header("X-Admin-Session", sessionToken)
+                        .param("product", "LINKY")
+                        .param("week", "CURRENT"))
+                .andExpect(status().isOk())
+                .andExpect(result -> org.assertj.core.api.Assertions.assertThat(result.getResponse().getContentAsString())
+                        .contains("productCode,guildId,week,registeredUsers,incomeAmount,rewardAmount")
+                        .contains("LINKY,GUILD-A,CURRENT,1,100.000000,10.000000"));
+    }
+
+    @Test
     void shouldApproveWithdrawRequestFromAdminEndpoint() throws Exception {
         String sessionToken = createAdminSessionToken("10.0.0.7");
 
@@ -281,6 +327,13 @@ class DistributionAdminControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.requestNo").value(requestNo))
                 .andExpect(jsonPath("$.requestStatus").value("REJECTED"));
+    }
+
+    private void seedRewardRules() {
+        LocalDateTime effectiveFrom = LocalDateTime.of(2020, 1, 1, 0, 0);
+        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 1, new BigDecimal("0.10"), 7, 1L, effectiveFrom, null));
+        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 2, new BigDecimal("0.02"), 7, 1L, effectiveFrom, null));
+        rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 3, new BigDecimal("0.005"), 7, 1L, effectiveFrom, null));
     }
 
     private String createAdminSessionToken(String remoteAddr) throws Exception {

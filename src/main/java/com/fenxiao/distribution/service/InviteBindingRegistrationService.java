@@ -3,6 +3,7 @@ package com.fenxiao.distribution.service;
 import com.fenxiao.distribution.api.dto.CreateInviteBindingRequest;
 import com.fenxiao.distribution.entity.DistributionRelation;
 import com.fenxiao.distribution.entity.InviteBindingRegistration;
+import com.fenxiao.distribution.entity.GuildAccountConfig;
 import com.fenxiao.distribution.repository.DistributionRelationRepository;
 import com.fenxiao.distribution.repository.InviteBindingRegistrationRepository;
 import com.fenxiao.user.entity.UserDistributionProfile;
@@ -22,19 +23,22 @@ public class InviteBindingRegistrationService {
     private final DistributionBindingService distributionBindingService;
     private final UserProductOwnershipService userProductOwnershipService;
     private final LinkyRegistrationEligibilityService linkyRegistrationEligibilityService;
+    private final GuildAccountConfigService guildAccountConfigService;
 
     public InviteBindingRegistrationService(UserDistributionProfileRepository userDistributionProfileRepository,
                                             InviteBindingRegistrationRepository inviteBindingRegistrationRepository,
                                             DistributionRelationRepository distributionRelationRepository,
                                             DistributionBindingService distributionBindingService,
                                             UserProductOwnershipService userProductOwnershipService,
-                                            LinkyRegistrationEligibilityService linkyRegistrationEligibilityService) {
+                                            LinkyRegistrationEligibilityService linkyRegistrationEligibilityService,
+                                            GuildAccountConfigService guildAccountConfigService) {
         this.userDistributionProfileRepository = userDistributionProfileRepository;
         this.inviteBindingRegistrationRepository = inviteBindingRegistrationRepository;
         this.distributionRelationRepository = distributionRelationRepository;
         this.distributionBindingService = distributionBindingService;
         this.userProductOwnershipService = userProductOwnershipService;
         this.linkyRegistrationEligibilityService = linkyRegistrationEligibilityService;
+        this.guildAccountConfigService = guildAccountConfigService;
     }
 
     public InviteBindingRegistration register(CreateInviteBindingRequest request) {
@@ -52,7 +56,13 @@ public class InviteBindingRegistrationService {
         if (inviteBindingRegistrationRepository.existsByLinkyAccount(normalizedLinkyAccount)) {
             throw new IllegalStateException("linky account already registered");
         }
-        linkyRegistrationEligibilityService.assertEligibleForRegistration(normalizedLinkyAccount);
+        GuildAccountConfig expectedGuild = guildAccountConfigService.expectedGuild(normalizedProductCode, inviter.getUserId());
+        linkyRegistrationEligibilityService.assertEligibleForExpectedGuild(
+                normalizedLinkyAccount,
+                expectedGuild.getGuildId(),
+                expectedGuild.getGuildName(),
+                expectedGuild.getGuildInviteCode()
+        );
 
         InviteBindingRegistration registration = InviteBindingRegistration.createActive(
                 normalizedProductCode,

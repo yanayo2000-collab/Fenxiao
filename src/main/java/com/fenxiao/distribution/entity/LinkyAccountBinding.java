@@ -164,6 +164,14 @@ public class LinkyAccountBinding extends BaseEntity {
         this.remark = remark;
     }
 
+    public void markRefreshFailed(Long checkedBy, String remark) {
+        this.guildCheckStatus = "REFRESH_FAILED";
+        this.registrationEligibility = "INELIGIBLE";
+        this.checkedAt = LocalDateTime.now(Clock.systemUTC());
+        this.checkedBy = checkedBy;
+        this.remark = remark;
+    }
+
     public void attachRegistration(Long userId, String phoneNumber, String inviteCode) {
         this.userId = userId;
         this.phoneNumber = phoneNumber;

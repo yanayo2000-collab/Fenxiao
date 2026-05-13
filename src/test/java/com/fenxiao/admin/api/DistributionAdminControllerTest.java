@@ -1,6 +1,8 @@
 package com.fenxiao.admin.api;
 
+import com.fenxiao.audit.repository.OperationAuditLogRepository;
 import com.fenxiao.distribution.service.DistributionBindingService;
+import com.fenxiao.distribution.repository.LinkyAccountBindingRepository;
 import com.fenxiao.distribution.service.LinkyGuildProbeClient;
 import com.fenxiao.distribution.service.LinkyGuildProbeResult;
 import com.fenxiao.distribution.service.LinkyRegistrationEligibilityService;
@@ -54,6 +56,12 @@ class DistributionAdminControllerTest {
 
     @Autowired
     private RewardRuleRepository rewardRuleRepository;
+
+    @Autowired
+    private OperationAuditLogRepository operationAuditLogRepository;
+
+    @Autowired
+    private LinkyAccountBindingRepository linkyAccountBindingRepository;
 
     @MockBean
     private LinkyGuildProbeClient linkyGuildProbeClient;
@@ -235,13 +243,32 @@ class DistributionAdminControllerTest {
     }
 
     @Test
+    void shouldReturnBatchRefreshFailureDetailsForAdminTroubleshooting() throws Exception {
+        String sessionToken = createAdminSessionToken("10.0.0.16");
+        linkyAccountBindingRepository.deleteAll();
+        linkyRegistrationEligibilityService.markEligible("failed-admin-linky", "413", "Permata", 0L, "seeded");
+        when(linkyGuildProbeClient.probe("failed-admin-linky"))
+                .thenThrow(new IllegalStateException("guild backend timeout"));
+
+        mockMvc.perform(post("/admin/distribution/linky-eligibility-checks/batch-refresh")
+                        .header("X-Admin-Session", sessionToken)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(0))
+                .andExpect(jsonPath("$.failureCount").value(1))
+                .andExpect(jsonPath("$.failures[0].linkyAccount").value("failed-admin-linky"))
+                .andExpect(jsonPath("$.failures[0].guildCheckStatus").value("REFRESH_FAILED"))
+                .andExpect(jsonPath("$.failures[0].remark").value("guild backend timeout"));
+    }
+
+    @Test
     void shouldReturnRealGuildWeeklyReportAndExport() throws Exception {
         seedRewardRules();
         String sessionToken = createAdminSessionToken("10.0.0.9");
         UserDistributionProfile inviter = distributionBindingService.createProfile(63001L, "ID", "id", null);
         UserDistributionProfile invitee = distributionBindingService.createProfile(63002L, "ID", "id", inviter.getInviteCode());
         linkyRegistrationEligibilityService.markEligible("63000002", "GUILD-A", "Guild A", 9001L, "matched");
-        linkyRegistrationEligibilityService.attachRegisteredUser("63000002", invitee.getUserId(), "+6281234563002", inviter.getInviteCode());
+        linkyRegistrationEligibilityService.attachRegisteredUser("63000002", invitee.getUserId(), "+628****3002", inviter.getInviteCode());
 
         rewardCalculationService.processIncomeEvent("guild-weekly-63002", invitee.getUserId(), new BigDecimal("100.00"), "DIAMOND", LocalDateTime.now());
 
@@ -290,12 +317,22 @@ class DistributionAdminControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "operatorId": 90001,
+                                  "operatorRole": "WITHDRAW_OPERATOR",
                                   "remark": "manual payout done"
                                 }
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.requestNo").value(requestNo))
                 .andExpect(jsonPath("$.requestStatus").value("PAID_OUT"));
+
+        org.assertj.core.api.Assertions.assertThat(operationAuditLogRepository.findAll())
+                .filteredOn(log -> "withdraw_request".equals(log.getModuleName()) && "APPROVE".equals(log.getActionName()))
+                .anySatisfy(log -> {
+                    org.assertj.core.api.Assertions.assertThat(log.getOperatorId()).isEqualTo(90001L);
+                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("WITHDRAW_OPERATOR");
+                    org.assertj.core.api.Assertions.assertThat(log.getRemark()).isEqualTo("manual payout done");
+                });
     }
 
     @Test
@@ -321,12 +358,22 @@ class DistributionAdminControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "operatorId": 90002,
+                                  "operatorRole": "WITHDRAW_OPERATOR",
                                   "remark": "bank account mismatch"
                                 }
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.requestNo").value(requestNo))
                 .andExpect(jsonPath("$.requestStatus").value("REJECTED"));
+
+        org.assertj.core.api.Assertions.assertThat(operationAuditLogRepository.findAll())
+                .filteredOn(log -> "withdraw_request".equals(log.getModuleName()) && "REJECT".equals(log.getActionName()))
+                .anySatisfy(log -> {
+                    org.assertj.core.api.Assertions.assertThat(log.getOperatorId()).isEqualTo(90002L);
+                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("WITHDRAW_OPERATOR");
+                    org.assertj.core.api.Assertions.assertThat(log.getRemark()).isEqualTo("bank account mismatch");
+                });
     }
 
     private void seedRewardRules() {
@@ -372,3 +419,4 @@ class DistributionAdminControllerTest {
         return record;
     }
 }
+

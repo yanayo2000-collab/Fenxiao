@@ -79,7 +79,7 @@ public class WithdrawRequestService {
         return request;
     }
 
-    public WithdrawRequest approveRequest(String requestNo, Long reviewerId, String remark) {
+    public WithdrawRequest approveRequest(String requestNo, Long reviewerId, String reviewerRole, String remark) {
         WithdrawRequest request = getByRequestNo(requestNo);
         String before = snapshot(request);
         List<RewardRecord> rewardRecords = loadRequestRewards(request);
@@ -87,11 +87,15 @@ public class WithdrawRequestService {
         rewardRecords.forEach(RewardRecord::markPaidOut);
         rewardRecordRepository.saveAll(rewardRecords);
         WithdrawRequest saved = withdrawRequestRepository.save(request);
-        audit(saved, reviewerId, "APPROVE", before, snapshot(saved), remark);
+        audit(saved, reviewerId, reviewerRole, "APPROVE", before, snapshot(saved), remark);
         return saved;
     }
 
-    public WithdrawRequest rejectRequest(String requestNo, Long reviewerId, String reason) {
+    public WithdrawRequest approveRequest(String requestNo, Long reviewerId, String remark) {
+        return approveRequest(requestNo, reviewerId, "ADMIN_SESSION", remark);
+    }
+
+    public WithdrawRequest rejectRequest(String requestNo, Long reviewerId, String reviewerRole, String reason) {
         WithdrawRequest request = getByRequestNo(requestNo);
         String before = snapshot(request);
         List<RewardRecord> rewardRecords = loadRequestRewards(request);
@@ -99,15 +103,19 @@ public class WithdrawRequestService {
         rewardRecords.forEach(RewardRecord::resetWithdrawClaim);
         rewardRecordRepository.saveAll(rewardRecords);
         WithdrawRequest saved = withdrawRequestRepository.save(request);
-        audit(saved, reviewerId, "REJECT", before, snapshot(saved), reason);
+        audit(saved, reviewerId, reviewerRole, "REJECT", before, snapshot(saved), reason);
         return saved;
     }
 
-    private void audit(WithdrawRequest request, Long reviewerId, String action, String before, String after, String remark) {
+    public WithdrawRequest rejectRequest(String requestNo, Long reviewerId, String reason) {
+        return rejectRequest(requestNo, reviewerId, "ADMIN_SESSION", reason);
+    }
+
+    private void audit(WithdrawRequest request, Long reviewerId, String reviewerRole, String action, String before, String after, String remark) {
         if (operationAuditLogRepository == null) return;
         operationAuditLogRepository.save(OperationAuditLog.create(
                 reviewerId == null ? 0L : reviewerId,
-                "ADMIN_SESSION",
+                normalizeReviewerRole(reviewerRole),
                 "withdraw_request",
                 "withdraw_request",
                 request.getId(),
@@ -163,6 +171,13 @@ public class WithdrawRequestService {
             return null;
         }
         return status.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeReviewerRole(String reviewerRole) {
+        if (reviewerRole == null || reviewerRole.isBlank()) {
+            return "ADMIN_SESSION";
+        }
+        return reviewerRole.trim().toUpperCase(Locale.ROOT);
     }
 
     private String currentRequestWeek() {

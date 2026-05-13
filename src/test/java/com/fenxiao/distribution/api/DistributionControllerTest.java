@@ -1,6 +1,7 @@
 package com.fenxiao.distribution.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fenxiao.distribution.repository.PhoneVerificationCodeRepository;
 import com.fenxiao.distribution.service.DistributionBindingService;
 import com.fenxiao.distribution.service.LinkyGuildProbeClient;
 import com.fenxiao.distribution.service.LinkyGuildProbeResult;
@@ -46,6 +47,9 @@ class DistributionControllerTest {
 
     @Autowired
     private RewardRecordRepository rewardRecordRepository;
+
+    @Autowired
+    private PhoneVerificationCodeRepository phoneVerificationCodeRepository;
 
     @MockBean
     private LinkyGuildProbeClient linkyGuildProbeClient;
@@ -221,6 +225,64 @@ class DistributionControllerTest {
                         ))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Please join expected Linky guild with invite code JOIN-LINKY before binding."));
+    }
+
+    @Test
+    void shouldNotExposePhoneVerificationCodeInApiResponse() throws Exception {
+        mockMvc.perform(post("/api/distribution/auth/phone-codes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "phoneNumber", "+628123450001"
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.phoneNumber").value("+628123450001"))
+                .andExpect(jsonPath("$.ttlMinutes").value(10))
+                .andExpect(jsonPath("$.verificationCode").doesNotExist());
+    }
+
+    @Test
+    void shouldRateLimitRepeatedPhoneCodeRequests() throws Exception {
+        mockMvc.perform(post("/api/distribution/auth/phone-codes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "phoneNumber", "+628123450002"
+                        ))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/distribution/auth/phone-codes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "phoneNumber", "+628123450002"
+                        ))))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"));
+    }
+
+    @Test
+    void shouldLoginWithLatestStoredPhoneVerificationCode() throws Exception {
+        mockMvc.perform(post("/api/distribution/auth/phone-codes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "phoneNumber", "+628123450003"
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verificationCode").doesNotExist());
+
+        String code = phoneVerificationCodeRepository
+                .findTopByPhoneNumberAndPurposeAndConsumedFalseOrderByIdDesc("+628123450003", "LOGIN")
+                .orElseThrow()
+                .getVerificationCode();
+
+        mockMvc.perform(post("/api/distribution/auth/phone-login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "phoneNumber", "+628123450003",
+                                "verificationCode", code,
+                                "countryCode", "ID"
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").isNumber())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty());
     }
 
     @Test

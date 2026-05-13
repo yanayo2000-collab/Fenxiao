@@ -5,6 +5,9 @@ import com.fenxiao.distribution.repository.LinkyAccountBindingRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Service
 @Transactional
 public class LinkyRegistrationEligibilityService {
@@ -78,15 +81,24 @@ public class LinkyRegistrationEligibilityService {
     public BatchRefreshResult refreshAllEligibility() {
         long success = 0;
         long failure = 0;
+        List<BatchRefreshFailure> failures = new ArrayList<>();
         for (LinkyAccountBinding binding : linkyAccountBindingRepository.findAll()) {
             try {
                 refreshEligibilityFromProbe(binding.getLinkyAccount());
                 success++;
             } catch (RuntimeException ex) {
+                String remark = failureRemark(ex);
+                binding.markRefreshFailed(0L, remark);
+                linkyAccountBindingRepository.save(binding);
+                failures.add(new BatchRefreshFailure(
+                        binding.getLinkyAccount(),
+                        binding.getGuildCheckStatus(),
+                        binding.getRemark()
+                ));
                 failure++;
             }
         }
-        return new BatchRefreshResult(success, failure);
+        return new BatchRefreshResult(success, failure, failures);
     }
 
     public LinkyAccountBinding attachRegisteredUser(String linkyAccount, Long userId, String phoneNumber, String inviteCode) {
@@ -95,7 +107,17 @@ public class LinkyRegistrationEligibilityService {
         return linkyAccountBindingRepository.save(binding);
     }
 
-    public record BatchRefreshResult(long successCount, long failureCount) {}
+    public record BatchRefreshResult(long successCount, long failureCount, List<BatchRefreshFailure> failures) {}
+
+    public record BatchRefreshFailure(String linkyAccount, String guildCheckStatus, String remark) {}
+
+    private String failureRemark(RuntimeException ex) {
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return "batch refresh failed";
+        }
+        return message.length() > 255 ? message.substring(0, 255) : message;
+    }
 
     private LinkyAccountBinding findOrCreate(String linkyAccount) {
         return linkyAccountBindingRepository.findByLinkyAccount(linkyAccount)

@@ -3,6 +3,7 @@ import './App.css'
 import {
   adjustAdminRelation,
   applyAdminRiskEventAction,
+  approveAdminWithdrawRequest,
   correctAdminOwnership,
   createAdminSession,
   createProfile,
@@ -20,11 +21,17 @@ import {
   getAdminWithdrawRequests,
   getDistributionHome,
   getDistributionRewards,
+  getDistributionRewardSummary,
   getDistributionTeam,
+  getDistributionTeamWeeklyIncome,
+  getWithdrawHistory,
   issueInviteCode,
+  issuePhoneCode,
+  phoneLogin,
   refreshAdminLinkyEligibility,
   refreshAdminLinkyEligibilityBatch,
   registerInviteBinding,
+  rejectAdminWithdrawRequest,
   saveAdminGuildConfig,
   type AdminWithdrawRequestListResponse,
   type AuditLogListResponse,
@@ -43,8 +50,11 @@ import {
   type ProfileResponse,
   type RelationDetailResponse,
   type RewardListResponse,
+  type RewardSummaryResponse,
   type RiskEventListResponse,
   type TeamListResponse,
+  type TeamWeeklyIncomeResponse,
+  type WithdrawHistoryListResponse,
   type WithdrawRequestResponse,
 } from './api'
 import {
@@ -62,12 +72,10 @@ void buildLinkyReplaySummary
 void buildLinkyWebhookSummary
 import {
   buildAdminSectionLinks,
-  buildAdminWorkspaceShortcuts,
   buildEmptyStatePreset,
   buildLinkyDiagnosticSnapshot,
-  type AdminWorkspaceShortcut,
 } from './opsConsole'
-import { buildPublicEntryLinks } from './publicEntries'
+import { buildChannelEntryLinks } from './publicEntries'
 
 type SessionState = {
   userId: number
@@ -83,7 +91,26 @@ type AdminAuthState = {
 }
 
 type AdminProductKey = 'ALL' | 'LINKY'
+type AdminSectionKey = 'overview' | 'channel' | 'bindings' | 'rewards' | 'settings'
 type RiskActionName = 'HANDLE' | 'IGNORE' | 'FREEZE_USER' | 'UNFREEZE_USER'
+
+const ADMIN_SECTION_HASHES: Record<AdminSectionKey, string> = {
+  overview: '#admin-overview',
+  channel: '#admin-channel-entries',
+  bindings: '#admin-bindings',
+  rewards: '#admin-rewards',
+  settings: '#admin-settings',
+}
+
+function resolveAdminSectionFromHash(hash?: string): AdminSectionKey {
+  const normalized = hash || '#admin-overview'
+  const match = (Object.entries(ADMIN_SECTION_HASHES) as Array<[AdminSectionKey, string]>).find(([, value]) => value === normalized)
+  if (match) return match[0]
+  if (normalized === '#admin-invite-ops') return 'channel'
+  if (normalized === '#admin-withdraw-requests') return 'rewards'
+  if (normalized === '#admin-onboarding' || normalized === '#admin-user-facts') return 'settings'
+  return 'overview'
+}
 
 type PendingRiskAction = {
   riskEventId: number
@@ -171,6 +198,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
   const [adminSession, setAdminSession] = useState<AdminAuthState | null>(null)
   const [adminPassword, setAdminPassword] = useState('')
   const [adminProduct, setAdminProduct] = useState<AdminProductKey>('ALL')
+  const [activeAdminSection, setActiveAdminSection] = useState<AdminSectionKey>(() => resolveAdminSectionFromHash(typeof window !== 'undefined' ? window.location.hash : undefined))
   const [showAdvancedOps, setShowAdvancedOps] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -213,6 +241,13 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
     page: '0',
     size: '10',
   })
+  const [adminWithdrawAction, setAdminWithdrawAction] = useState({
+    operatorId: '',
+    operatorRole: 'WITHDRAW_OPERATOR',
+    remark: '',
+  })
+  const [adminWithdrawActionLoadingNo, setAdminWithdrawActionLoadingNo] = useState<string | null>(null)
+  const [adminWithdrawActionMessage, setAdminWithdrawActionMessage] = useState('')
   const [riskQuery, setRiskQuery] = useState(() => loadJsonState<{ userId: string; riskStatus: string; startAt: string; endAt: string; page: string; size: string }>(RISK_QUERY_KEY) || {
     userId: '',
     riskStatus: '',
@@ -272,6 +307,13 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
   const [pendingRelationChange, setPendingRelationChange] = useState<PendingRelationChange | null>(null)
   const [relationAdjustLoading, setRelationAdjustLoading] = useState(false)
   const [profileCreateToken, setProfileCreateToken] = useState(() => loadPlainState(PROFILE_CREATE_TOKEN_KEY))
+  const [channelEntryForm, setChannelEntryForm] = useState({
+    origin: typeof window !== 'undefined' ? window.location.origin : '',
+    country: form.countryCode || 'ID',
+    language: form.languageCode || 'id',
+    channel: 'whatsapp-main',
+    inviteCode: form.inviteCode || session?.inviteCode || '',
+  })
 
   const canLoadData = useMemo(() => Boolean(session?.userId && session?.accessToken), [session])
   const canLoadAdmin = useMemo(() => Boolean(adminSession?.sessionToken), [adminSession])
@@ -282,10 +324,24 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
   const currentAdminProductLabel = ADMIN_PRODUCT_OPTIONS.find((item) => item.value === adminProduct)?.label ?? '全部产品'
   const activeAdminProductCode = adminProduct === 'ALL' ? undefined : adminProduct
   const showingProductSpecificDiagnostics = adminProduct === 'LINKY'
-  const publicEntryLinks = useMemo(
-    () => buildPublicEntryLinks(typeof window !== 'undefined' ? window.location.origin : ''),
-    [],
+  const channelEntryLinks = useMemo(
+    () => buildChannelEntryLinks(channelEntryForm.origin, {
+      product: adminProduct,
+      country: channelEntryForm.country,
+      language: channelEntryForm.language,
+      channel: channelEntryForm.channel,
+      inviteCode: channelEntryForm.inviteCode,
+    }),
+    [adminProduct, channelEntryForm],
   )
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const syncSection = () => setActiveAdminSection(resolveAdminSectionFromHash(window.location.hash))
+    syncSection()
+    window.addEventListener('hashchange', syncSection)
+    return () => window.removeEventListener('hashchange', syncSection)
+  }, [])
 
   useEffect(() => {
     localStorage.setItem(ADMIN_REWARD_QUERY_KEY, JSON.stringify(adminRewardQuery))
@@ -304,6 +360,8 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
   }, [linkyReplayQuery])
 
   useEffect(() => {
+    // Product switching intentionally clears product-scoped admin caches in one render cycle.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAdminOverview(null)
     setAdminRewards(null)
     setAdminWithdrawRequests(null)
@@ -360,6 +418,50 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleAdminWithdrawAction(requestNo: string, action: 'approve' | 'reject') {
+    if (!adminSession) return
+    const operatorId = Number(adminWithdrawAction.operatorId)
+    if (!operatorId || Number.isNaN(operatorId)) {
+      setError('请先填写审批操作人 ID')
+      return
+    }
+    setAdminWithdrawActionLoadingNo(requestNo)
+    setError('')
+    setAdminWithdrawActionMessage('')
+    try {
+      const payload = {
+        operatorId,
+        operatorRole: adminWithdrawAction.operatorRole.trim() || 'WITHDRAW_OPERATOR',
+        remark: adminWithdrawAction.remark.trim() || (action === 'approve' ? '运营确认已人工发放' : '运营拒绝提现申请'),
+      }
+      if (action === 'approve') {
+        await approveAdminWithdrawRequest(adminSession.sessionToken, requestNo, payload)
+      } else {
+        await rejectAdminWithdrawRequest(adminSession.sessionToken, requestNo, payload)
+      }
+      setAdminWithdrawActionMessage(action === 'approve' ? `已通过提现申请 ${requestNo}` : `已拒绝提现申请 ${requestNo}`)
+      await loadAdminWithdrawRequests()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '处理提现申请失败')
+    } finally {
+      setAdminWithdrawActionLoadingNo(null)
+    }
+  }
+
+  function renderAdminWithdrawActions(item: AdminWithdrawRequestListResponse['items'][number]) {
+    const disabled = !canLoadAdmin || adminWithdrawActionLoadingNo === item.requestNo || item.requestStatus !== 'PENDING'
+    return (
+      <div className="table-toolbar compact-toolbar">
+        <button className="primary-btn small-btn" onClick={() => void handleAdminWithdrawAction(item.requestNo, 'approve')} disabled={disabled}>
+          {adminWithdrawActionLoadingNo === item.requestNo ? '处理中…' : '通过'}
+        </button>
+        <button className="ghost-btn small-btn" onClick={() => void handleAdminWithdrawAction(item.requestNo, 'reject')} disabled={disabled}>
+          拒绝
+        </button>
+      </div>
+    )
   }
 
   async function loadRiskEvents(query = riskQuery) {
@@ -556,12 +658,9 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
     }
   }
 
-  function openExternalLandingPage(path: '/invite' | '/bind' | '/earnings') {
-    const target = typeof window !== 'undefined'
-      ? `${window.location.origin}${path}`
-      : path
+  function openExternalLandingPage(url: string) {
     if (typeof window !== 'undefined') {
-      window.open(target, '_blank', 'noopener,noreferrer')
+      window.open(url, '_blank', 'noopener,noreferrer')
     }
   }
 
@@ -1034,12 +1133,8 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
   const activeOwnershipItem = adminOwnership?.items.find((item) => item.ownershipStatus === 'ACTIVE')
   const isJointWorkbenchReady = Boolean(adminOwnership || adminRelation)
   const jointAuditFocus = auditQuery.moduleName || '全部'
-  const adminShortcutCards = buildAdminWorkspaceShortcuts({
-    adminLoggedIn: Boolean(adminSession),
-    overviewLoaded: Boolean(adminOverview),
-    pendingRiskCount,
-  })
   const adminSectionLinks = buildAdminSectionLinks()
+
   const selectedLinkyTitle = selectedLinkyDrawer?.kind === 'webhook'
     ? buildLinkyWebhookHeadline(selectedLinkyDrawer.item)
     : selectedLinkyDrawer?.item.linkyOrderId
@@ -1105,8 +1200,8 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
   ]
 
   return (
-    <div className="page-shell">
-      <header className="hero-card">
+    <div className="page-shell admin-console-page">
+      <header className="hero-card admin-topbar">
         <div className="hero-copy">
           <div className="hero-badges">
             <Badge label="Fenxiao" tone="primary" />
@@ -1116,7 +1211,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
           <p className="eyebrow">Distribution Console</p>
           <h1>多产品分销运营后台</h1>
           <p className="subtext">
-            后台按分销主链组织：接入、邀请码、绑定关系、收益记录。产品只是选择维度，Linky 只是当前其中一个产品。
+            接入、渠道、绑定、收益、配置分模块处理。
           </p>
         </div>
         <div className="hero-actions">
@@ -1139,47 +1234,33 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
         </section>
       ) : successMessage ? (
         <section className="alert-banner info">
-          <strong>最新进展</strong>
+          <strong>已更新</strong>
           <span>{successMessage}</span>
         </section>
-      ) : (
-        <section className="alert-banner info">
-          <strong>当前建议</strong>
-          <span>先看总览，再处理邀请码、绑定关系和收益记录；这一版主后台不再把治理和调试模块放到首页主线。</span>
-        </section>
-      )}
+      ) : null}
 
-      <section className="overview-grid">
-        {adminSummaryItems.map((item) => <SummaryCard key={item.label} {...item} />)}
+      {activeAdminSection === 'overview' ? (
+        <section className="overview-grid">
+          {adminSummaryItems.map((item) => <SummaryCard key={item.label} {...item} />)}
+        </section>
+      ) : null}
+
+      <section className="ops-priority-board compact-admin-nav admin-sidebar">
+        <div className="admin-nav-strip" id="admin-modules" aria-label="后台模块导航">
+          {adminSectionLinks.map((item) => (
+            <a key={item.label} className={`admin-nav-chip ${item.href === ADMIN_SECTION_HASHES[activeAdminSection] ? 'is-active' : ''}`} href={item.href}>{item.label}</a>
+          ))}
+        </div>
       </section>
 
-      <section className="ops-priority-board">
-          <div className="admin-nav-strip" id="admin-modules" aria-label="后台模块导航">
-            {adminSectionLinks.map((item) => (
-              <a key={item.label} className="admin-nav-chip" href={item.href}>{item.label}</a>
-            ))}
-          </div>
-          <PanelSection
-            sectionId="admin-start"
-            eyebrow="Start Here"
-            title="先做这 4 件事"
-            description="首页只保留最关键的动作：先登录、再看总览、再管邀请码与对外入口，最后按问题进入具体模块。"
-          >
-            <div className="admin-shortcut-grid">
-              {adminShortcutCards.map((item) => (
-                <ShortcutCard key={item.title} {...item} />
-              ))}
-            </div>
-          </PanelSection>
-        </section>
-
-      <div className="console-layout admin-layout">
+      <div className="console-layout admin-layout admin-workspace-shell">
         <main className="console-main">
+          {activeAdminSection === 'settings' ? (
               <PanelSection
                 sectionId="admin-onboarding"
                 eyebrow="Onboarding"
                 title="分销接入"
-                description="把内部接入、邀请码生成和基础数据同步统一收进运营后台。"
+                description=""
                 action={<button className="primary-btn" onClick={handleProfileCreateTokenSave}>保存接入令牌</button>}
               >
                 <div className="stack-gap">
@@ -1224,12 +1305,14 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                   )}
                 </div>
               </PanelSection>
+          ) : null}
 
+          {activeAdminSection === 'overview' ? (
               <PanelSection
                 sectionId="admin-user-facts"
                 eyebrow="User Snapshot"
                 title="当前用户收益快照"
-                description="把原来独立用户后台里的收益、团队和奖励快照收进运营后台。"
+                description=""
                 action={<button className="primary-btn" onClick={handleLoadDashboard} disabled={!canLoadData || loading}>刷新当前用户收益</button>}
               >
                 <div className="stats-grid">
@@ -1280,12 +1363,13 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                   </PanelSection>
                 </div>
               </PanelSection>
+          ) : null}
 
               <PanelSection
                 sectionId="admin-login"
                 eyebrow="Access"
                 title="进入运营后台"
-                description="先拿口令建立后台会话；进来之后再按概览、邀请码、收益、绑定和异常去处理。"
+                description=""
                 action={adminSession ? <button className="ghost-btn" onClick={handleAdminLogout}>退出后台</button> : undefined}
               >
                 {adminSession ? (
@@ -1305,11 +1389,12 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                 )}
               </PanelSection>
 
+          {activeAdminSection === 'overview' ? (
               <PanelSection
                 sectionId="admin-overview"
                 eyebrow="Overview"
                 title="分销概览"
-                description="按当前产品视角看邀请码、绑定关系、收益和异常总况。"
+                description=""
                 action={<button className="primary-btn" onClick={handleLoadAdminOverview} disabled={loading || !canLoadAdmin}>同步分销概览</button>}
               >
                 <div className="stats-grid">
@@ -1321,33 +1406,67 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                   <Metric label="待处理异常" value={adminOverview?.riskEventCount} hint="需要人工继续处理的异常或风险事件" tone="danger" />
                 </div>
               </PanelSection>
+          ) : null}
 
+          {activeAdminSection === 'channel' ? (
               <PanelSection
                 sectionId="admin-invite-ops"
-                eyebrow="Invite & Entry"
-                title="邀请码与对外入口"
-                description="这里统一打开和复制对外三页。"
+                eyebrow="Channel Entry"
+                title="渠道入口管理"
+                description=""
               >
-                <InfoCard title="对外网页入口" tone="success">
-                  <InlineHint text="常用顺序：先生成邀请码，再绑定关系，最后看收益。" />
-                  {publicEntryLinks.map((item) => (
+                <InfoCard title="入口生成条件" tone="neutral">
+                  <div className="grid-form compact-form exception-filter-grid">
+                    <label>
+                      入口域名
+                      <input value={channelEntryForm.origin} onChange={(e) => setChannelEntryForm({ ...channelEntryForm, origin: e.target.value })} placeholder="https://your-domain.com" />
+                    </label>
+                    <label>
+                      国家
+                      <input value={channelEntryForm.country} onChange={(e) => setChannelEntryForm({ ...channelEntryForm, country: e.target.value })} placeholder="ID / MX / BR" />
+                    </label>
+                    <label>
+                      语言
+                      <input value={channelEntryForm.language} onChange={(e) => setChannelEntryForm({ ...channelEntryForm, language: e.target.value })} placeholder="id / es / pt" />
+                    </label>
+                    <label>
+                      渠道标识
+                      <input value={channelEntryForm.channel} onChange={(e) => setChannelEntryForm({ ...channelEntryForm, channel: e.target.value })} placeholder="whatsapp-main / meta-id-01" />
+                    </label>
+                    <label>
+                      邀请码
+                      <input value={channelEntryForm.inviteCode} onChange={(e) => setChannelEntryForm({ ...channelEntryForm, inviteCode: e.target.value })} placeholder="ABCD1234" />
+                    </label>
+                  </div>
+                  <InlineHint text="自动生成三条渠道链接。" />
+                </InfoCard>
+                <InfoCard title="追踪参数" tone="success">
+                  <div className="relation-grid top-gap">
+                    <div className="relation-item"><span>产品</span><strong>{currentAdminProductLabel}</strong></div>
+                    <div className="relation-item"><span>国家 / 语言</span><strong>{channelEntryForm.country || '-'} / {channelEntryForm.language || '-'}</strong></div>
+                    <div className="relation-item"><span>渠道</span><strong>{channelEntryForm.channel || '-'}</strong></div>
+                    <div className="relation-item"><span>邀请码</span><strong>{channelEntryForm.inviteCode || '-'}</strong></div>
+                  </div>
+                  {channelEntryLinks.map((item) => (
                     <div key={item.key} className="public-entry-item">
                       <InfoRow label={item.label} value={item.url} code />
                       <div className="action-row top-gap public-entry-actions">
-                        <button className="ghost-btn small-btn" type="button" onClick={() => openExternalLandingPage(item.path)}>打开页面</button>
-                        <button className="ghost-btn small-btn" type="button" onClick={() => copyPublicEntryLink(item.url)}>复制链接</button>
+                        <button className="ghost-btn small-btn" type="button" onClick={() => openExternalLandingPage(item.url)}>打开页面</button>
+                        <button className="ghost-btn small-btn" type="button" onClick={() => copyPublicEntryLink(item.url)}>复制渠道链接</button>
                       </div>
                     </div>
                   ))}
                 </InfoCard>
               </PanelSection>
+          ) : null}
 
+          {activeAdminSection === 'rewards' ? (
               <div className="content-grid two-columns entity-grid">
                 <PanelSection
                   sectionId="admin-rewards"
                   eyebrow="Rewards"
                   title="收益记录管理"
-                  description="按受益用户、状态和时间范围查奖励记录。"
+                  description=""
                   action={<button className="primary-btn" onClick={handleLoadAdminRewards} disabled={loading || !canLoadAdmin}>查询收益记录</button>}
                 >
                   <InfoCard title="筛选条件" tone="neutral">
@@ -1397,7 +1516,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                   sectionId="admin-withdraw-requests"
                   eyebrow="Withdraw"
                   title="提现申请管理"
-                  description="查看用户已经提交的钻石提现申请单，供运营人工发放使用。"
+                  description=""
                   action={<button className="primary-btn" onClick={() => void loadAdminWithdrawRequests()} disabled={loading || !canLoadAdmin}>查询提现申请</button>}
                 >
                   <InfoCard title="筛选条件" tone="neutral">
@@ -1416,14 +1535,27 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                             <option value="REJECTED">REJECTED</option>
                           </select>
                         </label>
+                        <label>
+                          审批操作人 ID
+                          <input value={adminWithdrawAction.operatorId} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, operatorId: e.target.value })} placeholder="例如 90001" />
+                        </label>
+                        <label>
+                          操作角色
+                          <input value={adminWithdrawAction.operatorRole} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, operatorRole: e.target.value })} placeholder="WITHDRAW_OPERATOR" />
+                        </label>
+                        <label>
+                          审批备注
+                          <input value={adminWithdrawAction.remark} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, remark: e.target.value })} placeholder="例如 已人工发放 / 拒绝原因" />
+                        </label>
                       </div>
-                      <InlineHint text="这里只生成和查看提现申请单；真实发放仍由运营人工处理。" />
+                      <InlineHint text="填写操作人后审批。" />
+                      {adminWithdrawActionMessage ? <InlineHint text={adminWithdrawActionMessage} /> : null}
                     </div>
                   </InfoCard>
 
                   {adminWithdrawRequests?.items?.length ? (
                     <DataTable
-                      headers={['申请单号', '用户 ID', '申请钻石', '状态', '申请周', '申请时间']}
+                      headers={['申请单号', '用户 ID', '申请钻石', '状态', '申请周', '申请时间', '操作']}
                       rows={adminWithdrawRequests.items.map((item) => [
                         item.requestNo,
                         item.userId,
@@ -1431,6 +1563,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                         renderStatusBadge(item.requestStatus),
                         item.requestWeek,
                         formatDateTime(item.requestedAt),
+                        renderAdminWithdrawActions(item),
                       ])}
                       emptyText="暂无提现申请"
                     />
@@ -1438,14 +1571,20 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                     <EmptyState title="暂无提现申请" description="有用户发起提现后，这里会列出待处理申请单。" actionLabel="建议先按用户 ID 或状态查询" />
                   )}
                 </PanelSection>
+              </div>
+          ) : null}
 
+          {activeAdminSection === 'bindings' || activeAdminSection === 'settings' ? (
+              <div className="content-grid two-columns entity-grid">
                 <PanelSection
                   sectionId="admin-bindings"
                   eyebrow="Bindings"
-                  title="绑定关系管理"
-                  description="按用户 ID 查看当前邀请关系，并支持人工修正。"
-                  action={<button className="primary-btn" onClick={handleLoadRelation} disabled={loading || !relationQueryUserId || !canLoadAdmin}>查询绑定关系</button>}
+                  title={activeAdminSection === 'settings' ? '配置' : '绑定关系管理'}
+                  description=""
+                  action={activeAdminSection === 'bindings' ? <button className="primary-btn" onClick={handleLoadRelation} disabled={loading || !relationQueryUserId || !canLoadAdmin}>查询绑定关系</button> : undefined}
                 >
+                  {activeAdminSection === 'bindings' ? (
+                    <>
                   <InfoCard title="查询入口" tone="neutral">
                     <div className="grid-form compact-form single-line">
                       <label>
@@ -1453,7 +1592,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                         <input value={relationQueryUserId} onChange={(e) => setRelationQueryUserId(e.target.value)} placeholder="例如 10003" />
                       </label>
                     </div>
-                    <InlineHint text="这里只处理分销主链：查当前关系、看预览、再决定是否人工修正。" />
+                    <InlineHint text="查询当前关系。" />
                   </InfoCard>
                   <InfoCard title="Linky 资格核验" tone="neutral">
                     <div className="grid-form compact-form single-line">
@@ -1462,7 +1601,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                         <input value={linkyEligibilityAccount} onChange={(e) => setLinkyEligibilityAccount(e.target.value)} placeholder="例如 12345678" />
                       </label>
                     </div>
-                    <InlineHint text="公会归属会直接决定这个账号能不能注册分销；如果当前公会后台查不到，只能判定未在我方公会命中，外部归属仍待确认。" />
+                    <InlineHint text="校验公会归属。" />
                     <div className="table-toolbar top-gap">
                       <button className="primary-btn small-btn" onClick={handleRefreshLinkyEligibility} disabled={linkyEligibilityLoading || !canLoadAdmin || !linkyEligibilityAccount.trim()}>
                         {linkyEligibilityLoading ? '刷新中…' : '刷新资格结果'}
@@ -1471,7 +1610,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                         {linkyBatchRefreshLoading ? '批量刷新中…' : '批量刷新全部 Linky 资格'}
                       </button>
                     </div>
-                    <InlineHint text="批量刷新会逐个重查已登记 Linky ID 的公会归属，并返回成功/失败计数，失败账号保留在后台日志继续排查。" />
+                    <InlineHint text="批量刷新资格。" />
                     {linkyBatchRefreshResult ? (
                       <div className="relation-grid top-gap">
                         <RelationItem label="成功数量" value={linkyBatchRefreshResult.successCount} />
@@ -1497,6 +1636,11 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                       <EmptyState title="还没有资格结果" description="输入 Linky 账号后刷新，这里会显示当前公会归属和注册资格。" actionLabel="推荐先刷一条真实账号" />
                     )}
                   </InfoCard>
+                    </>
+                  ) : null}
+
+                  {activeAdminSection === 'settings' ? (
+                    <>
                   <InfoCard title="公会周报" tone="success">
                     <div className="grid-form compact-form exception-filter-grid">
                       <label>
@@ -1511,7 +1655,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                         </select>
                       </label>
                     </div>
-                    <InlineHint text="周报会按公会归属聚合注册用户、本周收入和由这些用户贡献出的分佣。" />
+                    <InlineHint text="按公会聚合。" />
                     <div className="table-toolbar top-gap">
                       <button className="primary-btn small-btn" onClick={handleLoadGuildWeeklyReport} disabled={guildWeeklyLoading || !canLoadAdmin || !guildWeeklyQuery.guildId.trim()}>
                         {guildWeeklyLoading ? '查询中…' : '查询公会周报'}
@@ -1560,7 +1704,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                         </select>
                       </label>
                     </div>
-                    <InlineHint text="运营可以在这里维护上级分销人对应的 Linky 公会 ID 和邀请码；没有上级配置时会回落到默认公会。" />
+                    <InlineHint text="维护公会映射。" />
                     <div className="table-toolbar top-gap">
                       <button className="ghost-btn small-btn" onClick={handleLoadGuildConfigs} disabled={guildConfigLoading || !canLoadAdmin}>
                         {guildConfigLoading ? '查询中…' : '查询公会配置'}
@@ -1586,7 +1730,11 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                       <EmptyState title="暂无公会配置" description="点击查询公会配置加载现有映射；保存后会显示上级分销人对应的 Linky 公会邀请码。" />
                     )}
                   </InfoCard>
-                  {adminRelation ? (
+                    </>
+                  ) : null}
+
+                  {activeAdminSection === 'bindings' ? (
+                  adminRelation ? (
                     <div className="stack-gap relation-workbench">
                       <div className="relation-grid">
                         <RelationItem label="用户ID" value={adminRelation.userId} />
@@ -1635,22 +1783,13 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                     </div>
                   ) : (
                     <EmptyState title="暂无关系链结果" description="输入用户 ID 后查询，这里会显示当前关系和修正预览。" />
-                  )}
+                  )
+                  ) : null}
                 </PanelSection>
               </div>
+          ) : null}
         </main>
 
-        <aside className="console-side">
-              <PanelSection eyebrow="Guide" title="当前主链顺序">
-                <ToastStack
-                  tone="neutral"
-                  items={[
-                    '后台先按动作理解：登录 → 看总览 → 管邀请码与对外入口 → 再按收益 / 绑定分模块处理。',
-                    '产品归属、风险处置、审计和 Linky 事件排查已从主后台入口移出，避免首页继续变重。',
-                  ]}
-                />
-              </PanelSection>
-        </aside>
       </div>
 
       {selectedLinkyDrawer ? (
@@ -1743,17 +1882,6 @@ function DiagnosticBanner({ eyebrow, title, description, tone }: { eyebrow: stri
       <h3>{title}</h3>
       <p>{description}</p>
     </div>
-  )
-}
-
-function ShortcutCard({ title, value, description, tone, href, cta }: AdminWorkspaceShortcut) {
-  return (
-    <a className={`shortcut-card tone-${tone}`} href={href}>
-      <span>{title}</span>
-      <strong>{value}</strong>
-      <p>{description}</p>
-      <em>{cta}</em>
-    </a>
   )
 }
 
@@ -2078,6 +2206,7 @@ function formatDateTime(value?: string) {
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function buildBindGuildInviteGuidance(message: string) {
   const inviteCodeMatch = message.match(/invite code\s+([A-Za-z0-9_-]+)/i)
   if (!inviteCodeMatch) return null
@@ -2479,6 +2608,7 @@ function formatMoney(value?: number | null) {
   }).format(value)
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function formatBusinessRewardLevel(rewardLevel?: number | null, locale: string = 'zh') {
   if (locale === 'zh') {
     const labels: Record<number, string> = {
@@ -2907,6 +3037,15 @@ function InviteCodePage() {
     whatsappNumber: '',
     appAccount: '',
   })
+  const [phoneForm, setPhoneForm] = useState({
+    phoneNumber: '',
+    verificationCode: '',
+    inviteCode: session?.inviteCode ?? '',
+    countryCode: session?.countryCode ?? 'ID',
+    languageCode: session?.languageCode ?? 'id',
+  })
+  const [phoneCodeHint, setPhoneCodeHint] = useState('')
+  const [phoneAuthLoading, setPhoneAuthLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -2953,6 +3092,45 @@ function InviteCodePage() {
       setError('')
     } catch {
       setError(copy.copyFailure)
+    }
+  }
+
+  async function handleIssuePhoneCode() {
+    setPhoneAuthLoading(true)
+    setError('')
+    setSuccess('')
+    try {
+      const response = await issuePhoneCode(phoneForm.phoneNumber)
+      setPhoneCodeHint(response.verificationCode ? `测试验证码 ${response.verificationCode}，${response.ttlMinutes} 分钟内有效。` : `验证码已发送，${response.ttlMinutes} 分钟内有效。`)
+      setSuccess('验证码已发送。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '获取验证码失败')
+    } finally {
+      setPhoneAuthLoading(false)
+    }
+  }
+
+  async function handlePhoneLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setPhoneAuthLoading(true)
+    setError('')
+    setSuccess('')
+    try {
+      const profile = await phoneLogin({
+        phoneNumber: phoneForm.phoneNumber,
+        verificationCode: phoneForm.verificationCode,
+        inviteCode: phoneForm.inviteCode || undefined,
+        countryCode: phoneForm.countryCode || undefined,
+        languageCode: phoneForm.languageCode || undefined,
+      })
+      const nextSession = saveUserSession(profile)
+      setSession(nextSession)
+      setPhoneForm({ ...phoneForm, inviteCode: profile.inviteCode, countryCode: profile.countryCode, languageCode: profile.languageCode })
+      setSuccess('手机号登录成功，可以继续查看收益。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '手机号登录失败')
+    } finally {
+      setPhoneAuthLoading(false)
     }
   }
 
@@ -3022,6 +3200,53 @@ function InviteCodePage() {
             </div>
           </div>
         </div>
+
+        <div className="route-grid two-columns-route top-gap-xl">
+          <form className="route-panel route-form" onSubmit={handlePhoneLogin}>
+            <div className="route-detail-card-head">
+              <div>
+                <p className="route-label">手机号登录</p>
+                <h3 className="route-section-title">用手机号登录并继续查看收益</h3>
+              </div>
+              <span className="route-detail-badge">验证码登录</span>
+            </div>
+            <p className="route-caption route-panel-copy">如果你已经有邀请码，也可以在登录时带上邀请码完成资料初始化。</p>
+            <div className="route-field-grid">
+              <label>
+                手机号
+                <input value={phoneForm.phoneNumber} onChange={(e) => setPhoneForm({ ...phoneForm, phoneNumber: e.target.value })} placeholder="ex. +6281234567890" />
+              </label>
+              <label>
+                验证码
+                <input value={phoneForm.verificationCode} onChange={(e) => setPhoneForm({ ...phoneForm, verificationCode: e.target.value.replace(/\D/g, '').slice(0, 6) })} placeholder="6 位验证码" />
+              </label>
+            </div>
+            <div className="route-field-grid">
+              <label>
+                邀请码（可选）
+                <input value={phoneForm.inviteCode} onChange={(e) => setPhoneForm({ ...phoneForm, inviteCode: e.target.value.trim().toUpperCase() })} placeholder="已有邀请码可填写" />
+              </label>
+              <label>
+                国家
+                <input value={phoneForm.countryCode} onChange={(e) => setPhoneForm({ ...phoneForm, countryCode: e.target.value.trim().toUpperCase() })} placeholder="ID" />
+              </label>
+            </div>
+            <div className="route-action-row top-gap">
+              <button className="ghost-btn" type="button" onClick={handleIssuePhoneCode} disabled={phoneAuthLoading || !phoneForm.phoneNumber.trim()}>获取验证码</button>
+              <button className="primary-btn" type="submit" disabled={phoneAuthLoading || !phoneForm.phoneNumber.trim() || phoneForm.verificationCode.length < 6}>手机号登录</button>
+            </div>
+            {phoneCodeHint ? <p className="route-caption route-panel-copy">{phoneCodeHint}</p> : null}
+          </form>
+          <div className="route-panel route-detail-card">
+            <p className="route-label">登录后可继续</p>
+            <div className="route-detail-list compact">
+              <div><span>当前用户</span><strong>{session?.userId ?? '--'}</strong></div>
+              <div><span>当前邀请码</span><strong>{session?.inviteCode ?? issued?.inviteCode ?? '--'}</strong></div>
+              <div><span>收益入口</span><strong>/earnings</strong></div>
+            </div>
+            <p className="route-caption route-panel-copy">手机号登录会保存用户访问凭证，后续查看收益、团队和提现历史不需要再手动输入 token。</p>
+          </div>
+        </div>
       </section>
     </div>
   )
@@ -3032,8 +3257,11 @@ function EarningsPage() {
   const [locale, setLocale] = useState<keyof typeof externalPageCopyByLocale>(() => loadExternalLocale())
   const [home, setHome] = useState<DistributionHomeResponse | null>(null)
   const [team, setTeam] = useState<TeamListResponse | null>(null)
+  const [teamWeeklyIncome, setTeamWeeklyIncome] = useState<TeamWeeklyIncomeResponse | null>(null)
   const [rewards, setRewards] = useState<RewardListResponse | null>(null)
+  const [rewardSummary, setRewardSummary] = useState<RewardSummaryResponse | null>(null)
   const [withdrawRequest, setWithdrawRequest] = useState<WithdrawRequestResponse | null>(null)
+  const [withdrawHistory, setWithdrawHistory] = useState<WithdrawHistoryListResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -3051,14 +3279,20 @@ function EarningsPage() {
       setLoading(true)
       setError('')
       try {
-        const [homeData, teamData, rewardData] = await Promise.all([
+        const [homeData, teamData, teamWeeklyIncomeData, rewardData, rewardSummaryData, withdrawHistoryData] = await Promise.all([
           getDistributionHome(session.userId, session.accessToken),
           getDistributionTeam(session.userId, session.accessToken),
+          getDistributionTeamWeeklyIncome(session.userId, session.accessToken),
           getDistributionRewards(session.userId, session.accessToken),
+          getDistributionRewardSummary(session.userId, session.accessToken),
+          getWithdrawHistory(session.userId, session.accessToken, { page: 0, size: 10 }),
         ])
         setHome(homeData)
         setTeam(teamData)
+        setTeamWeeklyIncome(teamWeeklyIncomeData)
         setRewards(rewardData)
+        setRewardSummary(rewardSummaryData)
+        setWithdrawHistory(withdrawHistoryData)
       } catch (err) {
         setError(err instanceof Error ? err.message : '加载收益失败')
       } finally {
@@ -3078,12 +3312,14 @@ function EarningsPage() {
       const request = await createWithdrawRequest(session.userId, session.accessToken)
       setWithdrawRequest(request)
       setSuccessMessage(`提现申请已提交，申请单号 ${request.requestNo}，本次申请钻石 ${request.requestedDiamondAmount}。`)
-      const [homeData, rewardData] = await Promise.all([
+      const [homeData, rewardData, withdrawHistoryData] = await Promise.all([
         getDistributionHome(session.userId, session.accessToken),
         getDistributionRewards(session.userId, session.accessToken),
+        getWithdrawHistory(session.userId, session.accessToken, { page: 0, size: 10 }),
       ])
       setHome(homeData)
       setRewards(rewardData)
+      setWithdrawHistory(withdrawHistoryData)
     } catch (err) {
       setError(err instanceof Error ? err.message : '发起提现申请失败')
     } finally {
@@ -3101,6 +3337,8 @@ function EarningsPage() {
   const inviteeIncome = team?.items.reduce((sum, item) => sum + item.confirmedIncomeTotal, 0) ?? 0
   const myCommission = rewards?.items.reduce((sum, item) => sum + item.rewardAmount, 0) ?? 0
   const rewardItems = rewards?.items ?? []
+  const rewardTierSummary = rewardSummary?.tiers ?? []
+  const tierSummaryByLevel = new Map(rewardTierSummary.map((tier) => [tier.rewardLevel, tier]))
 
   return (
     <div className="page-shell route-page-shell">
@@ -3214,6 +3452,94 @@ function EarningsPage() {
           </div>
         </div>
 
+        <div className="route-panel top-gap-xl">
+          <div className="route-detail-card-head">
+            <div>
+              <p className="route-label">三层裂变人数</p>
+              <h3 className="route-section-title">下级 / 下下级 / 下下下级人数</h3>
+            </div>
+            <span className="route-detail-badge">总团队 {home?.totalTeamUsers ?? '--'}</span>
+          </div>
+          <p className="route-caption route-panel-copy">用户端完整展示三层裂变人数，避免只看到直属下级。</p>
+          <div className="route-grid three-columns-route top-gap">
+            <div className="route-detail-list compact">
+              <div><span>一级下级</span><strong>{home?.directInvitedUsers ?? '--'}</strong></div>
+              <div><span>有效一级</span><strong>{home?.directEffectiveUsers ?? '--'}</strong></div>
+            </div>
+            <div className="route-detail-list compact">
+              <div><span>二级下级</span><strong>{home?.secondLevelInvitedUsers ?? '--'}</strong></div>
+              <div><span>有效二级</span><strong>{home?.secondLevelEffectiveUsers ?? '--'}</strong></div>
+            </div>
+            <div className="route-detail-list compact">
+              <div><span>三级下级</span><strong>{home?.thirdLevelInvitedUsers ?? '--'}</strong></div>
+              <div><span>有效三级</span><strong>{home?.thirdLevelEffectiveUsers ?? '--'}</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="route-panel top-gap-xl">
+          <div className="route-detail-card-head">
+            <div>
+              <p className="route-label">收益层级汇总</p>
+              <h3 className="route-section-title">业务二级 / 三级 / 四级收益汇总</h3>
+            </div>
+            <span className="route-detail-badge">明细按层级展开</span>
+          </div>
+          <p className="route-caption route-panel-copy">按业务层级汇总你的分销提成和明细数量。</p>
+          <div className="route-grid three-columns-route top-gap">
+            {[1, 2, 3].map((level) => {
+              const tier = tierSummaryByLevel.get(level)
+              return (
+                <div className="route-detail-list compact" key={level}>
+                  <div><span>{tier?.businessLevelLabel || formatBusinessRewardLevel(level, locale)}汇总</span><strong>{formatMoney(tier?.rewardAmount)}</strong></div>
+                  <div><span>明细数量</span><strong>{tier?.rewardCount ?? '--'}</strong></div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="route-panel top-gap-xl">
+          <div className="route-detail-card-head">
+            <div>
+              <p className="route-label">团队周收入</p>
+              <h3 className="route-section-title">直属下级本周 / 上周钻石收入</h3>
+            </div>
+            <span className="route-detail-badge">{teamWeeklyIncome?.currentWeek || '本周'} / {teamWeeklyIncome?.previousWeek || '上周'}</span>
+          </div>
+          <p className="route-caption route-panel-copy">每个直属下级的本周和上周钻石收入会显示在这里。</p>
+          <div className="route-grid two-columns-route top-gap">
+            <div className="route-detail-list compact">
+              <div><span>团队本周钻石收入</span><strong>{formatMoney(teamWeeklyIncome?.currentWeekTeamIncome)}</strong></div>
+            </div>
+            <div className="route-detail-list compact">
+              <div><span>团队上周钻石收入</span><strong>{formatMoney(teamWeeklyIncome?.previousWeekTeamIncome)}</strong></div>
+            </div>
+          </div>
+          <div className="top-gap">
+            <h4 className="route-section-subtitle">直属下级收入明细</h4>
+            {teamWeeklyIncome?.items?.length ? (
+              <div className="route-record-list top-gap">
+                {teamWeeklyIncome.items.map((item) => (
+                  <div className="route-record-item" key={item.userId}>
+                    <div className="route-record-topline">
+                      <strong>用户 #{item.userId}</strong>
+                      <span className={`route-status-pill status-${item.effectiveUser ? 'available' : 'frozen'}`}>{item.effectiveUser ? '有效用户' : '待转化'}</span>
+                    </div>
+                    <span>本周 {formatMoney(item.currentWeekIncome)} · 上周 {formatMoney(item.previousWeekIncome)}</span>
+                    <em>邀请码 {item.inviteCode || '--'}</em>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="route-empty-state top-gap">
+                <strong>暂无直属下级收入</strong>
+                <p>当直属下级产生 Linky 收入并完成收益同步后，本周和上周钻石收入会自动展示。</p>
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="route-grid two-columns-route top-gap-xl">
           <div className="route-panel">
             <p className="route-label">{copy.rewardRecords}</p>
@@ -3278,6 +3604,36 @@ function EarningsPage() {
               </div>
             ) : null}
           </div>
+        </div>
+
+        <div className="route-panel top-gap-xl">
+          <div className="route-detail-card-head">
+            <div>
+              <p className="route-label">提现历史</p>
+              <h3 className="route-section-title">完整提现记录</h3>
+            </div>
+            <span className="route-detail-badge">最近 10 条</span>
+          </div>
+          <p className="route-caption route-panel-copy">完整提现记录会按申请时间持续显示在这里。</p>
+          {withdrawHistory?.items?.length ? (
+            <div className="route-record-list top-gap">
+              {withdrawHistory.items.map((item) => (
+                <div className="route-record-item" key={item.requestNo}>
+                  <div className="route-record-topline">
+                    <strong>{item.requestNo}</strong>
+                    <span className={`route-status-pill status-${item.requestStatus.toLowerCase().replaceAll('_', '-')}`}>{item.requestStatus}</span>
+                  </div>
+                  <span>申请钻石 {item.requestedDiamondAmount} · {item.requestWeek}</span>
+                  <em>{formatDateTime(item.requestedAt)}</em>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="route-empty-state top-gap">
+              <strong>还没有提现申请</strong>
+              <p>当你发起提现后，申请单号、钻石数量和处理状态都会显示在这里。</p>
+            </div>
+          )}
         </div>
 
         <div className="route-panel top-gap-xl">

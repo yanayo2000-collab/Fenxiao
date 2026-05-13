@@ -90,29 +90,47 @@ describe('ConsoleApp admin core distribution workspace', () => {
     })
   })
 
-  it('renders a merged admin console without a separate user-workbench mode', () => {
+  it('renders a module-based admin console without a separate user-workbench mode', () => {
     const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
 
+    expect(markup).toContain('admin-console-page')
+    expect(markup).toContain('admin-sidebar')
+    expect(markup).toContain('admin-workspace-shell')
     expect(markup).toContain('进入运营后台')
-    expect(markup).toContain('分销接入')
-    expect(markup).toContain('邀请码与对外入口')
+    expect(markup).toContain('分销概览')
+    expect(markup).toContain('渠道入口')
+    expect(markup).toContain('绑定关系')
+    expect(markup).toContain('收益提现')
+    expect(markup).toContain('配置')
     expect(markup).not.toContain('>用户工作台<')
     expect(markup).not.toContain('分销用户工作台')
   })
 
-  it('keeps only the core distribution modules in admin mode', () => {
+  it('renders only the active admin module instead of stacking every function panel', () => {
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        location: {
+          pathname: '/',
+          search: '',
+          hash: '#admin-channel-entries',
+          origin: 'http://127.0.0.1:4173',
+        },
+        localStorage: createStorage(),
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      },
+    })
     const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
 
-    expect(markup).toContain('分销接入')
-    expect(markup).toContain('分销概览')
-    expect(markup).toContain('邀请码与对外入口')
-    expect(markup).toContain('收益记录管理')
-    expect(markup).toContain('绑定关系管理')
-    expect(markup).not.toContain('产品归属管理')
-    expect(markup).not.toContain('异常处理')
-    expect(markup).not.toContain('高级排查')
-    expect(markup).not.toContain('>当前环境入口<')
-    expect(markup).not.toContain('下一批后台能力')
+    expect(markup).toContain('渠道入口管理')
+    expect(markup).toContain('入口域名')
+    expect(markup).not.toContain('收益记录管理')
+    expect(markup).not.toContain('提现申请管理')
+    expect(markup).not.toContain('绑定关系管理')
+    expect(markup).not.toContain('公会配置管理')
+    expect(markup).not.toContain('先做这 4 件事')
+    expect(markup).not.toContain('当前主链顺序')
   })
 })
 
@@ -145,6 +163,28 @@ describe('Earnings landing page', () => {
     mountEarningsPage(true)
   })
 
+  it('renders phone login and verification code workflow on invite page', () => {
+    const localStorage = createStorage()
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        location: {
+          pathname: '/invite',
+          search: '',
+          origin: 'http://127.0.0.1:4173',
+        },
+        localStorage,
+      },
+    })
+    const markup = renderToStaticMarkup(<App />)
+
+    expect(markup).toContain('手机号登录')
+    expect(markup).toContain('获取验证码')
+    expect(markup).toContain('验证码')
+    expect(markup).toContain('用手机号登录并继续查看收益')
+    expect(markup).toContain('如果你已经有邀请码，也可以在登录时带上邀请码完成资料初始化。')
+  })
+
   it('renders user-facing earnings guidance and next-step actions instead of console language', () => {
     const markup = renderToStaticMarkup(<App />)
 
@@ -156,28 +196,31 @@ describe('Earnings landing page', () => {
   })
 
   it('renders a clear linky eligibility verification workspace in admin mode', () => {
+    window.location.hash = '#admin-bindings'
     const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
 
     expect(markup).toContain('Linky 资格核验')
     expect(markup).toContain('Linky 账号')
     expect(markup).toContain('刷新资格结果')
     expect(markup).toContain('批量刷新全部 Linky 资格')
-    expect(markup).toContain('批量刷新会逐个重查已登记 Linky ID 的公会归属，并返回成功/失败计数，失败账号保留在后台日志继续排查。')
+    expect(markup).toContain('批量刷新资格。')
     expect(markup).toContain('成功数量')
     expect(markup).toContain('失败数量')
-    expect(markup).toContain('公会归属会直接决定这个账号能不能注册分销；如果当前公会后台查不到，只能判定未在我方公会命中，外部归属仍待确认。')
+    expect(markup).toContain('校验公会归属。')
   })
 
   it('renders a guild weekly report workspace in admin mode', () => {
+    window.location.hash = '#admin-settings'
     const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
 
     expect(markup).toContain('公会周报')
     expect(markup).toContain('公会 ID')
     expect(markup).toContain('查询公会周报')
-    expect(markup).toContain('周报会按公会归属聚合注册用户、本周收入和由这些用户贡献出的分佣。')
+    expect(markup).toContain('按公会聚合。')
   })
 
   it('renders a guild config management workspace in admin mode', () => {
+    window.location.hash = '#admin-settings'
     const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
 
     expect(markup).toContain('公会配置管理')
@@ -186,10 +229,39 @@ describe('Earnings landing page', () => {
     expect(markup).toContain('上级用户 ID（为空则为默认公会）')
     expect(markup).toContain('公会邀请码')
     expect(markup).toContain('启用状态')
-    expect(markup).toContain('运营可以在这里维护上级分销人对应的 Linky 公会 ID 和邀请码；没有上级配置时会回落到默认公会。')
+    expect(markup).toContain('维护公会映射。')
+  })
+
+  it('renders a finished withdraw approval workspace with operator audit controls in admin mode', () => {
+    window.location.hash = '#admin-rewards'
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+
+    expect(markup).toContain('提现申请管理')
+    expect(markup).toContain('审批操作人 ID')
+    expect(markup).toContain('操作角色')
+    expect(markup).toContain('审批备注')
+    expect(markup).toContain('填写操作人后审批。')
+    expect(markup).toContain('操作')
+  })
+
+  it('renders channel entry management instead of a static localhost link list', () => {
+    window.location.hash = '#admin-channel-entries'
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+
+    expect(markup).toContain('渠道入口管理')
+    expect(markup).toContain('渠道标识')
+    expect(markup).toContain('入口域名')
+    expect(markup).toContain('追踪参数')
+    expect(markup).toContain('邀请注册入口')
+    expect(markup).toContain('Linky 绑定入口')
+    expect(markup).toContain('收益查看入口')
+    expect(markup).toContain('复制渠道链接')
+    expect(markup).not.toContain('这里统一打开和复制对外三页。')
+    expect(markup).not.toContain('常用顺序：先生成邀请码，再绑定关系，最后看收益。')
   })
 
   it('renders invite code as a required field for profile onboarding in admin mode', () => {
+    window.location.hash = '#admin-settings'
     const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
 
     expect(markup).toContain('邀请码（必填，首批运营请填写初始邀请码）')
@@ -206,6 +278,30 @@ describe('Earnings landing page', () => {
     expect(markup).toContain('去绑定关系')
   })
 
+  it('renders team weekly income summary and direct-member detail placeholders', () => {
+    const markup = renderToStaticMarkup(<App />)
+
+    expect(markup).toContain('团队周收入')
+    expect(markup).toContain('直属下级本周 / 上周钻石收入')
+    expect(markup).toContain('团队本周钻石收入')
+    expect(markup).toContain('团队上周钻石收入')
+    expect(markup).toContain('直属下级收入明细')
+    expect(markup).toContain('每个直属下级的本周和上周钻石收入会显示在这里。')
+  })
+
+  it('renders deep team size and reward tier summary placeholders on earnings page', () => {
+    const markup = renderToStaticMarkup(<App />)
+
+    expect(markup).toContain('三层裂变人数')
+    expect(markup).toContain('一级下级')
+    expect(markup).toContain('二级下级')
+    expect(markup).toContain('三级下级')
+    expect(markup).toContain('业务二级收益汇总')
+    expect(markup).toContain('业务三级收益汇总')
+    expect(markup).toContain('业务四级收益汇总')
+    expect(markup).toContain('按业务层级汇总你的分销提成和明细数量。')
+  })
+
   it('renders payout guidance and a user-facing empty reward state before records arrive', () => {
     const markup = renderToStaticMarkup(<App />)
 
@@ -214,6 +310,9 @@ describe('Earnings landing page', () => {
     expect(markup).toContain('风险冻结')
     expect(markup).toContain('发起提现申请')
     expect(markup).toContain('提现只会按可用奖励里的钻石数量生成申请单，后续由运营人工发放。')
+    expect(markup).toContain('提现历史')
+    expect(markup).toContain('完整提现记录会按申请时间持续显示在这里。')
+    expect(markup).toContain('还没有提现申请')
     expect(markup).toContain('还没有收益记录')
     expect(markup).toContain('先去生成邀请码并完成绑定，后续有收益会自动显示在这里。')
   })

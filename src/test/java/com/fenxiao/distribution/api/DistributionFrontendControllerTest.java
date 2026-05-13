@@ -86,6 +86,30 @@ class DistributionFrontendControllerTest {
     }
 
     @Test
+    void shouldReturnTeamWeeklyIncomeStatsForDirectMembers() throws Exception {
+        seedRules();
+        UserDistributionProfile rootProfile = distributionBindingService.createProfile(21101L, "ID", "id", null);
+        String rootCode = rootProfile.getInviteCode();
+        distributionBindingService.createProfile(21102L, "ID", "id", rootCode);
+        distributionBindingService.createProfile(21103L, "ID", "id", rootCode);
+
+        rewardCalculationService.processIncomeEvent("evt-team-weekly-current-1", 21102L, new BigDecimal("120.00"), "DIAMOND", LocalDateTime.now());
+        rewardCalculationService.processIncomeEvent("evt-team-weekly-current-2", 21103L, new BigDecimal("80.00"), "DIAMOND", LocalDateTime.now());
+        rewardCalculationService.processIncomeEvent("evt-team-weekly-previous-1", 21102L, new BigDecimal("50.00"), "DIAMOND", LocalDateTime.now().minusWeeks(1));
+
+        mockMvc.perform(get("/api/distribution/team/21101/weekly-income")
+                        .header("X-Distribution-Token", rootProfile.getApiAccessToken())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(21101))
+                .andExpect(jsonPath("$.currentWeekTeamIncome").value(200.0))
+                .andExpect(jsonPath("$.previousWeekTeamIncome").value(50.0))
+                .andExpect(jsonPath("$.items[0].userId").exists())
+                .andExpect(jsonPath("$.items[0].currentWeekIncome").exists())
+                .andExpect(jsonPath("$.items[0].previousWeekIncome").exists());
+    }
+
+    @Test
     void shouldForbidAccessWhenHeaderUserDoesNotMatchPathUser() throws Exception {
         UserDistributionProfile rootProfile = distributionBindingService.createProfile(21501L, "ID", "id", null);
         String rootCode = rootProfile.getInviteCode();

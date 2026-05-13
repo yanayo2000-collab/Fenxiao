@@ -266,7 +266,14 @@ public class DistributionAdminController {
                                                                   @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken) {
         distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
         LinkyRegistrationEligibilityService.BatchRefreshResult result = linkyRegistrationEligibilityService.refreshAllEligibility();
-        return new LinkyBatchRefreshResponse(result.successCount(), result.failureCount());
+        var failures = result.failures().stream()
+                .map(failure -> new LinkyBatchRefreshResponse.FailureItem(
+                        failure.linkyAccount(),
+                        failure.guildCheckStatus(),
+                        failure.remark()
+                ))
+                .toList();
+        return new LinkyBatchRefreshResponse(result.successCount(), result.failureCount(), failures);
     }
 
     @GetMapping("/guild-configs")
@@ -334,7 +341,11 @@ public class DistributionAdminController {
                                                               @PathVariable String requestNo,
                                                               @RequestBody(required = false) WithdrawRequestActionRequest request) {
         distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
-        WithdrawRequest withdrawRequest = withdrawRequestService.approveRequest(requestNo, 0L, request == null ? null : request.remark());
+        WithdrawRequest withdrawRequest = withdrawRequestService.approveRequest(
+                requestNo,
+                request == null ? null : request.operatorId(),
+                request == null ? null : request.operatorRole(),
+                request == null ? null : request.remark());
         return toWithdrawRequestItemResponse(withdrawRequest);
     }
 
@@ -344,7 +355,11 @@ public class DistributionAdminController {
                                                              @PathVariable String requestNo,
                                                              @RequestBody(required = false) WithdrawRequestActionRequest request) {
         distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
-        WithdrawRequest withdrawRequest = withdrawRequestService.rejectRequest(requestNo, 0L, request == null ? null : request.remark());
+        WithdrawRequest withdrawRequest = withdrawRequestService.rejectRequest(
+                requestNo,
+                request == null ? null : request.operatorId(),
+                request == null ? null : request.operatorRole(),
+                request == null ? null : request.remark());
         return toWithdrawRequestItemResponse(withdrawRequest);
     }
 

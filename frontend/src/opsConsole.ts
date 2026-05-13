@@ -57,10 +57,10 @@ export function buildAdminTaskCards(input: {
         : '先同步一次总览，确认当前邀请码、绑定和收益总况。',
     },
     {
-      title: '邀请码入口',
-      value: '三页已就位',
+      title: '渠道入口',
+      value: '可生成追踪链接',
       tone: 'primary',
-      hint: 'invite / bind / earnings 三个对外入口已经集中到后台，适合直接发给用户。',
+      hint: '按产品、国家、语言、渠道和邀请码生成对外入口，方便运营区分来源和归因。',
     },
     {
       title: '绑定与收益',
@@ -94,12 +94,12 @@ export function buildAdminWorkspaceShortcuts(input: {
       cta: '去看概览',
     },
     {
-      title: '管理邀请码与对外入口',
-      value: '三页入口已就位',
-      description: '发码、绑定、收益查看都统一放在这一块，运营不用再去侧边找链接。',
+      title: '管理渠道入口',
+      value: '可生成追踪链接',
+      description: '按产品、国家、语言、渠道和邀请码生成可复制的正式入口。',
       tone: 'primary',
       href: '#admin-invite-ops',
-      cta: '去看入口',
+      cta: '去生成链接',
     },
     {
       title: '处理绑定与收益',
@@ -115,29 +115,29 @@ export function buildAdminWorkspaceShortcuts(input: {
 export function buildAdminSectionLinks(): AdminSectionLink[] {
   return [
     {
-      label: '分销接入',
-      description: '创建分销档案时邀请码必填，首批运营也从初始邀请码进入。',
-      href: '#admin-onboarding',
-    },
-    {
       label: '分销概览',
-      description: '先看邀请码、绑定和收益总况。',
+      description: '总览。',
       href: '#admin-overview',
     },
     {
-      label: '邀请码与对外入口',
-      description: '统一管理 invite / bind / earnings 三个对外页面，适合发给渠道、客服或用户。',
-      href: '#admin-invite-ops',
-    },
-    {
-      label: '收益记录',
-      description: '奖励没起来、金额不对时，先从这里查。',
-      href: '#admin-rewards',
+      label: '渠道入口',
+      description: '生成渠道链接。',
+      href: '#admin-channel-entries',
     },
     {
       label: '绑定关系',
-      description: '用户关系错了、需要人工修正时，从这里进。',
+      description: '查询和修正绑定。',
       href: '#admin-bindings',
+    },
+    {
+      label: '收益提现',
+      description: '收益记录和提现审批。',
+      href: '#admin-rewards',
+    },
+    {
+      label: '配置',
+      description: '接入、公会和产品配置。',
+      href: '#admin-settings',
     },
   ]
 }

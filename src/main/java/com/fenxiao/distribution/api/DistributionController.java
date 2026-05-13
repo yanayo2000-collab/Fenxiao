@@ -11,6 +11,7 @@ import com.fenxiao.distribution.api.dto.PhoneCodeRequest;
 import com.fenxiao.distribution.api.dto.PhoneLoginRequest;
 import com.fenxiao.distribution.api.dto.ProfileResponse;
 import com.fenxiao.distribution.api.dto.TeamListResponse;
+import com.fenxiao.distribution.api.dto.TeamWeeklyIncomeResponse;
 import com.fenxiao.distribution.api.dto.WeeklyIncomeStatsResponse;
 import com.fenxiao.distribution.api.dto.WithdrawRequestResponse;
 import com.fenxiao.distribution.entity.InviteBindingRegistration;
@@ -127,7 +128,8 @@ public class DistributionController {
 
     @PostMapping("/auth/phone-codes")
     public Map<String, Object> issuePhoneCode(@Valid @RequestBody PhoneCodeRequest request) {
-        return Map.of("phoneNumber", request.phoneNumber(), "verificationCode", phoneAuthService.issueCode(request.phoneNumber()), "ttlMinutes", 10);
+        phoneAuthService.issueCode(request.phoneNumber());
+        return Map.of("phoneNumber", request.phoneNumber(), "ttlMinutes", 10);
     }
 
     @PostMapping("/auth/phone-login")
@@ -148,6 +150,13 @@ public class DistributionController {
                                  @PathVariable Long userId) {
         distributionAccessGuard.assertUserAccess(userId, accessToken);
         return distributionFrontendService.getDirectTeam(userId);
+    }
+
+    @GetMapping("/team/{userId}/weekly-income")
+    public TeamWeeklyIncomeResponse teamWeeklyIncome(@RequestHeader("X-Distribution-Token") String accessToken,
+                                                     @PathVariable Long userId) {
+        distributionAccessGuard.assertUserAccess(userId, accessToken);
+        return distributionFrontendService.getTeamWeeklyIncome(userId);
     }
 
     @GetMapping("/rewards/{userId}")

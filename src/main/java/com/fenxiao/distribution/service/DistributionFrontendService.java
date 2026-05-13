@@ -3,6 +3,8 @@ package com.fenxiao.distribution.service;
 import com.fenxiao.distribution.api.dto.DistributionHomeResponse;
 import com.fenxiao.distribution.api.dto.TeamListResponse;
 import com.fenxiao.distribution.api.dto.TeamMemberItem;
+import com.fenxiao.distribution.api.dto.TeamWeeklyIncomeItem;
+import com.fenxiao.distribution.api.dto.TeamWeeklyIncomeResponse;
 import com.fenxiao.distribution.api.dto.WeeklyIncomeStatsResponse;
 import com.fenxiao.distribution.entity.DistributionRelation;
 import com.fenxiao.distribution.repository.DistributionRelationRepository;
@@ -110,6 +112,35 @@ public class DistributionFrontendService {
             ));
         }
         return new TeamListResponse(items, items.size());
+    }
+
+    public TeamWeeklyIncomeResponse getTeamWeeklyIncome(Long userId) {
+        List<DistributionRelation> directRelations = distributionRelationRepository.findByLevel1InviterIdOrderByIdDesc(userId);
+        Map<Long, UserDistributionProfile> profileMap = loadProfileMap(directRelations);
+        LocalDate today = LocalDate.now(clock);
+        WeekFields weekFields = WeekFields.ISO;
+        LocalDate currentStart = today.with(weekFields.dayOfWeek(), 1);
+        LocalDate previousStart = currentStart.minusWeeks(1);
+        LocalDateTime currentStartAt = currentStart.atStartOfDay();
+        LocalDateTime currentEndAt = currentStart.plusWeeks(1).atStartOfDay();
+        LocalDateTime previousStartAt = previousStart.atStartOfDay();
+        LocalDateTime previousEndAt = currentStart.atStartOfDay();
+
+        List<TeamWeeklyIncomeItem> items = new ArrayList<>();
+        BigDecimal currentTotal = BigDecimal.ZERO;
+        BigDecimal previousTotal = BigDecimal.ZERO;
+        for (DistributionRelation relation : directRelations) {
+            UserDistributionProfile profile = profileMap.get(relation.getUserId());
+            if (profile == null) {
+                continue;
+            }
+            BigDecimal current = incomeEventRepository.sumIncomeAmountByUserIdAndEventTimeBetween(profile.getUserId(), currentStartAt, currentEndAt);
+            BigDecimal previous = incomeEventRepository.sumIncomeAmountByUserIdAndEventTimeBetween(profile.getUserId(), previousStartAt, previousEndAt);
+            currentTotal = currentTotal.add(current);
+            previousTotal = previousTotal.add(previous);
+            items.add(new TeamWeeklyIncomeItem(profile.getUserId(), profile.getInviteCode(), profile.isEffectiveUser(), current, previous));
+        }
+        return new TeamWeeklyIncomeResponse(userId, weekLabel(currentStart), weekLabel(previousStart), currentTotal, previousTotal, items);
     }
 
     public RewardListResponse getRewardDetails(Long userId, RewardStatus status) {

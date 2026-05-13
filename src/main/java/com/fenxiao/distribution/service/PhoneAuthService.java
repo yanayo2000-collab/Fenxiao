@@ -1,5 +1,6 @@
 package com.fenxiao.distribution.service;
 
+import com.fenxiao.common.api.TooManyRequestsException;
 import com.fenxiao.distribution.api.dto.PhoneLoginRequest;
 import com.fenxiao.distribution.entity.PhoneVerificationCode;
 import com.fenxiao.distribution.repository.PhoneVerificationCodeRepository;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.security.SecureRandom;
 import java.util.Locale;
 
 @Service
@@ -18,32 +20,44 @@ import java.util.Locale;
 public class PhoneAuthService {
     private static final String PURPOSE = "LOGIN";
     private static final int MAX_ATTEMPTS = 5;
+    private static final int TTL_MINUTES = 10;
     private final PhoneVerificationCodeRepository codeRepository;
     private final UserDistributionProfileRepository profileRepository;
     private final DistributionBindingService bindingService;
+    private final SmsSender smsSender;
     private final Clock clock;
+    private final SecureRandom random = new SecureRandom();
 
     @Autowired
     public PhoneAuthService(PhoneVerificationCodeRepository codeRepository,
                             UserDistributionProfileRepository profileRepository,
-                            DistributionBindingService bindingService) {
-        this(codeRepository, profileRepository, bindingService, Clock.systemUTC());
+                            DistributionBindingService bindingService,
+                            SmsSender smsSender) {
+        this(codeRepository, profileRepository, bindingService, smsSender, Clock.systemUTC());
     }
 
     PhoneAuthService(PhoneVerificationCodeRepository codeRepository,
                      UserDistributionProfileRepository profileRepository,
                      DistributionBindingService bindingService,
+                     SmsSender smsSender,
                      Clock clock) {
         this.codeRepository = codeRepository;
         this.profileRepository = profileRepository;
         this.bindingService = bindingService;
+        this.smsSender = smsSender;
         this.clock = clock;
     }
 
     public String issueCode(String phoneNumber) {
         String normalizedPhone = normalizePhone(phoneNumber);
-        String code = "246810";
-        codeRepository.save(PhoneVerificationCode.issue(normalizedPhone, code, PURPOSE, LocalDateTime.now(clock).plusMinutes(10)));
+        LocalDateTime now = LocalDateTime.now(clock);
+        codeRepository.findTopByPhoneNumberAndPurposeAndConsumedFalseAndExpiresAtAfterOrderByIdDesc(normalizedPhone, PURPOSE, now)
+                .ifPresent(existing -> {
+                    throw new TooManyRequestsException("phone verification code already sent, please retry later");
+                });
+        String code = String.format("%06d", random.nextInt(1_000_000));
+        codeRepository.save(PhoneVerificationCode.issue(normalizedPhone, code, PURPOSE, now.plusMinutes(TTL_MINUTES)));
+        smsSender.sendVerificationCode(normalizedPhone, code, TTL_MINUTES);
         return code;
     }
 

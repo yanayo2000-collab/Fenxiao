@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { correctAdminOwnership, createAdminSession, createWithdrawRequest, getAdminGuildConfigs, getAdminGuildWeeklyReport, getAdminOwnership, getAdminWithdrawRequests, refreshAdminLinkyEligibility, refreshAdminLinkyEligibilityBatch, saveAdminGuildConfig } from './api'
+import { approveAdminWithdrawRequest, correctAdminOwnership, createAdminSession, createWithdrawRequest, getAdminGuildConfigs, getAdminGuildWeeklyReport, getAdminOwnership, getAdminWithdrawRequests, getDistributionRewardSummary, getDistributionTeamWeeklyIncome, getWithdrawHistory, issuePhoneCode, phoneLogin, refreshAdminLinkyEligibility, refreshAdminLinkyEligibilityBatch, rejectAdminWithdrawRequest, saveAdminGuildConfig } from './api'
 
 describe('ownership admin api', () => {
   afterEach(() => {
@@ -119,6 +119,153 @@ describe('ownership admin api', () => {
       headers: expect.objectContaining({
         'Content-Type': 'application/json',
         'X-Admin-Session': 'session-token',
+      }),
+    }))
+  })
+
+  it('requests user withdraw history with user session token and pagination filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [], total: 0, page: 0, size: 10 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getWithdrawHistory(1001, 'user-token', { status: 'PENDING_REVIEW', page: 0, size: 10 })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/distribution/withdraw-requests/1001?status=PENDING_REVIEW&page=0&size=10', expect.objectContaining({
+      headers: expect.objectContaining({
+        'Content-Type': 'application/json',
+        'X-Distribution-Token': 'user-token',
+      }),
+    }))
+  })
+
+  it('requests direct team weekly income with user session token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ userId: 1001, currentWeekTeamIncome: 200, previousWeekTeamIncome: 50, items: [] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getDistributionTeamWeeklyIncome(1001, 'user-token')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/distribution/team/1001/weekly-income', expect.objectContaining({
+      headers: expect.objectContaining({
+        'Content-Type': 'application/json',
+        'X-Distribution-Token': 'user-token',
+      }),
+    }))
+  })
+
+  it('requests reward tier summary with user session token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ userId: 1001, tiers: [] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getDistributionRewardSummary(1001, 'user-token')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/distribution/rewards/1001/summary', expect.objectContaining({
+      headers: expect.objectContaining({
+        'Content-Type': 'application/json',
+        'X-Distribution-Token': 'user-token',
+      }),
+    }))
+  })
+
+  it('requests a phone verification code for user login', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ phoneNumber: '+6281234567890', ttlMinutes: 10 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await issuePhoneCode('+6281234567890')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/distribution/auth/phone-codes', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ phoneNumber: '+6281234567890' }),
+    }))
+  })
+
+  it('logs in with phone code and optional invite profile fields', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ userId: 1001, inviteCode: 'ABCD1234', accessToken: 'user-token' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await phoneLogin({
+      phoneNumber: '+6281234567890',
+      verificationCode: '246810',
+      inviteCode: 'ABCD1234',
+      countryCode: 'ID',
+      languageCode: 'id',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/distribution/auth/phone-login', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        phoneNumber: '+6281234567890',
+        verificationCode: '246810',
+        inviteCode: 'ABCD1234',
+        countryCode: 'ID',
+        languageCode: 'id',
+      }),
+    }))
+  })
+
+  it('posts withdraw approval with operator audit payload', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ requestNo: 'WD-001', requestStatus: 'PAID_OUT' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await approveAdminWithdrawRequest('session-token', 'WD-001', {
+      operatorId: 90001,
+      operatorRole: 'WITHDRAW_OPERATOR',
+      remark: 'manual payout done',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith('/admin/distribution/withdraw-requests/WD-001/approve', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        'Content-Type': 'application/json',
+        'X-Admin-Session': 'session-token',
+      }),
+      body: JSON.stringify({
+        operatorId: 90001,
+        operatorRole: 'WITHDRAW_OPERATOR',
+        remark: 'manual payout done',
+      }),
+    }))
+  })
+
+  it('posts withdraw rejection with operator audit payload', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ requestNo: 'WD-002', requestStatus: 'REJECTED' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await rejectAdminWithdrawRequest('session-token', 'WD-002', {
+      operatorId: 90002,
+      operatorRole: 'WITHDRAW_OPERATOR',
+      remark: 'bank account mismatch',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith('/admin/distribution/withdraw-requests/WD-002/reject', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        'Content-Type': 'application/json',
+        'X-Admin-Session': 'session-token',
+      }),
+      body: JSON.stringify({
+        operatorId: 90002,
+        operatorRole: 'WITHDRAW_OPERATOR',
+        remark: 'bank account mismatch',
       }),
     }))
   })

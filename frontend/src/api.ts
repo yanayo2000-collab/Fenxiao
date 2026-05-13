@@ -64,6 +64,14 @@ export type DistributionHomeResponse = {
   frozenReward: number
   availableReward: number
   riskHoldReward: number
+  directInvitedUsers: number
+  secondLevelInvitedUsers: number
+  thirdLevelInvitedUsers: number
+  totalTeamUsers: number
+  directEffectiveUsers: number
+  secondLevelEffectiveUsers: number
+  thirdLevelEffectiveUsers: number
+  totalEffectiveUsers: number
 }
 
 export type TeamMemberItem = {
@@ -81,6 +89,23 @@ export type TeamListResponse = {
   total: number
 }
 
+export type TeamWeeklyIncomeItem = {
+  userId: number
+  inviteCode: string
+  effectiveUser: boolean
+  currentWeekIncome: number
+  previousWeekIncome: number
+}
+
+export type TeamWeeklyIncomeResponse = {
+  userId: number
+  currentWeek: string
+  previousWeek: string
+  currentWeekTeamIncome: number
+  previousWeekTeamIncome: number
+  items: TeamWeeklyIncomeItem[]
+}
+
 export type RewardListItem = {
   beneficiaryUserId: number
   sourceUserId: number
@@ -95,6 +120,32 @@ export type RewardListResponse = {
   total: number
   page: number
   size: number
+}
+
+export type RewardTierSummaryItem = {
+  rewardLevel: number
+  businessLevelLabel: string
+  rewardCount: number
+  rewardAmount: number
+}
+
+export type RewardSummaryResponse = {
+  userId: number
+  tiers: RewardTierSummaryItem[]
+}
+
+export type PhoneCodeResponse = {
+  phoneNumber: string
+  verificationCode?: string
+  ttlMinutes: number
+}
+
+export type PhoneLoginRequest = {
+  phoneNumber: string
+  verificationCode: string
+  inviteCode?: string
+  countryCode?: string
+  languageCode?: string
 }
 
 export type RiskEventListItem = {
@@ -247,6 +298,13 @@ export type AdminWithdrawRequestItem = {
   requestedAt: string
 }
 
+export type WithdrawHistoryListResponse = {
+  items: WithdrawRequestResponse[]
+  total: number
+  page: number
+  size: number
+}
+
 export type AdminWithdrawRequestListResponse = {
   items: AdminWithdrawRequestItem[]
   total: number
@@ -346,6 +404,20 @@ export function issueInviteCode(payload: IssueInviteCodeRequest) {
   })
 }
 
+export function issuePhoneCode(phoneNumber: string) {
+  return request<PhoneCodeResponse>('/api/distribution/auth/phone-codes', {
+    method: 'POST',
+    body: JSON.stringify({ phoneNumber }),
+  })
+}
+
+export function phoneLogin(payload: PhoneLoginRequest) {
+  return request<ProfileResponse>('/api/distribution/auth/phone-login', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function createAdminSession(password: string) {
   return request<AdminSessionResponse>('/admin/auth/session', {
     method: 'POST',
@@ -369,8 +441,24 @@ export function getDistributionTeam(userId: number, accessToken: string) {
   })
 }
 
+export function getDistributionTeamWeeklyIncome(userId: number, accessToken: string) {
+  return request<TeamWeeklyIncomeResponse>(`/api/distribution/team/${userId}/weekly-income`, {
+    headers: {
+      'X-Distribution-Token': accessToken,
+    },
+  })
+}
+
 export function getDistributionRewards(userId: number, accessToken: string) {
   return request<RewardListResponse>(`/api/distribution/rewards/${userId}`, {
+    headers: {
+      'X-Distribution-Token': accessToken,
+    },
+  })
+}
+
+export function getDistributionRewardSummary(userId: number, accessToken: string) {
+  return request<RewardSummaryResponse>(`/api/distribution/rewards/${userId}/summary`, {
     headers: {
       'X-Distribution-Token': accessToken,
     },
@@ -380,6 +468,23 @@ export function getDistributionRewards(userId: number, accessToken: string) {
 export function createWithdrawRequest(userId: number, accessToken: string) {
   return request<WithdrawRequestResponse>(`/api/distribution/withdraw-requests/${userId}`, {
     method: 'POST',
+    headers: {
+      'X-Distribution-Token': accessToken,
+    },
+  })
+}
+
+export function getWithdrawHistory(userId: number, accessToken: string, filters?: {
+  status?: string
+  page?: number
+  size?: number
+}) {
+  const params = new URLSearchParams()
+  if (filters?.status) params.set('status', filters.status)
+  if (filters?.page !== undefined) params.set('page', String(filters.page))
+  if (filters?.size !== undefined) params.set('size', String(filters.size))
+  const query = params.toString()
+  return request<WithdrawHistoryListResponse>(`/api/distribution/withdraw-requests/${userId}${query ? `?${query}` : ''}`, {
     headers: {
       'X-Distribution-Token': accessToken,
     },
@@ -559,6 +664,32 @@ export function getAdminWithdrawRequests(adminSessionToken: string, filters?: {
     headers: {
       'X-Admin-Session': adminSessionToken,
     },
+  })
+}
+
+export type WithdrawAdminActionPayload = {
+  operatorId?: number
+  operatorRole?: string
+  remark?: string
+}
+
+export function approveAdminWithdrawRequest(adminSessionToken: string, requestNo: string, payload: WithdrawAdminActionPayload) {
+  return request<AdminWithdrawRequestItem>(`/admin/distribution/withdraw-requests/${encodeURIComponent(requestNo)}/approve`, {
+    method: 'POST',
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function rejectAdminWithdrawRequest(adminSessionToken: string, requestNo: string, payload: WithdrawAdminActionPayload) {
+  return request<AdminWithdrawRequestItem>(`/admin/distribution/withdraw-requests/${encodeURIComponent(requestNo)}/reject`, {
+    method: 'POST',
+    headers: {
+      'X-Admin-Session': adminSessionToken,
+    },
+    body: JSON.stringify(payload),
   })
 }
 

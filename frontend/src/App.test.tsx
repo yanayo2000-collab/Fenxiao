@@ -25,6 +25,14 @@ function createStorage(): FakeStorage {
   }
 }
 
+const adminTestSession = {
+  sessionToken: 'admin-token',
+  expiresAt: '2099-01-01T00:00:00Z',
+  username: 'operator',
+  displayName: '运营账号',
+  role: 'ADMIN',
+}
+
 describe('App external landing pages', () => {
   beforeEach(() => {
     const localStorage = createStorage()
@@ -90,13 +98,35 @@ describe('ConsoleApp admin core distribution workspace', () => {
     })
   })
 
-  it('renders a module-based admin console without a separate user-workbench mode', () => {
+  it('renders login as the first admin page before any backend workspace is visible', () => {
     const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+
+    expect(markup).toContain('admin-login-page')
+    expect(markup).toContain('admin-login-shell')
+    expect(markup).toContain('分销运营后台')
+    expect(markup).toContain('后台账号')
+    expect(markup).toContain('登录密码')
+    expect(markup).toContain('type="password"')
+    expect(markup).not.toContain('显示密码')
+    expect(markup).toContain('进入后台')
+    expect(markup).not.toContain('admin-login-brand-panel')
+    expect(markup).not.toContain('Fx')
+    expect(markup).not.toContain('渠道入口')
+    expect(markup).not.toContain('登录后统一处理')
+    expect(markup).not.toContain('admin-sidebar')
+    expect(markup).not.toContain('分销概览')
+  })
+
+  it('renders a module-based admin console without a separate user-workbench mode', () => {
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" initialAdminSession={adminTestSession} />)
 
     expect(markup).toContain('admin-console-page')
     expect(markup).toContain('admin-sidebar')
     expect(markup).toContain('admin-workspace-shell')
-    expect(markup).toContain('进入运营后台')
+    expect(markup).toContain('后台会话已建立')
+    expect(markup).not.toContain('后台账号')
+    expect(markup).not.toContain('登录密码')
+    expect(markup).not.toContain('后台登录口令')
     expect(markup).toContain('分销概览')
     expect(markup).toContain('渠道入口')
     expect(markup).toContain('绑定关系')
@@ -121,7 +151,7 @@ describe('ConsoleApp admin core distribution workspace', () => {
         removeEventListener: () => undefined,
       },
     })
-    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" initialAdminSession={adminTestSession} />)
 
     expect(markup).toContain('渠道入口管理')
     expect(markup).toContain('入口域名')
@@ -197,7 +227,7 @@ describe('Earnings landing page', () => {
 
   it('renders a clear linky eligibility verification workspace in admin mode', () => {
     window.location.hash = '#admin-bindings'
-    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" initialAdminSession={adminTestSession} />)
 
     expect(markup).toContain('Linky 资格核验')
     expect(markup).toContain('Linky 账号')
@@ -211,7 +241,7 @@ describe('Earnings landing page', () => {
 
   it('renders a guild weekly report workspace in admin mode', () => {
     window.location.hash = '#admin-settings'
-    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" initialAdminSession={adminTestSession} />)
 
     expect(markup).toContain('公会周报')
     expect(markup).toContain('公会 ID')
@@ -221,7 +251,7 @@ describe('Earnings landing page', () => {
 
   it('renders a guild config management workspace in admin mode', () => {
     window.location.hash = '#admin-settings'
-    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" initialAdminSession={adminTestSession} />)
 
     expect(markup).toContain('公会配置管理')
     expect(markup).toContain('查询公会配置')
@@ -234,19 +264,18 @@ describe('Earnings landing page', () => {
 
   it('renders a finished withdraw approval workspace with operator audit controls in admin mode', () => {
     window.location.hash = '#admin-rewards'
-    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" initialAdminSession={adminTestSession} />)
 
     expect(markup).toContain('提现申请管理')
-    expect(markup).toContain('审批操作人 ID')
-    expect(markup).toContain('操作角色')
+    expect(markup).not.toContain('审批操作人 ID')
+    expect(markup).not.toContain('操作角色')
     expect(markup).toContain('审批备注')
-    expect(markup).toContain('填写操作人后审批。')
-    expect(markup).toContain('操作')
+    expect(markup).toContain('当前登录账号用于审批留痕。')
   })
 
   it('renders channel entry management instead of a static localhost link list', () => {
     window.location.hash = '#admin-channel-entries'
-    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" initialAdminSession={adminTestSession} />)
 
     expect(markup).toContain('渠道入口管理')
     expect(markup).toContain('渠道标识')
@@ -262,7 +291,7 @@ describe('Earnings landing page', () => {
 
   it('renders invite code as a required field for profile onboarding in admin mode', () => {
     window.location.hash = '#admin-settings'
-    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" initialAdminSession={adminTestSession} />)
 
     expect(markup).toContain('邀请码（必填，首批运营请填写初始邀请码）')
     expect(markup).toContain('required=""')

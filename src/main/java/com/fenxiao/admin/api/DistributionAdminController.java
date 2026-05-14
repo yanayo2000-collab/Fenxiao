@@ -134,7 +134,7 @@ public class DistributionAdminController {
                                                  @RequestParam(required = false) String product,
                                                  @Valid @RequestBody ManualRelationAdjustmentRequest request,
                                                  HttpServletRequest httpServletRequest) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
         return relationAdjustmentService.adjustRelation(userId, request.level1InviterId(), request.note(), httpServletRequest.getRemoteAddr(), product);
     }
 
@@ -152,7 +152,7 @@ public class DistributionAdminController {
                                                     @PathVariable Long userId,
                                                     @Valid @RequestBody ManualOwnershipCorrectionRequest request,
                                                     HttpServletRequest httpServletRequest) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
         return ownershipAdminService.correctOwnership(userId, request.productCode(), request.note(), httpServletRequest.getRemoteAddr());
     }
 
@@ -190,7 +190,7 @@ public class DistributionAdminController {
                                                   @PathVariable Long riskEventId,
                                                   @Valid @RequestBody RiskEventActionRequest request,
                                                   HttpServletRequest httpServletRequest) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
         return riskEventActionService.applyAction(riskEventId, request.action(), request.note(), httpServletRequest.getRemoteAddr());
     }
 
@@ -241,7 +241,7 @@ public class DistributionAdminController {
     public LinkyEligibilityCheckResponse refreshLinkyEligibility(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
                                                                  @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                                  @PathVariable String linkyAccount) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
         LinkyAccountBinding binding = linkyRegistrationEligibilityService.refreshEligibilityFromProbe(linkyAccount);
         return toLinkyEligibilityCheckResponse(binding);
     }
@@ -250,7 +250,7 @@ public class DistributionAdminController {
     public LinkyEligibilityCheckResponse upsertLinkyEligibility(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
                                                                 @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                                 @RequestBody LinkyEligibilityCheckRequest request) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
         LinkyAccountBinding binding = switch ((request.result() == null ? "" : request.result().trim().toUpperCase())) {
             case "MATCHED_OURS" -> linkyRegistrationEligibilityService.markEligible(request.linkyAccount(), request.guildId(), request.guildName(), 0L, request.remark());
             case "JOINED_OTHER_GUILD" -> linkyRegistrationEligibilityService.markJoinedOtherGuild(request.linkyAccount(), request.guildId(), request.guildName(), 0L, request.remark());
@@ -264,7 +264,7 @@ public class DistributionAdminController {
     @PostMapping("/linky-eligibility-checks/batch-refresh")
     public LinkyBatchRefreshResponse batchRefreshLinkyEligibility(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
                                                                   @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
         LinkyRegistrationEligibilityService.BatchRefreshResult result = linkyRegistrationEligibilityService.refreshAllEligibility();
         var failures = result.failures().stream()
                 .map(failure -> new LinkyBatchRefreshResponse.FailureItem(
@@ -288,7 +288,7 @@ public class DistributionAdminController {
     public GuildConfigResponse upsertGuildConfig(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
                                                  @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                  @RequestBody GuildConfigRequest request) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
         var c = guildAccountConfigService.upsert(request);
         return new GuildConfigResponse(c.getId(), c.getProductCode(), c.getInviterUserId(), c.getGuildId(), c.getGuildName(), c.getGuildInviteCode(), c.isEnabled());
     }
@@ -340,11 +340,11 @@ public class DistributionAdminController {
                                                               @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                               @PathVariable String requestNo,
                                                               @RequestBody(required = false) WithdrawRequestActionRequest request) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        var principal = distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
         WithdrawRequest withdrawRequest = withdrawRequestService.approveRequest(
                 requestNo,
-                request == null ? null : request.operatorId(),
-                request == null ? null : request.operatorRole(),
+                principal.accountId(),
+                principal.role(),
                 request == null ? null : request.remark());
         return toWithdrawRequestItemResponse(withdrawRequest);
     }
@@ -354,11 +354,11 @@ public class DistributionAdminController {
                                                              @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                              @PathVariable String requestNo,
                                                              @RequestBody(required = false) WithdrawRequestActionRequest request) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        var principal = distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
         WithdrawRequest withdrawRequest = withdrawRequestService.rejectRequest(
                 requestNo,
-                request == null ? null : request.operatorId(),
-                request == null ? null : request.operatorRole(),
+                principal.accountId(),
+                principal.role(),
                 request == null ? null : request.remark());
         return toWithdrawRequestItemResponse(withdrawRequest);
     }

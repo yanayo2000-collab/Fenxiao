@@ -1,5 +1,7 @@
 package com.fenxiao.admin.api;
 
+import com.fenxiao.admin.entity.AdminAccount;
+import com.fenxiao.admin.repository.AdminAccountRepository;
 import com.fenxiao.audit.repository.OperationAuditLogRepository;
 import com.fenxiao.distribution.service.DistributionBindingService;
 import com.fenxiao.distribution.repository.LinkyAccountBindingRepository;
@@ -12,6 +14,7 @@ import com.fenxiao.reward.service.RewardCalculationService;
 import com.fenxiao.rule.entity.RewardRule;
 import com.fenxiao.rule.repository.RewardRuleRepository;
 import com.fenxiao.user.entity.UserDistributionProfile;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -63,13 +66,109 @@ class DistributionAdminControllerTest {
     @Autowired
     private LinkyAccountBindingRepository linkyAccountBindingRepository;
 
+    @Autowired
+    private AdminAccountRepository adminAccountRepository;
+
     @MockBean
     private LinkyGuildProbeClient linkyGuildProbeClient;
+
+    @BeforeEach
+    void seedDefaultAdminAccount() {
+        adminAccountRepository.findByUsername("default_admin")
+                .orElseGet(() -> adminAccountRepository.save(AdminAccount.create("default_admin", "Default Admin", "super_admin", "{plain}test-admin-token", true)));
+    }
 
     @Test
     void shouldReturnForbiddenWithoutAdminCredentials() throws Exception {
         mockMvc.perform(get("/admin/distribution/rewards")
                         .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void shouldCreateAdminSessionWithUsernamePasswordAndReturnIdentity() throws Exception {
+        adminAccountRepository.save(AdminAccount.create("ops_admin", "Ops Admin", "super_admin", "{plain}strong-password", true));
+
+        mockMvc.perform(post("/admin/auth/session")
+                        .with(request -> {
+                            request.setRemoteAddr("10.0.0.1");
+                            return request;
+                        })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "ops_admin",
+                                  "password": "strong-password"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionToken").isString())
+                .andExpect(jsonPath("$.expiresAt").isString())
+                .andExpect(jsonPath("$.username").value("ops_admin"))
+                .andExpect(jsonPath("$.displayName").value("Ops Admin"))
+                .andExpect(jsonPath("$.role").value("super_admin"));
+    }
+
+    @Test
+    void shouldRejectAdminLoginWithoutUsername() throws Exception {
+        adminAccountRepository.save(AdminAccount.create("ops_admin_no_legacy", "Ops Admin", "super_admin", "{plain}strong-password", true));
+
+        mockMvc.perform(post("/admin/auth/session")
+                        .with(request -> {
+                            request.setRemoteAddr("10.0.0.11");
+                            return request;
+                        })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "password": "strong-password"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void shouldForbidOperatorFromChangingGuildConfig() throws Exception {
+        adminAccountRepository.save(AdminAccount.create("ops_operator", "Ops Operator", "operator", "{plain}operator-password", true));
+
+        String response = mockMvc.perform(post("/admin/auth/session")
+                        .with(request -> {
+                            request.setRemoteAddr("10.0.0.12");
+                            return request;
+                        })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "ops_operator",
+                                  "password": "operator-password"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("operator"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        String sessionToken = response.replaceAll(".*\"sessionToken\":\"([^\"]+)\".*", "$1");
+
+        mockMvc.perform(get("/admin/distribution/guild-configs")
+                        .header("X-Admin-Session", sessionToken)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/admin/distribution/guild-configs")
+                        .header("X-Admin-Session", sessionToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "productCode": "LINKY",
+                                  "guildId": "G-OPERATOR",
+                                  "guildName": "Operator Guild",
+                                  "guildInviteCode": "JOIN-OP",
+                                  "enabled": true
+                                }
+                                """))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
@@ -84,6 +183,7 @@ class DistributionAdminControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "username": "default_admin",
                                   "password": "test-admin-token"
                                 }
                                 """))
@@ -102,6 +202,7 @@ class DistributionAdminControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "username": "default_admin",
                                   "password": "wrong-token"
                                 }
                                 """))
@@ -120,6 +221,7 @@ class DistributionAdminControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
                                     {
+                                      "username": "default_admin",
                                       "password": "wrong-token"
                                     }
                                     """))
@@ -135,6 +237,7 @@ class DistributionAdminControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "username": "default_admin",
                                   "password": "wrong-token"
                                 }
                                 """))
@@ -161,6 +264,7 @@ class DistributionAdminControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "username": "default_admin",
                                   "password": "test-admin-token"
                                 }
                                 """))
@@ -190,6 +294,7 @@ class DistributionAdminControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "username": "default_admin",
                                   "password": "test-admin-token"
                                 }
                                 """))
@@ -221,6 +326,7 @@ class DistributionAdminControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "username": "default_admin",
                                   "password": "test-admin-token"
                                 }
                                 """))
@@ -329,8 +435,9 @@ class DistributionAdminControllerTest {
         org.assertj.core.api.Assertions.assertThat(operationAuditLogRepository.findAll())
                 .filteredOn(log -> "withdraw_request".equals(log.getModuleName()) && "APPROVE".equals(log.getActionName()))
                 .anySatisfy(log -> {
-                    org.assertj.core.api.Assertions.assertThat(log.getOperatorId()).isEqualTo(90001L);
-                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("WITHDRAW_OPERATOR");
+                    Long operatorAccountId = adminAccountRepository.findByUsername("default_admin").orElseThrow().getId();
+                    org.assertj.core.api.Assertions.assertThat(log.getOperatorId()).isEqualTo(operatorAccountId);
+                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("super_admin");
                     org.assertj.core.api.Assertions.assertThat(log.getRemark()).isEqualTo("manual payout done");
                 });
     }
@@ -370,8 +477,9 @@ class DistributionAdminControllerTest {
         org.assertj.core.api.Assertions.assertThat(operationAuditLogRepository.findAll())
                 .filteredOn(log -> "withdraw_request".equals(log.getModuleName()) && "REJECT".equals(log.getActionName()))
                 .anySatisfy(log -> {
-                    org.assertj.core.api.Assertions.assertThat(log.getOperatorId()).isEqualTo(90002L);
-                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("WITHDRAW_OPERATOR");
+                    Long operatorAccountId = adminAccountRepository.findByUsername("default_admin").orElseThrow().getId();
+                    org.assertj.core.api.Assertions.assertThat(log.getOperatorId()).isEqualTo(operatorAccountId);
+                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("super_admin");
                     org.assertj.core.api.Assertions.assertThat(log.getRemark()).isEqualTo("bank account mismatch");
                 });
     }
@@ -392,6 +500,7 @@ class DistributionAdminControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "username": "default_admin",
                                   "password": "test-admin-token"
                                 }
                                 """))

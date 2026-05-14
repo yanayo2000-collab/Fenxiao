@@ -52,6 +52,9 @@ export type IssueInviteCodeResponse = {
 export type AdminSessionResponse = {
   sessionToken: string
   expiresAt: string
+  username: string
+  displayName: string
+  role: 'super_admin' | 'admin' | 'operator' | string
 }
 
 export type DistributionHomeResponse = {
@@ -418,10 +421,10 @@ export function phoneLogin(payload: PhoneLoginRequest) {
   })
 }
 
-export function createAdminSession(password: string) {
+export function createAdminSession(payload: { username: string; password: string }) {
   return request<AdminSessionResponse>('/admin/auth/session', {
     method: 'POST',
-    body: JSON.stringify({ password }),
+    body: JSON.stringify(payload),
   })
 }
 

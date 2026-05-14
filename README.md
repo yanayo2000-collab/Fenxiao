@@ -45,14 +45,21 @@ mvn spring-boot:run
 
 ### 2. 启动后端（本地演示 / H2）
 ```bash
-ADMIN_TOKEN=change-this-admin-token \
-INTERNAL_DISTRIBUTION_TOKEN=change-this-internal-token \
+ADMIN_TOKEN=change...oken \
+ADMIN_BOOTSTRAP_USERNAME=admin \
+ADMIN_BOOTSTRAP_PASSWORD=admin123456 \
+INTERNAL_DISTRIBUTION_TOKEN=change...oken \
 PROFILE_CREATE_TOKEN=change-this-profile-create-token \
 mvn spring-boot:run -Dspring-boot.run.arguments=--spring.profiles.active=local
 ```
 
 默认后端地址：
 - `http://localhost:8080`
+
+本地演示默认后台账号：
+- 账号：`admin`
+- 密码：`admin123456`
+- 如需覆盖，启动时传入 `ADMIN_BOOTSTRAP_USERNAME` / `ADMIN_BOOTSTRAP_PASSWORD`。
 
 ### 3. 启动前端
 ```bash

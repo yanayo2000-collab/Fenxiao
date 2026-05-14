@@ -363,6 +363,6 @@ describe('ownership admin api', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(createAdminSession('wrong-token')).rejects.toThrow('admin login invalid')
+    await expect(createAdminSession({ username: 'ops_admin', password: 'wrong-token' })).rejects.toThrow('admin login invalid')
   })
 })

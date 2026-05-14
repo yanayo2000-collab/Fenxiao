@@ -23,6 +23,6 @@ public class AdminAuthController {
     @PostMapping("/session")
     public AdminSessionResponse createSession(@Valid @RequestBody AdminLoginRequest request,
                                               HttpServletRequest httpServletRequest) {
-        return adminSessionService.createSession(request.password(), httpServletRequest.getRemoteAddr());
+        return adminSessionService.createSession(request.username(), request.password(), httpServletRequest.getRemoteAddr());
     }
 }

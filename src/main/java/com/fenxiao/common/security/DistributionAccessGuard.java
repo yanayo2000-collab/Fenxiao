@@ -1,5 +1,6 @@
 package com.fenxiao.common.security;
 
+import com.fenxiao.admin.service.AdminPermission;
 import com.fenxiao.admin.service.AdminSessionService;
 import com.fenxiao.common.api.ForbiddenException;
 import com.fenxiao.user.entity.UserDistributionProfile;
@@ -122,7 +123,15 @@ public class DistributionAccessGuard {
     }
 
     public void assertAdminAccess(String token, String sessionToken) {
-        adminSessionService.assertSession(sessionToken);
+        adminSessionService.assertPermission(sessionToken, AdminPermission.READ);
+    }
+
+    public AdminSessionService.AdminPrincipal assertAdminWriteAccess(String token, String sessionToken) {
+        return adminSessionService.assertPermission(sessionToken, AdminPermission.WRITE);
+    }
+
+    public AdminSessionService.AdminPrincipal assertAdminAccountManageAccess(String token, String sessionToken) {
+        return adminSessionService.assertPermission(sessionToken, AdminPermission.ACCOUNT_MANAGE);
     }
 
     public void assertAdminToken(String token) {

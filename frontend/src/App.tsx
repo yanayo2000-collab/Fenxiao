@@ -88,6 +88,9 @@ type SessionState = {
 type AdminAuthState = {
   sessionToken: string
   expiresAt: string
+  username: string
+  displayName: string
+  role: string
 }
 
 type AdminProductKey = 'ALL' | 'LINKY'
@@ -131,6 +134,7 @@ type PendingRelationChange = {
 
 type ConsoleAppProps = {
   initialViewMode?: 'user' | 'admin'
+  initialAdminSession?: AdminAuthState | null
 }
 
 type SelectedLinkyDrawer =
@@ -192,10 +196,11 @@ function saveUserSession(profile: ProfileResponse) {
   return session
 }
 
-function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
+function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: ConsoleAppProps) {
   void initialViewMode
   const [session, setSession] = useState<SessionState | null>(() => loadJsonState<SessionState>(STORAGE_KEY))
-  const [adminSession, setAdminSession] = useState<AdminAuthState | null>(null)
+  const [adminSession, setAdminSession] = useState<AdminAuthState | null>(initialAdminSession)
+  const [adminUsername, setAdminUsername] = useState('')
   const [adminPassword, setAdminPassword] = useState('')
   const [adminProduct, setAdminProduct] = useState<AdminProductKey>('ALL')
   const [activeAdminSection, setActiveAdminSection] = useState<AdminSectionKey>(() => resolveAdminSectionFromHash(typeof window !== 'undefined' ? window.location.hash : undefined))
@@ -242,8 +247,6 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
     size: '10',
   })
   const [adminWithdrawAction, setAdminWithdrawAction] = useState({
-    operatorId: '',
-    operatorRole: 'WITHDRAW_OPERATOR',
     remark: '',
   })
   const [adminWithdrawActionLoadingNo, setAdminWithdrawActionLoadingNo] = useState<string | null>(null)
@@ -422,18 +425,11 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
 
   async function handleAdminWithdrawAction(requestNo: string, action: 'approve' | 'reject') {
     if (!adminSession) return
-    const operatorId = Number(adminWithdrawAction.operatorId)
-    if (!operatorId || Number.isNaN(operatorId)) {
-      setError('请先填写审批操作人 ID')
-      return
-    }
     setAdminWithdrawActionLoadingNo(requestNo)
     setError('')
     setAdminWithdrawActionMessage('')
     try {
       const payload = {
-        operatorId,
-        operatorRole: adminWithdrawAction.operatorRole.trim() || 'WITHDRAW_OPERATOR',
         remark: adminWithdrawAction.remark.trim() || (action === 'approve' ? '运营确认已人工发放' : '运营拒绝提现申请'),
       }
       if (action === 'approve') {
@@ -598,7 +594,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
     setLoading(true)
     setError('')
     try {
-      const nextSession = await createAdminSession(adminPassword)
+      const nextSession = await createAdminSession({ username: adminUsername.trim(), password: adminPassword })
       setAdminSession(nextSession)
       setAdminPassword('')
       const [overviewResult, auditResult] = await Promise.all([
@@ -1070,7 +1066,7 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
     {
       label: '后台状态',
       value: adminSession ? '已进入后台' : '待进入',
-      hint: adminSession ? `到期 ${formatDateTime(adminSession.expiresAt)}` : '拿到口令后先进入后台，后面的概览、关系和收益才会联动。',
+      hint: adminSession ? `${adminSession.displayName} · ${adminSession.role}` : '使用后台账号登录后，概览、关系和收益会联动。',
     },
     {
       label: '当前产品视角',
@@ -1198,6 +1194,39 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
     canFreezeRisk,
     canUnfreezeRisk,
   ]
+
+  if (!adminSession) {
+    return (
+      <div className="admin-login-page">
+        <section className="admin-login-shell">
+          <div className="admin-login-form-panel">
+            <div className="admin-login-form-head">
+              <h1>分销运营后台</h1>
+            </div>
+
+            {error ? (
+              <section className="alert-banner error admin-login-alert">
+                <strong>登录失败</strong>
+                <span>{error}</span>
+              </section>
+            ) : null}
+
+            <form className="admin-login-form" onSubmit={handleAdminLogin}>
+              <label>
+                后台账号
+                <input value={adminUsername} onChange={(e) => setAdminUsername(e.target.value)} placeholder="请输入后台账号" autoComplete="username" autoFocus />
+              </label>
+              <label>
+                登录密码
+                <input className="admin-password-input" type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="请输入登录密码" autoComplete="current-password" />
+              </label>
+              <button className="primary-btn admin-login-submit" type="submit" disabled={loading || !adminUsername.trim() || !adminPassword.trim()}>进入后台</button>
+            </form>
+          </div>
+        </section>
+      </div>
+    )
+  }
 
   return (
     <div className="page-shell admin-console-page">
@@ -1375,16 +1404,21 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                 {adminSession ? (
                   <InfoCard title="后台会话已建立" tone="success">
                     <InfoRow label="登录状态" value="已登录" />
+                    <InfoRow label="当前账号" value={`${adminSession.displayName}（${adminSession.username}）`} />
+                    <InfoRow label="角色" value={adminSession.role} />
                     <InfoRow label="会话到期" value={formatDateTime(adminSession.expiresAt)} />
-                    <InfoRow label="安全说明" value="后台会话仅保存在当前页面内存，刷新页面后需重新登录。" />
                   </InfoCard>
                 ) : (
-                  <form className="grid-form compact-form single-line wide-line" onSubmit={handleAdminLogin}>
+                  <form className="grid-form compact-form exception-filter-grid" onSubmit={handleAdminLogin}>
                     <label>
-                      后台登录口令
-                      <input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="请输入后台登录口令" />
+                      后台账号
+                      <input value={adminUsername} onChange={(e) => setAdminUsername(e.target.value)} placeholder="请输入后台账号" autoComplete="username" />
                     </label>
-                    <button className="primary-btn" type="submit" disabled={loading || !adminPassword.trim()}>登录后台</button>
+                    <label>
+                      登录密码
+                      <input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="请输入登录密码" autoComplete="current-password" />
+                    </label>
+                    <button className="primary-btn" type="submit" disabled={loading || !adminUsername.trim() || !adminPassword.trim()}>登录后台</button>
                   </form>
                 )}
               </PanelSection>
@@ -1536,19 +1570,11 @@ function ConsoleApp({ initialViewMode = 'user' }: ConsoleAppProps) {
                           </select>
                         </label>
                         <label>
-                          审批操作人 ID
-                          <input value={adminWithdrawAction.operatorId} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, operatorId: e.target.value })} placeholder="例如 90001" />
-                        </label>
-                        <label>
-                          操作角色
-                          <input value={adminWithdrawAction.operatorRole} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, operatorRole: e.target.value })} placeholder="WITHDRAW_OPERATOR" />
-                        </label>
-                        <label>
                           审批备注
                           <input value={adminWithdrawAction.remark} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, remark: e.target.value })} placeholder="例如 已人工发放 / 拒绝原因" />
                         </label>
                       </div>
-                      <InlineHint text="填写操作人后审批。" />
+                      <InlineHint text="当前登录账号用于审批留痕。" />
                       {adminWithdrawActionMessage ? <InlineHint text={adminWithdrawActionMessage} /> : null}
                     </div>
                   </InfoCard>

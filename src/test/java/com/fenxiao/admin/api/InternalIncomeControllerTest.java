@@ -2,6 +2,8 @@ package com.fenxiao.admin.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fenxiao.distribution.service.DistributionBindingService;
+import com.fenxiao.distribution.entity.LinkyAccountBinding;
+import com.fenxiao.distribution.repository.LinkyAccountBindingRepository;
 import com.fenxiao.linky.entity.LinkyReplayRecord;
 import com.fenxiao.linky.entity.LinkyWebhookLog;
 import com.fenxiao.linky.repository.LinkyReplayRecordRepository;
@@ -28,6 +30,7 @@ import java.time.ZoneOffset;
 import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -67,6 +70,27 @@ class InternalIncomeControllerTest {
 
     @Autowired
     private LinkyReplayRecordRepository linkyReplayRecordRepository;
+
+    @Autowired
+    private LinkyAccountBindingRepository linkyAccountBindingRepository;
+
+    @Test
+    void shouldListOnlyRegisteredLinkyAccountsForUpstreamDelivery() throws Exception {
+        LinkyAccountBinding mapped = LinkyAccountBinding.createUnchecked("37038198");
+        mapped.attachRegistration(24102L, null, null);
+        linkyAccountBindingRepository.save(mapped);
+        linkyAccountBindingRepository.save(LinkyAccountBinding.createUnchecked("40475740"));
+
+        mockMvc.perform(get("/internal/distribution/linky/registered-accounts")
+                        .header("X-Internal-Token", "test-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.items[0].linkyAccount").value("37038198"))
+                .andExpect(jsonPath("$.items[0].userId").value(24102));
+
+        mockMvc.perform(get("/internal/distribution/linky/registered-accounts"))
+                .andExpect(status().isForbidden());
+    }
 
     @Test
     void shouldAcceptInternalIncomeEventAndReturnProcessedStatus() throws Exception {
@@ -164,6 +188,7 @@ class InternalIncomeControllerTest {
                     org.assertj.core.api.Assertions.assertThat(log.getSignatureStatus()).isEqualTo("VALID");
                     org.assertj.core.api.Assertions.assertThat(log.getReplayStatus()).isEqualTo("VALID");
                     org.assertj.core.api.Assertions.assertThat(log.getSourceEventId()).isEqualTo("LINKY:linky-order-1");
+                    org.assertj.core.api.Assertions.assertThat(log.getLinkySignature()).isNull();
                 });
         org.assertj.core.api.Assertions.assertThat(logs)
                 .extracting(LinkyWebhookLog::getReplayRecordStatus)

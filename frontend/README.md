@@ -1,4 +1,4 @@
-# Fenxiao Frontend
+# BANDEIRA Frontend
 
 网页端 MVP 前端，基于 Vite + React + TypeScript。
 

@@ -5,7 +5,32 @@ import {
   buildAdminWorkspaceShortcuts,
   buildEmptyStatePreset,
   buildLinkyDiagnosticSnapshot,
+  deleteNamedFilterView,
+  saveNamedFilterView,
 } from './opsConsole'
+
+describe('named filter views', () => {
+  it('saves a trimmed immutable query and replaces a same-name view', () => {
+    const query = { status: 'PENDING', page: '4' }
+    const first = saveNamedFilterView([], ' 待处理风险 ', query, new Date('2026-08-25T00:00:00Z'))
+    query.status = 'IGNORED'
+    const replaced = saveNamedFilterView(first, '待处理风险', { status: 'HANDLED', page: '0' }, new Date('2026-08-25T01:00:00Z'))
+
+    expect(first[0].query.status).toBe('PENDING')
+    expect(replaced).toHaveLength(1)
+    expect(replaced[0]).toMatchObject({ name: '待处理风险', query: { status: 'HANDLED', page: '0' } })
+  })
+
+  it('keeps only the newest eight views and supports deletion', () => {
+    let views = [] as ReturnType<typeof saveNamedFilterView<{ status: string }>>
+    for (let index = 0; index < 9; index += 1) {
+      views = saveNamedFilterView(views, `视图 ${index}`, { status: String(index) }, new Date(1_700_000_000_000 + index))
+    }
+    expect(views).toHaveLength(8)
+    expect(views[0].name).toBe('视图 8')
+    expect(deleteNamedFilterView(views, views[0].id)).toHaveLength(7)
+  })
+})
 
 describe('buildAdminTaskCards', () => {
   it('highlights login, overview, invite entry, and main distribution flow before advanced operations are available', () => {
@@ -141,10 +166,27 @@ describe('buildAdminSectionLinks', () => {
         href: '#admin-rewards',
       },
       {
+        label: '账号中心',
+        description: '员工、密码和设备安全。',
+        href: '#admin-accounts',
+      },
+      {
         label: '配置',
         description: '接入、公会和产品配置。',
         href: '#admin-settings',
       },
+    ])
+  })
+
+  it('shows finance only the overview, payout workbench, and personal account center', () => {
+    expect(buildAdminSectionLinks('finance').map((item) => item.href)).toEqual([
+      '#admin-overview', '#admin-rewards', '#admin-accounts',
+    ])
+  })
+
+  it('keeps configuration and staff management out of customer support navigation', () => {
+    expect(buildAdminSectionLinks('customer_support').map((item) => item.href)).toEqual([
+      '#admin-overview', '#admin-bindings', '#admin-accounts',
     ])
   })
 })
@@ -160,7 +202,7 @@ describe('buildLinkyDiagnosticSnapshot', () => {
     })).toEqual({
       tone: 'warning',
       title: 'Linky 回传链路待校验',
-      summary: '先按订单号查一笔 Linky webhook，确认收益事件是否已经稳定进入 Fenxiao。',
+      summary: '先按订单号查一笔 Linky webhook，确认收益事件是否已经稳定进入 BANDEIRA。',
     })
   })
 
@@ -197,7 +239,7 @@ describe('buildEmptyStatePreset', () => {
   it('returns task-oriented copy for Linky webhook empty states', () => {
     expect(buildEmptyStatePreset('linky-webhook')).toEqual({
       title: '先查一笔 Linky webhook',
-      description: '建议先输入订单号；如果没有结果，再确认请求是否真的到达 Fenxiao。',
+      description: '建议先输入订单号；如果没有结果，再确认请求是否真的到达 BANDEIRA。',
       actionLabel: '推荐先按订单号查',
     })
   })
@@ -205,7 +247,7 @@ describe('buildEmptyStatePreset', () => {
   it('returns post-query copy when a query has already been executed', () => {
     expect(buildEmptyStatePreset('linky-webhook', true)).toEqual({
       title: '这次没查到 Linky webhook',
-      description: '换一个订单号、用户或请求状态再试；如果仍然为空，优先确认上游请求是否真的打到 Fenxiao。',
+      description: '换一个订单号、用户或请求状态再试；如果仍然为空，优先确认上游请求是否真的打到 BANDEIRA。',
       actionLabel: '建议切换订单号或状态',
     })
   })

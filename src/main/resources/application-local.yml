@@ -24,8 +24,9 @@ app:
   admin:
     token: ${ADMIN_TOKEN}
     bootstrap-username: ${ADMIN_BOOTSTRAP_USERNAME:admin}
-    bootstrap-password: ${ADMIN_BOOTSTRAP_PASSWORD:admin123456}
+    bootstrap-password: ${ADMIN_BOOTSTRAP_PASSWORD:Local-Admin-Password-2026!}
     bootstrap-display-name: ${ADMIN_BOOTSTRAP_DISPLAY_NAME:系统管理员}
+    bootstrap-force-password-change: ${ADMIN_BOOTSTRAP_FORCE_PASSWORD_CHANGE:true}
   web:
     allowed-origins: ${WEB_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173}
   distribution:

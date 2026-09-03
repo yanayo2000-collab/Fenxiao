@@ -47,8 +47,24 @@ public class IncomeEvent extends BaseEntity {
     @Column(name = "sync_status", nullable = false, length = 32)
     private String syncStatus;
 
+    @Column(name = "reward_engine_version", nullable = false, length = 32)
+    private String rewardEngineVersion;
+
+    @Column(name = "legacy_candidate_count", nullable = false)
+    private int legacyCandidateCount;
+
+    @Column(name = "generated_reward_count", nullable = false)
+    private int generatedRewardCount;
+
+    @Column(name = "reward_processing_status", nullable = false, length = 32)
+    private String rewardProcessingStatus;
+
     @Lob
-    @Column(name = "raw_payload")
+    @Column(name = "reward_decision_json", columnDefinition = "LONGTEXT")
+    private String rewardDecisionJson;
+
+    @Lob
+    @Column(name = "raw_payload", columnDefinition = "LONGTEXT")
     private String rawPayload;
 
     protected IncomeEvent() {
@@ -98,12 +114,35 @@ public class IncomeEvent extends BaseEntity {
         return rawPayload;
     }
 
+    public String getRewardEngineVersion() {
+        return rewardEngineVersion;
+    }
+
+    public int getLegacyCandidateCount() {
+        return legacyCandidateCount;
+    }
+
+    public int getGeneratedRewardCount() {
+        return generatedRewardCount;
+    }
+
+    public String getRewardProcessingStatus() {
+        return rewardProcessingStatus;
+    }
+
+    public String getRewardDecisionJson() {
+        return rewardDecisionJson;
+    }
+
     public static IncomeEvent create(String sourceEventId,
                                      Long userId,
                                      String countryCode,
                                      BigDecimal incomeAmount,
                                      String currencyCode,
-                                     LocalDateTime eventTime) {
+                                     LocalDateTime eventTime,
+                                     String rewardEngineVersion,
+                                     int legacyCandidateCount,
+                                     String rewardDecisionJson) {
         IncomeEvent event = new IncomeEvent();
         event.sourceEventId = sourceEventId;
         event.userId = userId;
@@ -113,6 +152,16 @@ public class IncomeEvent extends BaseEntity {
         event.currencyCode = currencyCode;
         event.eventTime = eventTime;
         event.syncStatus = "PROCESSED";
+        event.rewardEngineVersion = rewardEngineVersion;
+        event.legacyCandidateCount = legacyCandidateCount;
+        event.generatedRewardCount = 0;
+        event.rewardProcessingStatus = "PROCESSING";
+        event.rewardDecisionJson = rewardDecisionJson;
         return event;
+    }
+
+    public void markRewardProcessingCompleted(int generatedRewardCount) {
+        this.generatedRewardCount = generatedRewardCount;
+        this.rewardProcessingStatus = "COMPLETED";
     }
 }

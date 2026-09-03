@@ -1,6 +1,9 @@
 package com.fenxiao.admin.api;
 
 import com.fenxiao.admin.api.dto.AuditLogListResponse;
+import com.fenxiao.admin.api.dto.BatchOperationResultResponse;
+import com.fenxiao.admin.api.dto.BatchRiskEventActionRequest;
+import com.fenxiao.admin.api.dto.BatchWithdrawRequestActionRequest;
 import com.fenxiao.admin.api.dto.LinkyEligibilityCheckRequest;
 import com.fenxiao.admin.api.dto.LinkyEligibilityCheckResponse;
 import com.fenxiao.admin.api.dto.LinkyReplayRecordListResponse;
@@ -13,6 +16,7 @@ import com.fenxiao.admin.api.dto.RelationDetailResponse;
 import com.fenxiao.admin.api.dto.RiskEventActionRequest;
 import com.fenxiao.admin.api.dto.RiskEventListItem;
 import com.fenxiao.admin.api.dto.RiskEventListResponse;
+import com.fenxiao.admin.api.dto.RewardEngineReportResponse;
 import com.fenxiao.admin.api.dto.WithdrawRequestActionRequest;
 import com.fenxiao.admin.api.dto.WithdrawRequestItemResponse;
 import com.fenxiao.admin.api.dto.WithdrawRequestListResponse;
@@ -28,6 +32,7 @@ import com.fenxiao.admin.service.OwnershipAdminService;
 import com.fenxiao.admin.service.RelationAdjustmentService;
 import com.fenxiao.admin.service.RiskEventActionService;
 import com.fenxiao.admin.service.RiskEventQueryService;
+import com.fenxiao.admin.service.RewardEngineReportService;
 import com.fenxiao.common.security.DistributionAccessGuard;
 import com.fenxiao.distribution.entity.LinkyAccountBinding;
 import com.fenxiao.distribution.entity.WithdrawRequest;
@@ -53,6 +58,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -76,6 +84,7 @@ public class DistributionAdminController {
     private final WithdrawRequestService withdrawRequestService;
     private final GuildAccountConfigService guildAccountConfigService;
     private final DistributionAccessGuard distributionAccessGuard;
+    private final RewardEngineReportService rewardEngineReportService;
 
     public DistributionAdminController(RewardCalculationService rewardCalculationService,
                                        DistributionQueryService distributionQueryService,
@@ -90,7 +99,8 @@ public class DistributionAdminController {
                                        LinkyRegistrationEligibilityService linkyRegistrationEligibilityService,
                                        WithdrawRequestService withdrawRequestService,
                                        GuildAccountConfigService guildAccountConfigService,
-                                       DistributionAccessGuard distributionAccessGuard) {
+                                       DistributionAccessGuard distributionAccessGuard,
+                                       RewardEngineReportService rewardEngineReportService) {
         this.rewardCalculationService = rewardCalculationService;
         this.distributionQueryService = distributionQueryService;
         this.distributionReportService = distributionReportService;
@@ -105,6 +115,7 @@ public class DistributionAdminController {
         this.withdrawRequestService = withdrawRequestService;
         this.guildAccountConfigService = guildAccountConfigService;
         this.distributionAccessGuard = distributionAccessGuard;
+        this.rewardEngineReportService = rewardEngineReportService;
     }
 
     @GetMapping("/health")
@@ -123,7 +134,7 @@ public class DistributionAdminController {
                                                  @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                  @PathVariable Long userId,
                                                  @RequestParam(required = false) String product) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminScopedAccess(adminToken, adminSessionToken, product, null, null);
         return distributionQueryService.getRelationDetail(userId, product);
     }
 
@@ -134,8 +145,16 @@ public class DistributionAdminController {
                                                  @RequestParam(required = false) String product,
                                                  @Valid @RequestBody ManualRelationAdjustmentRequest request,
                                                  HttpServletRequest httpServletRequest) {
-        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
-        return relationAdjustmentService.adjustRelation(userId, request.level1InviterId(), request.note(), httpServletRequest.getRemoteAddr(), product);
+        var principal = distributionAccessGuard.assertAdminAccountManageAccess(adminToken, adminSessionToken);
+        principal.requireScope(product, null, null);
+        return relationAdjustmentService.adjustRelation(
+                userId,
+                request.level1InviterId(),
+                request.note(),
+                httpServletRequest.getRemoteAddr(),
+                product,
+                principal.accountId(),
+                principal.role());
     }
 
     @GetMapping("/ownership/{userId}")
@@ -152,8 +171,14 @@ public class DistributionAdminController {
                                                     @PathVariable Long userId,
                                                     @Valid @RequestBody ManualOwnershipCorrectionRequest request,
                                                     HttpServletRequest httpServletRequest) {
-        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
-        return ownershipAdminService.correctOwnership(userId, request.productCode(), request.note(), httpServletRequest.getRemoteAddr());
+        var principal = distributionAccessGuard.assertAdminScopedWriteAccess(adminToken, adminSessionToken, request.productCode(), null, null);
+        return ownershipAdminService.correctOwnership(
+                userId,
+                request.productCode(),
+                request.note(),
+                httpServletRequest.getRemoteAddr(),
+                principal.accountId(),
+                principal.role());
     }
 
     @GetMapping("/rewards")
@@ -166,7 +191,7 @@ public class DistributionAdminController {
                                           @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endAt,
                                           @RequestParam(defaultValue = "0") int page,
                                           @RequestParam(defaultValue = "20") int size) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminScopedAccess(adminToken, adminSessionToken, product, null, null);
         return rewardCalculationService.getRecentRewards(beneficiaryUserId, status, startAt, endAt, page, size, product);
     }
 
@@ -180,7 +205,7 @@ public class DistributionAdminController {
                                                 @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endAt,
                                                 @RequestParam(defaultValue = "0") int page,
                                                 @RequestParam(defaultValue = "20") int size) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminScopedAccess(adminToken, adminSessionToken, product, null, null);
         return riskEventQueryService.getRiskEvents(userId, riskStatus, startAt, endAt, page, size, product);
     }
 
@@ -190,8 +215,50 @@ public class DistributionAdminController {
                                                   @PathVariable Long riskEventId,
                                                   @Valid @RequestBody RiskEventActionRequest request,
                                                   HttpServletRequest httpServletRequest) {
-        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
-        return riskEventActionService.applyAction(riskEventId, request.action(), request.note(), httpServletRequest.getRemoteAddr());
+        var principal = distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
+        return riskEventActionService.applyAction(
+                riskEventId,
+                request.action(),
+                request.note(),
+                httpServletRequest.getRemoteAddr(),
+                principal.accountId(),
+                principal.role());
+    }
+
+    @PostMapping("/risk-events/batch-actions")
+    public BatchOperationResultResponse applyRiskEventBatchAction(
+            @RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+            @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+            @Valid @RequestBody BatchRiskEventActionRequest request,
+            HttpServletRequest httpServletRequest) {
+        var principal = distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
+        if (request.action() != com.fenxiao.admin.api.dto.RiskEventAction.HANDLE
+                && request.action() != com.fenxiao.admin.api.dto.RiskEventAction.IGNORE) {
+            throw new IllegalArgumentException("batch risk action only supports HANDLE or IGNORE");
+        }
+        if (request.action() == com.fenxiao.admin.api.dto.RiskEventAction.IGNORE
+                && (request.note() == null || request.note().isBlank())) {
+            throw new IllegalArgumentException("batch ignore requires note");
+        }
+
+        List<BatchOperationResultResponse.Item> items = new ArrayList<>();
+        for (Long riskEventId : new LinkedHashSet<>(request.riskEventIds())) {
+            try {
+                RiskEventListItem result = riskEventActionService.applyAction(
+                        riskEventId,
+                        request.action(),
+                        request.note(),
+                        httpServletRequest.getRemoteAddr(),
+                        principal.accountId(),
+                        principal.role());
+                items.add(new BatchOperationResultResponse.Item(
+                        String.valueOf(riskEventId), true, result.riskStatus().name(), null));
+            } catch (RuntimeException exception) {
+                items.add(new BatchOperationResultResponse.Item(
+                        String.valueOf(riskEventId), false, "FAILED", safeBatchMessage(exception)));
+            }
+        }
+        return toBatchResult(items);
     }
 
     @GetMapping("/audit-logs")
@@ -213,7 +280,7 @@ public class DistributionAdminController {
                                                             @RequestParam(required = false) String product,
                                                             @RequestParam(defaultValue = "0") int page,
                                                             @RequestParam(defaultValue = "20") int size) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminScopedAccess(adminToken, adminSessionToken, product, null, null);
         return linkyWebhookLogService.getLogs(linkyOrderId, userId, requestStatus, page, size, product);
     }
 
@@ -225,7 +292,7 @@ public class DistributionAdminController {
                                                                 @RequestParam(required = false) String product,
                                                                 @RequestParam(defaultValue = "0") int page,
                                                                 @RequestParam(defaultValue = "20") int size) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminScopedAccess(adminToken, adminSessionToken, product, null, null);
         return linkyReplayRecordService.getRecords(linkyOrderId, userId, page, size, product);
     }
 
@@ -233,16 +300,24 @@ public class DistributionAdminController {
     public OverviewReportResponse overview(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
                                            @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                            @RequestParam(required = false) String product) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminScopedAccess(adminToken, adminSessionToken, product, null, null);
         return distributionReportService.getOverview(product);
+    }
+
+    @GetMapping("/reports/reward-engine")
+    public RewardEngineReportResponse rewardEngineReport(
+            @RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+            @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken) {
+        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        return rewardEngineReportService.getReport();
     }
 
     @PostMapping("/linky-eligibility-checks/{linkyAccount}/refresh")
     public LinkyEligibilityCheckResponse refreshLinkyEligibility(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
                                                                  @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                                  @PathVariable String linkyAccount) {
-        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
-        LinkyAccountBinding binding = linkyRegistrationEligibilityService.refreshEligibilityFromProbe(linkyAccount);
+        var principal = distributionAccessGuard.assertAdminScopedWriteAccess(adminToken, adminSessionToken, "LINKY", null, null);
+        LinkyAccountBinding binding = linkyRegistrationEligibilityService.refreshEligibilityFromProbe(linkyAccount, principal.accountId());
         return toLinkyEligibilityCheckResponse(binding);
     }
 
@@ -250,11 +325,11 @@ public class DistributionAdminController {
     public LinkyEligibilityCheckResponse upsertLinkyEligibility(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
                                                                 @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                                 @RequestBody LinkyEligibilityCheckRequest request) {
-        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
+        var principal = distributionAccessGuard.assertAdminScopedWriteAccess(adminToken, adminSessionToken, "LINKY", request.guildId(), null);
         LinkyAccountBinding binding = switch ((request.result() == null ? "" : request.result().trim().toUpperCase())) {
-            case "MATCHED_OURS" -> linkyRegistrationEligibilityService.markEligible(request.linkyAccount(), request.guildId(), request.guildName(), 0L, request.remark());
-            case "JOINED_OTHER_GUILD" -> linkyRegistrationEligibilityService.markJoinedOtherGuild(request.linkyAccount(), request.guildId(), request.guildName(), 0L, request.remark());
-            case "NOT_JOINED" -> linkyRegistrationEligibilityService.markNotJoined(request.linkyAccount(), 0L, request.remark());
+            case "MATCHED_OURS" -> linkyRegistrationEligibilityService.markEligible(request.linkyAccount(), request.guildId(), request.guildName(), principal.accountId(), request.remark());
+            case "JOINED_OTHER_GUILD" -> linkyRegistrationEligibilityService.markJoinedOtherGuild(request.linkyAccount(), request.guildId(), request.guildName(), principal.accountId(), request.remark());
+            case "NOT_JOINED" -> linkyRegistrationEligibilityService.markNotJoined(request.linkyAccount(), principal.accountId(), request.remark());
             default -> throw new IllegalArgumentException("unsupported guild check result");
         };
         return toLinkyEligibilityCheckResponse(binding);
@@ -264,8 +339,8 @@ public class DistributionAdminController {
     @PostMapping("/linky-eligibility-checks/batch-refresh")
     public LinkyBatchRefreshResponse batchRefreshLinkyEligibility(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
                                                                   @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken) {
-        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
-        LinkyRegistrationEligibilityService.BatchRefreshResult result = linkyRegistrationEligibilityService.refreshAllEligibility();
+        var principal = distributionAccessGuard.assertAdminScopedWriteAccess(adminToken, adminSessionToken, "LINKY", null, null);
+        LinkyRegistrationEligibilityService.BatchRefreshResult result = linkyRegistrationEligibilityService.refreshAllEligibility(principal.accountId());
         var failures = result.failures().stream()
                 .map(failure -> new LinkyBatchRefreshResponse.FailureItem(
                         failure.linkyAccount(),
@@ -280,7 +355,7 @@ public class DistributionAdminController {
     public java.util.List<GuildConfigResponse> listGuildConfigs(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
                                                                 @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                                 @RequestParam(defaultValue = "LINKY") String product) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminScopedAccess(adminToken, adminSessionToken, product, null, null);
         return guildAccountConfigService.list(product).stream().map(c -> new GuildConfigResponse(c.getId(), c.getProductCode(), c.getInviterUserId(), c.getGuildId(), c.getGuildName(), c.getGuildInviteCode(), c.isEnabled())).toList();
     }
 
@@ -288,7 +363,7 @@ public class DistributionAdminController {
     public GuildConfigResponse upsertGuildConfig(@RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
                                                  @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                  @RequestBody GuildConfigRequest request) {
-        distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminScopedWriteAccess(adminToken, adminSessionToken, request.productCode(), request.guildId(), null);
         var c = guildAccountConfigService.upsert(request);
         return new GuildConfigResponse(c.getId(), c.getProductCode(), c.getInviterUserId(), c.getGuildId(), c.getGuildName(), c.getGuildInviteCode(), c.isEnabled());
     }
@@ -299,7 +374,7 @@ public class DistributionAdminController {
                                                        @PathVariable String guildId,
                                                        @RequestParam(defaultValue = "LINKY") String product,
                                                        @RequestParam(defaultValue = "CURRENT") String week) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminScopedAccess(adminToken, adminSessionToken, product, guildId, null);
         return guildAccountConfigService.weeklyReport(product, guildId, week);
     }
 
@@ -309,7 +384,7 @@ public class DistributionAdminController {
                                                           @PathVariable String guildId,
                                                           @RequestParam(defaultValue = "LINKY") String product,
                                                           @RequestParam(defaultValue = "CURRENT") String week) {
-        distributionAccessGuard.assertAdminAccess(adminToken, adminSessionToken);
+        distributionAccessGuard.assertAdminScopedAccess(adminToken, adminSessionToken, product, guildId, null);
         GuildWeeklyReportResponse report = guildAccountConfigService.weeklyReport(product, guildId, week);
         String csv = "productCode,guildId,week,registeredUsers,incomeAmount,rewardAmount\n"
                 + report.productCode() + "," + report.guildId() + "," + report.week() + ","
@@ -340,8 +415,8 @@ public class DistributionAdminController {
                                                               @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                               @PathVariable String requestNo,
                                                               @RequestBody(required = false) WithdrawRequestActionRequest request) {
-        var principal = distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
-        WithdrawRequest withdrawRequest = withdrawRequestService.approveRequest(
+        var principal = distributionAccessGuard.assertFinanceAccess(adminToken, adminSessionToken);
+        WithdrawRequest withdrawRequest = withdrawRequestService.approveForPayment(
                 requestNo,
                 principal.accountId(),
                 principal.role(),
@@ -354,13 +429,42 @@ public class DistributionAdminController {
                                                              @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
                                                              @PathVariable String requestNo,
                                                              @RequestBody(required = false) WithdrawRequestActionRequest request) {
-        var principal = distributionAccessGuard.assertAdminWriteAccess(adminToken, adminSessionToken);
+        var principal = distributionAccessGuard.assertFinanceAccess(adminToken, adminSessionToken);
         WithdrawRequest withdrawRequest = withdrawRequestService.rejectRequest(
                 requestNo,
                 principal.accountId(),
                 principal.role(),
                 request == null ? null : request.remark());
         return toWithdrawRequestItemResponse(withdrawRequest);
+    }
+
+    @PostMapping("/withdraw-requests/batch-actions")
+    public BatchOperationResultResponse applyWithdrawRequestBatchAction(
+            @RequestHeader(value = "X-Admin-Token", required = false) String adminToken,
+            @RequestHeader(value = "X-Admin-Session", required = false) String adminSessionToken,
+            @Valid @RequestBody BatchWithdrawRequestActionRequest request) {
+        var principal = distributionAccessGuard.assertFinanceAccess(adminToken, adminSessionToken);
+        if (request.action() == com.fenxiao.admin.api.dto.WithdrawBatchAction.REJECT
+                && (request.remark() == null || request.remark().isBlank())) {
+            throw new IllegalArgumentException("batch reject requires remark");
+        }
+
+        List<BatchOperationResultResponse.Item> items = new ArrayList<>();
+        for (String requestNo : new LinkedHashSet<>(request.requestNos())) {
+            try {
+                WithdrawRequest result = request.action() == com.fenxiao.admin.api.dto.WithdrawBatchAction.APPROVE
+                        ? withdrawRequestService.approveForPayment(
+                                requestNo, principal.accountId(), principal.role(), request.remark())
+                        : withdrawRequestService.rejectRequest(
+                                requestNo, principal.accountId(), principal.role(), request.remark());
+                items.add(new BatchOperationResultResponse.Item(
+                        requestNo, true, result.getRequestStatus(), null));
+            } catch (RuntimeException exception) {
+                items.add(new BatchOperationResultResponse.Item(
+                        requestNo, false, "FAILED", safeBatchMessage(exception)));
+            }
+        }
+        return toBatchResult(items);
     }
 
 
@@ -388,6 +492,20 @@ public class DistributionAdminController {
                 request.getRequestWeek(),
                 request.getRequestedAt().toString()
         );
+    }
+
+    private BatchOperationResultResponse toBatchResult(List<BatchOperationResultResponse.Item> items) {
+        int successCount = (int) items.stream().filter(BatchOperationResultResponse.Item::success).count();
+        return new BatchOperationResultResponse(successCount, items.size() - successCount, List.copyOf(items));
+    }
+
+    private String safeBatchMessage(RuntimeException exception) {
+        if (!(exception instanceof IllegalArgumentException)) {
+            return "operation failed";
+        }
+        return exception.getMessage() == null || exception.getMessage().isBlank()
+                ? "operation failed"
+                : exception.getMessage();
     }
 
     private LinkyEligibilityCheckResponse toLinkyEligibilityCheckResponse(LinkyAccountBinding binding) {

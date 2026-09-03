@@ -75,7 +75,7 @@ public class LinkyWebhookLog extends BaseEntity {
     private String requestIp;
 
     @Lob
-    @Column(name = "payload_json")
+    @Column(name = "payload_json", columnDefinition = "LONGTEXT")
     private String payloadJson;
 
     protected LinkyWebhookLog() {
@@ -169,7 +169,6 @@ public class LinkyWebhookLog extends BaseEntity {
                                          LocalDateTime paidAt,
                                          LocalDateTime requestReceivedAt,
                                          String linkyTimestamp,
-                                         String linkySignature,
                                          String internalTokenStatus,
                                          String signatureStatus,
                                          String replayStatus,
@@ -189,7 +188,6 @@ public class LinkyWebhookLog extends BaseEntity {
         log.paidAt = paidAt;
         log.requestReceivedAt = requestReceivedAt;
         log.linkyTimestamp = linkyTimestamp;
-        log.linkySignature = linkySignature;
         log.internalTokenStatus = internalTokenStatus;
         log.signatureStatus = signatureStatus;
         log.replayStatus = replayStatus;

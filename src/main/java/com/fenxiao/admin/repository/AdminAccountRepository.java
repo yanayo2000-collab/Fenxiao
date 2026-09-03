@@ -7,4 +7,5 @@ import java.util.Optional;
 
 public interface AdminAccountRepository extends JpaRepository<AdminAccount, Long> {
     Optional<AdminAccount> findByUsername(String username);
+    long countByRoleIgnoreCaseAndEnabledTrue(String role);
 }

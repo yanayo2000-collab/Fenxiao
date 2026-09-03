@@ -14,17 +14,20 @@ public class AdminAccountBootstrapper implements ApplicationRunner {
     private final String bootstrapUsername;
     private final String bootstrapPassword;
     private final String bootstrapDisplayName;
+    private final boolean bootstrapForcePasswordChange;
 
     public AdminAccountBootstrapper(AdminAccountRepository adminAccountRepository,
                                     AdminPasswordHasher passwordHasher,
                                     @Value("${app.admin.bootstrap-username:}") String bootstrapUsername,
                                     @Value("${app.admin.bootstrap-password:}") String bootstrapPassword,
-                                    @Value("${app.admin.bootstrap-display-name:Super Admin}") String bootstrapDisplayName) {
+                                    @Value("${app.admin.bootstrap-display-name:Super Admin}") String bootstrapDisplayName,
+                                    @Value("${app.admin.bootstrap-force-password-change:true}") boolean bootstrapForcePasswordChange) {
         this.adminAccountRepository = adminAccountRepository;
         this.passwordHasher = passwordHasher;
         this.bootstrapUsername = bootstrapUsername;
         this.bootstrapPassword = bootstrapPassword;
         this.bootstrapDisplayName = bootstrapDisplayName;
+        this.bootstrapForcePasswordChange = bootstrapForcePasswordChange;
     }
 
     @Override
@@ -35,12 +38,14 @@ public class AdminAccountBootstrapper implements ApplicationRunner {
         if (bootstrapUsername == null || bootstrapUsername.isBlank() || bootstrapPassword == null || bootstrapPassword.isBlank()) {
             return;
         }
-        adminAccountRepository.save(AdminAccount.create(
+        AdminAccount account = AdminAccount.create(
                 bootstrapUsername,
                 bootstrapDisplayName,
                 "super_admin",
                 passwordHasher.hash(bootstrapPassword),
                 true
-        ));
+        );
+        account.updatePasswordHash(account.getPasswordHash(), bootstrapForcePasswordChange, java.time.LocalDateTime.now());
+        adminAccountRepository.save(account);
     }
 }

@@ -55,8 +55,22 @@ export type AdminSessionResponse = {
   username: string
   displayName: string
   role: 'super_admin' | 'admin' | 'operator' | string
+  mustChangePassword: boolean
+  rememberMe: boolean
+  passwordExpiresAt: string | null
+  platformScope: string
+  guildScope: string
+  regionScope: string
 }
 
+export type AdminAccountResponse = {
+  id: number; username: string; displayName: string; role: string; enabled: boolean
+  platformScope: string; guildScope: string; regionScope: string; mustChangePassword: boolean
+  lastLoginAt: string | null; passwordChangedAt: string | null; passwordExpiresAt: string | null; lockedUntil: string | null; activeSessions: number
+}
+export type AdminAccountCreatedResponse = { account: AdminAccountResponse; temporaryPassword: string }
+export type AdminDeviceSessionResponse = { id: number; current: boolean; rememberMe: boolean; issuedAt: string; lastSeenAt: string; expiresAt: string; ipAddress: string | null; userAgent: string | null }
+export type AdminSecurityEventResponse = { id: number; accountId: number | null; username: string | null; eventType: string; success: boolean; ipAddress: string | null; userAgent: string | null; detail: string | null; occurredAt: string }
 export type DistributionHomeResponse = {
   userId: number
   inviteCode: string
@@ -315,6 +329,33 @@ export type AdminWithdrawRequestListResponse = {
   size: number
 }
 
+export type BatchOperationItem = {
+  targetId: string
+  success: boolean
+  status: string
+  message: string | null
+}
+
+export type BatchOperationResultResponse = {
+  successCount: number
+  failureCount: number
+  items: BatchOperationItem[]
+}
+
+export type ExperimentDashboardResponse = {
+  experimentCode: string
+  status: string
+  plannedSampleSize: number
+  fixedDenominator: number
+  active: number
+  completed: number
+  withdrawn: number
+  primaryMetricCode: string
+  convertedCount: number
+  metricTotal: number
+  observationEndsAt: string
+}
+
 export type GuildWeeklyReportResponse = {
   productCode: string
   guildId: string
@@ -369,6 +410,7 @@ function extractErrorMessage(text: string, status: number): string {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers || {}),
@@ -380,6 +422,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(extractErrorMessage(text, response.status))
   }
 
+  if (response.status === 204) return undefined as T
+  if (typeof response.text === 'function') {
+    const text = await response.text()
+    return (text ? JSON.parse(text) : undefined) as T
+  }
   return response.json() as Promise<T>
 }
 
@@ -421,12 +468,25 @@ export function phoneLogin(payload: PhoneLoginRequest) {
   })
 }
 
-export function createAdminSession(payload: { username: string; password: string }) {
+export function createAdminSession(payload: { username: string; password: string; rememberMe?: boolean }) {
   return request<AdminSessionResponse>('/admin/auth/session', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
 }
+
+export function getCurrentAdminSession() { return request<AdminSessionResponse>('/admin/auth/session') }
+export function logoutAdminSession() { return request<void>('/admin/auth/session/logout', { method: 'POST' }) }
+export function logoutAllAdminSessions() { return request<void>('/admin/auth/session/logout-all', { method: 'POST' }) }
+export function changeAdminPassword(payload: { currentPassword: string; newPassword: string }) { return request<void>('/admin/auth/password', { method: 'POST', body: JSON.stringify(payload) }) }
+export function getAdminAccounts() { return request<AdminAccountResponse[]>('/admin/accounts') }
+export function createAdminAccount(payload: { username: string; displayName: string; role: string; platformScope?: string; guildScope?: string; regionScope?: string }) { return request<AdminAccountCreatedResponse>('/admin/accounts', { method: 'POST', body: JSON.stringify(payload) }) }
+export function updateAdminAccount(id: number, payload: { displayName: string; role: string; enabled: boolean; platformScope?: string; guildScope?: string; regionScope?: string }) { return request<AdminAccountResponse>(`/admin/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }) }
+export function resetAdminPassword(id: number) { return request<AdminAccountCreatedResponse>(`/admin/accounts/${id}/reset-password`, { method: 'POST' }) }
+export function unlockAdminAccount(id: number) { return request<AdminAccountResponse>(`/admin/accounts/${id}/unlock`, { method: 'POST' }) }
+export function getAdminDeviceSessions() { return request<AdminDeviceSessionResponse[]>('/admin/accounts/me/sessions') }
+export function revokeAdminDeviceSession(id: number) { return request<{ revoked: boolean }>(`/admin/accounts/me/sessions/${id}`, { method: 'DELETE' }) }
+export function getMyAdminSecurityEvents() { return request<AdminSecurityEventResponse[]>('/admin/accounts/me/security-events') }
 
 export function getDistributionHome(userId: number, accessToken: string) {
   return request<DistributionHomeResponse>(`/api/distribution/home/${userId}`, {
@@ -616,6 +676,18 @@ export function applyAdminRiskEventAction(adminSessionToken: string, riskEventId
   })
 }
 
+export function applyAdminRiskEventBatchAction(adminSessionToken: string, payload: {
+  riskEventIds: number[]
+  action: 'HANDLE' | 'IGNORE'
+  note?: string
+}) {
+  return request<BatchOperationResultResponse>('/admin/distribution/risk-events/batch-actions', {
+    method: 'POST',
+    headers: { 'X-Admin-Session': adminSessionToken },
+    body: JSON.stringify(payload),
+  })
+}
+
 export function getAdminAuditLogs(adminSessionToken: string, filters?: {
   moduleName?: string
   page?: number
@@ -693,6 +765,60 @@ export function rejectAdminWithdrawRequest(adminSessionToken: string, requestNo:
       'X-Admin-Session': adminSessionToken,
     },
     body: JSON.stringify(payload),
+  })
+}
+
+export function applyAdminWithdrawBatchAction(adminSessionToken: string, payload: {
+  requestNos: string[]
+  action: 'APPROVE' | 'REJECT'
+  remark?: string
+}) {
+  return request<BatchOperationResultResponse>('/admin/distribution/withdraw-requests/batch-actions', {
+    method: 'POST',
+    headers: { 'X-Admin-Session': adminSessionToken },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function approveWithdrawForPayment(adminSessionToken: string, requestNo: string, remark: string) {
+  return request<{ requestNo: string; status: string; amount: number }>(`/admin/distribution/withdrawal-workflow/${encodeURIComponent(requestNo)}/approve-for-payment`, {
+    method: 'POST', headers: { 'X-Admin-Session': adminSessionToken }, body: JSON.stringify({ remark }),
+  })
+}
+
+export function recordWithdrawPayment(adminSessionToken: string, requestNo: string, payload: { paymentChannel: string; paymentReference?: string; evidenceUri?: string; evidenceHash?: string; failureReason?: string }, success: boolean) {
+  return request<{ requestNo: string; status: string; amount: number }>(`/admin/distribution/withdrawal-workflow/${encodeURIComponent(requestNo)}/${success ? 'payment-success' : 'payment-failure'}`, {
+    method: 'POST', headers: { 'X-Admin-Session': adminSessionToken }, body: JSON.stringify(payload),
+  })
+}
+
+export function reverseWithdrawPayment(adminSessionToken: string, requestNo: string, payload: { reason: string; currencyCode: string }) {
+  return request<{ requestNo: string; status: string; amount: number }>(`/admin/distribution/withdrawal-workflow/${encodeURIComponent(requestNo)}/reverse`, {
+    method: 'POST', headers: { 'X-Admin-Session': adminSessionToken }, body: JSON.stringify(payload),
+  })
+}
+
+export function getExperimentDashboard(adminSessionToken: string, experimentCode: string) {
+  return request<ExperimentDashboardResponse>(`/admin/experiments/${encodeURIComponent(experimentCode)}/dashboard`, {
+    headers: { 'X-Admin-Session': adminSessionToken },
+  })
+}
+
+export function createExperiment(adminSessionToken: string, payload: { experimentCode: string; experimentName: string; plannedSampleSize: number; primaryMetricCode: string; enrollmentStartsAt: string; enrollmentEndsAt: string; observationEndsAt: string }) {
+  return request<{ experimentId: number }>('/admin/experiments', {
+    method: 'POST', headers: { 'X-Admin-Session': adminSessionToken }, body: JSON.stringify(payload),
+  })
+}
+
+export function changeExperimentStatus(adminSessionToken: string, experimentCode: string, status: string, reason: string) {
+  return request<{ experimentCode: string; status: string }>(`/admin/experiments/${encodeURIComponent(experimentCode)}/status`, {
+    method: 'POST', headers: { 'X-Admin-Session': adminSessionToken }, body: JSON.stringify({ status, reason }),
+  })
+}
+
+export function enrollExperimentParticipant(adminSessionToken: string, experimentCode: string, payload: { userId: number; cohortCode: string; eligibilitySnapshot: string }) {
+  return request<{ participantId: number; enrollmentNo: number; denominator: number; capacity: number }>(`/admin/experiments/${encodeURIComponent(experimentCode)}/participants`, {
+    method: 'POST', headers: { 'X-Admin-Session': adminSessionToken }, body: JSON.stringify(payload),
   })
 }
 

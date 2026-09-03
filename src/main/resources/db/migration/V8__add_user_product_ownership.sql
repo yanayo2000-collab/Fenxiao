@@ -21,6 +21,6 @@ FROM (
     SELECT issuer_user_id AS user_id, product_code
     FROM invite_code_issue_record
     UNION
-    SELECT CAST(linky_account AS BIGINT) AS user_id, product_code
+    SELECT CAST(linky_account AS SIGNED) AS user_id, product_code
     FROM invite_binding_registration
 ) scoped;

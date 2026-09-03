@@ -21,6 +21,15 @@ server:
   port: 8080
 
 management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
   endpoints:
     web:
       exposure:
@@ -29,10 +38,16 @@ management:
 fenxiao:
   distribution:
     default-freeze-days: 7
-    max-level-depth: 3
 
 app:
   distribution:
+    lifecycle:
+      shadow-only: ${LIFECYCLE_SHADOW_ONLY:true}
+    linky-signing-secret: ${LINKY_SIGNING_SECRET:}
+    linky-replay-window-seconds: ${LINKY_REPLAY_WINDOW_SECONDS:900}
     linky-guild-probe-script: ${LINKY_GUILD_PROBE_SCRIPT:scripts/linke_guild_probe.py}
     linky-oauth-token: ${LINKE_OAUTH_TOKEN:}
     linky-oauth-token-secret: ${LINKE_OAUTH_TOKEN_SECRET:}
+    reward-engine:
+      enabled: ${REWARD_ENGINE_ENABLED:true}
+      version: ${REWARD_ENGINE_VERSION:BANDEIRA_V1_DIRECT_ONLY}

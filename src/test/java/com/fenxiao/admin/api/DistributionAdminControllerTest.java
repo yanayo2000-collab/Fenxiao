@@ -346,6 +346,10 @@ class DistributionAdminControllerTest {
                 .andExpect(jsonPath("$.guildName").value("Permata"))
                 .andExpect(jsonPath("$.guildCheckStatus").value("MATCHED_OURS"))
                 .andExpect(jsonPath("$.registrationEligibility").value("ELIGIBLE"));
+
+        Long operatorAccountId = adminAccountRepository.findByUsername("default_admin").orElseThrow().getId();
+        org.assertj.core.api.Assertions.assertThat(linkyAccountBindingRepository.findByLinkyAccount("12345678").orElseThrow().getCheckedBy())
+                .isEqualTo(operatorAccountId);
     }
 
     @Test
@@ -365,6 +369,10 @@ class DistributionAdminControllerTest {
                 .andExpect(jsonPath("$.failures[0].linkyAccount").value("failed-admin-linky"))
                 .andExpect(jsonPath("$.failures[0].guildCheckStatus").value("REFRESH_FAILED"))
                 .andExpect(jsonPath("$.failures[0].remark").value("guild backend timeout"));
+
+        Long operatorAccountId = adminAccountRepository.findByUsername("default_admin").orElseThrow().getId();
+        org.assertj.core.api.Assertions.assertThat(linkyAccountBindingRepository.findByLinkyAccount("failed-admin-linky").orElseThrow().getCheckedBy())
+                .isEqualTo(operatorAccountId);
     }
 
     @Test
@@ -430,14 +438,14 @@ class DistributionAdminControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.requestNo").value(requestNo))
-                .andExpect(jsonPath("$.requestStatus").value("PAID_OUT"));
+                .andExpect(jsonPath("$.requestStatus").value("PAYMENT_PENDING"));
 
         org.assertj.core.api.Assertions.assertThat(operationAuditLogRepository.findAll())
-                .filteredOn(log -> "withdraw_request".equals(log.getModuleName()) && "APPROVE".equals(log.getActionName()))
+                .filteredOn(log -> "withdraw_request".equals(log.getModuleName()) && "APPROVE_FOR_PAYMENT".equals(log.getActionName()))
                 .anySatisfy(log -> {
                     Long operatorAccountId = adminAccountRepository.findByUsername("default_admin").orElseThrow().getId();
                     org.assertj.core.api.Assertions.assertThat(log.getOperatorId()).isEqualTo(operatorAccountId);
-                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("super_admin");
+                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("SUPER_ADMIN");
                     org.assertj.core.api.Assertions.assertThat(log.getRemark()).isEqualTo("manual payout done");
                 });
     }
@@ -479,9 +487,41 @@ class DistributionAdminControllerTest {
                 .anySatisfy(log -> {
                     Long operatorAccountId = adminAccountRepository.findByUsername("default_admin").orElseThrow().getId();
                     org.assertj.core.api.Assertions.assertThat(log.getOperatorId()).isEqualTo(operatorAccountId);
-                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("super_admin");
+                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("SUPER_ADMIN");
                     org.assertj.core.api.Assertions.assertThat(log.getRemark()).isEqualTo("bank account mismatch");
                 });
+    }
+
+    @Test
+    void shouldBatchApproveWithdrawRequestsAndReturnPerItemFailures() throws Exception {
+        String sessionToken = createAdminSessionToken("10.0.0.18");
+        UserDistributionProfile profile = distributionBindingService.createProfile(62018L, "ID", "id", null);
+        rewardRecordRepository.save(makeAvailableReward("income-62018-a", profile.getUserId(), 1, "1200.000000"));
+
+        String withdrawResponse = mockMvc.perform(post("/api/distribution/withdraw-requests/62018")
+                        .header("X-Distribution-Token", profile.getApiAccessToken())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String requestNo = withdrawResponse.replaceAll(".*\"requestNo\":\"([^\"]+)\".*", "$1");
+
+        mockMvc.perform(post("/admin/distribution/withdraw-requests/batch-actions")
+                        .header("X-Admin-Session", sessionToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "requestNos": ["%s", "WD-MISSING"],
+                                  "action": "APPROVE",
+                                  "remark": "batch finance review"
+                                }
+                                """.formatted(requestNo)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(1))
+                .andExpect(jsonPath("$.failureCount").value(1))
+                .andExpect(jsonPath("$.items[0].targetId").value(requestNo))
+                .andExpect(jsonPath("$.items[0].status").value("PAYMENT_PENDING"))
+                .andExpect(jsonPath("$.items[1].targetId").value("WD-MISSING"))
+                .andExpect(jsonPath("$.items[1].success").value(false));
     }
 
     private void seedRewardRules() {
@@ -528,4 +568,3 @@ class DistributionAdminControllerTest {
         return record;
     }
 }
-

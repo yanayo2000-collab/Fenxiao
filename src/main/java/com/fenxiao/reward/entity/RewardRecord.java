@@ -2,6 +2,7 @@ package com.fenxiao.reward.entity;
 
 import com.fenxiao.common.entity.BaseEntity;
 import com.fenxiao.reward.domain.RewardStatus;
+import com.fenxiao.reward.domain.RewardType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -18,6 +19,8 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "reward_record")
 public class RewardRecord extends BaseEntity {
+
+    public static final String CURRENT_ENGINE_VERSION = "BANDEIRA_V1_DIRECT_ONLY";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -68,6 +71,13 @@ public class RewardRecord extends BaseEntity {
 
     @Column(name = "withdraw_status", nullable = false, length = 32)
     private String withdrawStatus;
+
+    @Column(name = "reward_engine_version", nullable = false, length = 32)
+    private String rewardEngineVersion;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "reward_type", nullable = false, length = 32)
+    private RewardType rewardType;
 
     protected RewardRecord() {
     }
@@ -136,6 +146,14 @@ public class RewardRecord extends BaseEntity {
         return withdrawStatus;
     }
 
+    public String getRewardEngineVersion() {
+        return rewardEngineVersion;
+    }
+
+    public RewardType getRewardType() {
+        return rewardType;
+    }
+
     public static RewardRecord create(String sourceEventId,
                                       Long beneficiaryUserId,
                                       Long sourceUserId,
@@ -146,6 +164,22 @@ public class RewardRecord extends BaseEntity {
                                       String currencyCode,
                                       Integer freezeDays,
                                       LocalDateTime eventTime) {
+        return create(sourceEventId, beneficiaryUserId, sourceUserId, rewardLevel, incomeAmount, rewardRate,
+                rewardAmount, currencyCode, freezeDays, eventTime, CURRENT_ENGINE_VERSION, RewardType.DIRECT_RECRUIT);
+    }
+
+    public static RewardRecord create(String sourceEventId,
+                                      Long beneficiaryUserId,
+                                      Long sourceUserId,
+                                      Integer rewardLevel,
+                                      BigDecimal incomeAmount,
+                                      BigDecimal rewardRate,
+                                      BigDecimal rewardAmount,
+                                      String currencyCode,
+                                      Integer freezeDays,
+                                      LocalDateTime eventTime,
+                                      String rewardEngineVersion,
+                                      RewardType rewardType) {
         RewardRecord record = new RewardRecord();
         record.sourceEventId = sourceEventId;
         record.beneficiaryUserId = beneficiaryUserId;
@@ -160,20 +194,25 @@ public class RewardRecord extends BaseEntity {
         record.unfreezeAt = eventTime.plusDays(freezeDays);
         record.riskFlag = false;
         record.withdrawStatus = "UNCLAIMED";
+        record.rewardEngineVersion = rewardEngineVersion;
+        record.rewardType = rewardType;
         return record;
     }
 
     public void markRiskHold(String riskReason) {
+        assertMutableDirectReward();
         this.rewardStatus = RewardStatus.RISK_HOLD;
         this.riskFlag = true;
         this.riskReason = riskReason;
     }
 
     public void markAvailable() {
+        assertMutableDirectReward();
         this.rewardStatus = RewardStatus.AVAILABLE;
     }
 
     public void releaseFromRiskHold(LocalDateTime now) {
+        assertMutableDirectReward();
         this.riskFlag = false;
         this.riskReason = null;
         if (this.unfreezeAt != null && this.unfreezeAt.isAfter(now)) {
@@ -184,14 +223,47 @@ public class RewardRecord extends BaseEntity {
     }
 
     public void markClaimedInRequest() {
+        assertMutableDirectReward();
         this.withdrawStatus = "CLAIMED_IN_REQUEST";
     }
 
     public void markPaidOut() {
+        assertMutableDirectReward();
+        this.withdrawStatus = "PAID_OUT";
+    }
+
+    public void markPaidOutFromExistingRequest() {
+        assertExistingRequestLifecycleAllowed();
         this.withdrawStatus = "PAID_OUT";
     }
 
     public void resetWithdrawClaim() {
+        assertMutableDirectReward();
         this.withdrawStatus = "UNCLAIMED";
+    }
+
+    public void resetWithdrawClaimFromExistingRequest() {
+        assertExistingRequestLifecycleAllowed();
+        this.withdrawStatus = "UNCLAIMED";
+    }
+
+    public boolean isMutableDirectReward() {
+        return rewardType == RewardType.DIRECT_RECRUIT
+                && Integer.valueOf(1).equals(rewardLevel);
+    }
+
+    private void assertMutableDirectReward() {
+        if (!isMutableDirectReward()) {
+            throw new IllegalStateException("legacy or multilevel reward is read-only");
+        }
+    }
+
+    private void assertExistingRequestLifecycleAllowed() {
+        if (!"CLAIMED_IN_REQUEST".equals(withdrawStatus)) {
+            throw new IllegalStateException("reward is not claimed in an existing withdraw request");
+        }
+        if (!isMutableDirectReward() && !"LEGACY_V0".equals(rewardEngineVersion)) {
+            throw new IllegalStateException("new multilevel reward cannot be settled");
+        }
     }
 }

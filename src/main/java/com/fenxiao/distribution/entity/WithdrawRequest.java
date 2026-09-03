@@ -57,6 +57,25 @@ public class WithdrawRequest extends BaseEntity {
     @Column(name = "remark", length = 255)
     private String remark;
 
+    @Column(name = "payment_channel", length = 32)
+    private String paymentChannel;
+    @Column(name = "payment_reference", length = 128)
+    private String paymentReference;
+    @Column(name = "payment_evidence_uri", length = 255)
+    private String paymentEvidenceUri;
+    @Column(name = "payment_evidence_hash", length = 128)
+    private String paymentEvidenceHash;
+    @Column(name = "paid_by")
+    private Long paidBy;
+    @Column(name = "payment_failure_reason", length = 255)
+    private String paymentFailureReason;
+    @Column(name = "reversed_at")
+    private LocalDateTime reversedAt;
+    @Column(name = "reversed_by")
+    private Long reversedBy;
+    @Column(name = "reversal_reason", length = 255)
+    private String reversalReason;
+
     protected WithdrawRequest() {
     }
 
@@ -112,6 +131,16 @@ public class WithdrawRequest extends BaseEntity {
         return remark;
     }
 
+    public String getPaymentChannel() { return paymentChannel; }
+    public String getPaymentReference() { return paymentReference; }
+    public String getPaymentEvidenceUri() { return paymentEvidenceUri; }
+    public String getPaymentEvidenceHash() { return paymentEvidenceHash; }
+    public Long getPaidBy() { return paidBy; }
+    public String getPaymentFailureReason() { return paymentFailureReason; }
+    public LocalDateTime getReversedAt() { return reversedAt; }
+    public Long getReversedBy() { return reversedBy; }
+    public String getReversalReason() { return reversalReason; }
+
     public static WithdrawRequest create(Long userId, BigDecimal requestedDiamondAmount, String requestWeek) {
         WithdrawRequest request = new WithdrawRequest();
         request.requestNo = "WD-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20).toUpperCase();
@@ -132,6 +161,44 @@ public class WithdrawRequest extends BaseEntity {
         this.paidAt = now;
         this.rejectReason = null;
         this.remark = normalizeText(remark);
+        this.paymentChannel = "MANUAL";
+        this.paidBy = reviewerId;
+    }
+
+    public void approveForPayment(Long reviewerId, String remark, LocalDateTime now) {
+        assertPendingReview();
+        this.requestStatus = "PAYMENT_PENDING";
+        this.approvedDiamondAmount = this.requestedDiamondAmount;
+        this.reviewedBy = reviewerId;
+        this.reviewedAt = now;
+        this.rejectReason = null;
+        this.remark = normalizeText(remark);
+    }
+
+    public void markPaymentSucceeded(Long operatorId, String channel, String reference, String evidenceUri, String evidenceHash, LocalDateTime now) {
+        assertStatus("PAYMENT_PENDING", "PAYMENT_FAILED");
+        this.requestStatus = "PAID_OUT";
+        this.paidAt = now;
+        this.paidBy = operatorId;
+        this.paymentChannel = required(channel, "payment channel");
+        this.paymentReference = normalizeText(reference);
+        this.paymentEvidenceUri = normalizeText(evidenceUri);
+        this.paymentEvidenceHash = normalizeText(evidenceHash);
+        this.paymentFailureReason = null;
+    }
+
+    public void markPaymentFailed(String failureReason) {
+        assertStatus("PAYMENT_PENDING");
+        this.requestStatus = "PAYMENT_FAILED";
+        this.paymentFailureReason = required(failureReason, "payment failure reason");
+    }
+
+    public void markReversed(Long operatorId, String reason, LocalDateTime now) {
+        assertStatus("PAID_OUT");
+        this.requestStatus = "REVERSED";
+        this.reversedAt = now;
+        this.reversedBy = operatorId;
+        this.reversalReason = required(reason, "reversal reason");
     }
 
     public void markRejected(Long reviewerId, String reason, LocalDateTime now) {
@@ -149,6 +216,17 @@ public class WithdrawRequest extends BaseEntity {
         if (!"PENDING_REVIEW".equals(this.requestStatus)) {
             throw new IllegalStateException("withdraw request already reviewed");
         }
+    }
+
+    private void assertStatus(String... allowed) {
+        for (String status : allowed) if (status.equals(this.requestStatus)) return;
+        throw new IllegalStateException("withdraw request transition is not allowed from " + this.requestStatus);
+    }
+
+    private String required(String value, String label) {
+        String normalized = normalizeText(value);
+        if (normalized == null) throw new IllegalArgumentException(label + " is required");
+        return normalized;
     }
 
     private String normalizeText(String value) {

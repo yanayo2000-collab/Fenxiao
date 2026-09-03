@@ -1,4 +1,4 @@
-# Fenxiao
+# BANDEIRA
 
 多国家三级分销系统网页端 MVP。
 
@@ -47,7 +47,7 @@ mvn spring-boot:run
 ```bash
 ADMIN_TOKEN=change...oken \
 ADMIN_BOOTSTRAP_USERNAME=admin \
-ADMIN_BOOTSTRAP_PASSWORD=admin123456 \
+ADMIN_BOOTSTRAP_PASSWORD='Local-Admin-Password-2026!' \
 INTERNAL_DISTRIBUTION_TOKEN=change...oken \
 PROFILE_CREATE_TOKEN=change-this-profile-create-token \
 mvn spring-boot:run -Dspring-boot.run.arguments=--spring.profiles.active=local
@@ -58,8 +58,9 @@ mvn spring-boot:run -Dspring-boot.run.arguments=--spring.profiles.active=local
 
 本地演示默认后台账号：
 - 账号：`admin`
-- 密码：`admin123456`
+- 密码：`Local-Admin-Password-2026!`
 - 如需覆盖，启动时传入 `ADMIN_BOOTSTRAP_USERNAME` / `ADMIN_BOOTSTRAP_PASSWORD`。
+- 新建环境的 bootstrap 管理员首次登录后必须修改初始密码；生产环境创建完成后应立即移除 bootstrap 变量。
 
 ### 3. 启动前端
 ```bash
@@ -108,7 +109,10 @@ DB_USERNAME=fenxiao
 DB_PASSWORD=change-this-db-password
 INTERNAL_DISTRIBUTION_TOKEN=change-this-internal-token
 ADMIN_TOKEN=change-this-admin-token
+ADMIN_SESSION_SECRET=change-this-independent-session-secret
 PROFILE_CREATE_TOKEN=change-this-profile-create-token
+LINKY_SIGNING_SECRET=change-this-linky-signing-secret
+LINKY_REPLAY_WINDOW_SECONDS=900
 WEB_ALLOWED_ORIGINS=http://localhost:8088,http://localhost:5173,http://127.0.0.1:5173
 SERVER_PORT=8080
 ```
@@ -116,7 +120,11 @@ SERVER_PORT=8080
 说明：
 - `prod` 环境不再内置数据库默认值，部署时必须显式注入。
 - 后台 / 内部接入 / profile 创建三个 token 也都必须显式配置。
-- 网页端后台登录使用 `ADMIN_TOKEN` 作为登录口令，但后台运营接口本身已改为 session-only，会先换取短期后台会话再访问。
+- Linky 回调签名密钥必须通过 `LINKY_SIGNING_SECRET` 显式配置；缺失时生产环境无法启动，本地环境则拒绝所有 Linky 回调。
+- `LINKY_REPLAY_WINDOW_SECONDS` 控制回调时间戳允许偏差，默认 900 秒。
+- 网页端后台使用管理员账号和密码登录；服务端保存可吊销 Session，管理接口只接受 Session，不再把 `ADMIN_TOKEN` 当作登录口令。
+- 勾选“记住本机”后，Session 按 7 天无操作失效；持续使用会滚动续期。管理员可查看和退出设备，最高管理员可创建、停用、解锁员工及重置临时密码。
+- 本期不提供用户自助“忘记密码”；只有最高管理员可重置员工密码，重置后旧 Session 全部失效，并强制员工首次登录改密。
 
 ---
 
@@ -137,7 +145,7 @@ npm run build
 
 ### 2. 准备部署环境变量
 ```bash
-cd /tmp/Fenxiao
+cd /tmp/BANDEIRA
 cp deploy/.env.example deploy/.env
 ```
 
@@ -147,6 +155,7 @@ cp deploy/.env.example deploy/.env
 - `ADMIN_TOKEN`
 - `INTERNAL_DISTRIBUTION_TOKEN`
 - `PROFILE_CREATE_TOKEN`
+- `LINKY_SIGNING_SECRET`
 
 ### 3. 启动整套服务
 ```bash
@@ -170,7 +179,11 @@ docker-compose up --build
 
 ```bash
 curl http://localhost:8080/actuator/health
+curl http://localhost:8080/actuator/health/liveness
+curl http://localhost:8080/actuator/health/readiness
 ```
+
+`readiness` 包含数据库连通性检查；Docker Compose 使用该地址判断后端是否可接流量。
 
 ---
 
@@ -193,7 +206,7 @@ curl http://localhost:8080/actuator/health
 Linky 对接协议见：`docs/linky-integration.md`
 
 当前 Linky webhook 现状：
-- 已记录每次请求的 token / signature / 时间窗校验结果
+- 已记录每次请求的 token / signature / 时间窗校验结果，但不保存 token 和 signature 原值
 - 已落库 webhook 日志，支持按订单 / 用户 / 处理状态回看
 - 已有显式 replay record，能区分 `FIRST_SEEN` / `REPLAYED`
 - 后台最小排查接口：`GET /admin/distribution/linky-webhook-logs`

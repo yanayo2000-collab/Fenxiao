@@ -40,6 +40,10 @@ public class LinkyRegistrationEligibilityService {
     }
 
     public LinkyAccountBinding refreshEligibilityFromProbe(String linkyAccount) {
+        return refreshEligibilityFromProbe(linkyAccount, 0L);
+    }
+
+    public LinkyAccountBinding refreshEligibilityFromProbe(String linkyAccount, Long checkedBy) {
         LinkyGuildProbeResult result = linkyGuildProbeClient.probe(linkyAccount);
         if (!result.available()) {
             throw new IllegalStateException(result.remark() == null || result.remark().isBlank()
@@ -47,12 +51,12 @@ public class LinkyRegistrationEligibilityService {
                     : result.remark());
         }
         if (result.matchedOurs()) {
-            return markEligible(linkyAccount, result.guildId(), result.guildName(), 0L, result.remark());
+            return markEligible(linkyAccount, result.guildId(), result.guildName(), checkedBy, result.remark());
         }
         if (result.joinedOtherGuild()) {
-            return markJoinedOtherGuild(linkyAccount, result.guildId(), result.guildName(), 0L, result.remark());
+            return markJoinedOtherGuild(linkyAccount, result.guildId(), result.guildName(), checkedBy, result.remark());
         }
-        return markNotJoined(linkyAccount, 0L, result.remark());
+        return markNotJoined(linkyAccount, checkedBy, result.remark());
     }
 
     public LinkyAccountBinding assertEligibleForRegistration(String linkyAccount) {
@@ -79,16 +83,20 @@ public class LinkyRegistrationEligibilityService {
     }
 
     public BatchRefreshResult refreshAllEligibility() {
+        return refreshAllEligibility(0L);
+    }
+
+    public BatchRefreshResult refreshAllEligibility(Long checkedBy) {
         long success = 0;
         long failure = 0;
         List<BatchRefreshFailure> failures = new ArrayList<>();
         for (LinkyAccountBinding binding : linkyAccountBindingRepository.findAll()) {
             try {
-                refreshEligibilityFromProbe(binding.getLinkyAccount());
+                refreshEligibilityFromProbe(binding.getLinkyAccount(), checkedBy);
                 success++;
             } catch (RuntimeException ex) {
                 String remark = failureRemark(ex);
-                binding.markRefreshFailed(0L, remark);
+                binding.markRefreshFailed(checkedBy, remark);
                 linkyAccountBindingRepository.save(binding);
                 failures.add(new BatchRefreshFailure(
                         binding.getLinkyAccount(),

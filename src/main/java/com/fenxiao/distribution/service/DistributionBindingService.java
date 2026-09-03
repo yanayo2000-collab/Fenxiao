@@ -5,6 +5,7 @@ import com.fenxiao.distribution.entity.DistributionRelation;
 import com.fenxiao.distribution.repository.DistributionRelationRepository;
 import com.fenxiao.user.entity.UserDistributionProfile;
 import com.fenxiao.user.repository.UserDistributionProfileRepository;
+import com.fenxiao.relationship.service.RelationshipFoundationService;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
@@ -21,12 +22,15 @@ public class DistributionBindingService {
 
     private final UserDistributionProfileRepository userProfileRepository;
     private final DistributionRelationRepository relationRepository;
+    private final RelationshipFoundationService relationshipFoundationService;
     private final Random random = new Random();
 
     public DistributionBindingService(UserDistributionProfileRepository userProfileRepository,
-                                      DistributionRelationRepository relationRepository) {
+                                      DistributionRelationRepository relationRepository,
+                                      RelationshipFoundationService relationshipFoundationService) {
         this.userProfileRepository = userProfileRepository;
         this.relationRepository = relationRepository;
+        this.relationshipFoundationService = relationshipFoundationService;
     }
 
     public UserDistributionProfile createProfile(Long userId, String countryCode, String languageCode, String inviteCode) {
@@ -42,11 +46,13 @@ public class DistributionBindingService {
         );
         userProfileRepository.save(profile);
 
+        Long inviterUserId = null;
         if (inviteCode == null || inviteCode.isBlank()) {
             relationRepository.save(DistributionRelation.createRoot(userId, profile.getCountryCode()));
         } else {
-            bindInviter(userId, inviteCode);
+            inviterUserId = bindInviter(userId, inviteCode).getLevel1InviterId();
         }
+        relationshipFoundationService.initializeForRegistration(profile, inviterUserId, inviteCode);
         return profile;
     }
 

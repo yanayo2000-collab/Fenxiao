@@ -167,9 +167,9 @@ public class DistributionFrontendService {
             tiers.add(new RewardTierSummaryItem(
                     level,
                     switch (level) {
-                        case 1 -> "业务二级收益";
-                        case 2 -> "业务三级收益";
-                        default -> "业务四级收益";
+                        case 1 -> "直接邀请奖励";
+                        case 2 -> "历史二级佣金（只读）";
+                        default -> "历史三级佣金（只读）";
                     },
                     rewardRecordRepository.countByBeneficiaryUserIdAndRewardLevel(userId, level),
                     rewardRecordRepository.sumRewardAmountByBeneficiaryUserIdAndRewardLevel(userId, level)

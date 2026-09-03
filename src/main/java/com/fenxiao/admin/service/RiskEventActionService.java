@@ -26,8 +26,6 @@ import java.util.List;
 @Transactional
 public class RiskEventActionService {
 
-    private static final long SYSTEM_ADMIN_OPERATOR_ID = 0L;
-    private static final String OPERATOR_ROLE = "ADMIN_SESSION";
     private static final String MODULE_NAME = "risk_event";
     private static final String TARGET_TYPE = "risk_event";
 
@@ -66,7 +64,12 @@ public class RiskEventActionService {
         this.clock = clock;
     }
 
-    public RiskEventListItem applyAction(Long riskEventId, RiskEventAction action, String note, String requestIp) {
+    public RiskEventListItem applyAction(Long riskEventId,
+                                        RiskEventAction action,
+                                        String note,
+                                        String requestIp,
+                                        Long operatorId,
+                                        String operatorRole) {
         RiskEvent riskEvent = riskEventRepository.findById(riskEventId)
                 .orElseThrow(() -> new IllegalArgumentException("risk event not found"));
         UserDistributionProfile profile = userDistributionProfileRepository.findById(riskEvent.getUserId())
@@ -81,19 +84,21 @@ public class RiskEventActionService {
         String normalizedNote = note == null ? null : note.trim();
 
         switch (action) {
-            case HANDLE -> riskEvent.markHandled(SYSTEM_ADMIN_OPERATOR_ID, now, normalizedNote);
-            case IGNORE -> riskEvent.markIgnored(SYSTEM_ADMIN_OPERATOR_ID, now, normalizedNote);
+            case HANDLE -> riskEvent.markHandled(operatorId, now, normalizedNote);
+            case IGNORE -> riskEvent.markIgnored(operatorId, now, normalizedNote);
             case FREEZE_USER -> {
                 profile.markAsRiskUser();
+                profile.freezeAccount();
                 relation.lock(now);
                 moveRewardsToRiskHold(profile.getUserId(), normalizedNote == null || normalizedNote.isBlank() ? "risk event frozen by admin" : normalizedNote);
-                riskEvent.markHandled(SYSTEM_ADMIN_OPERATOR_ID, now, normalizedNote);
+                riskEvent.markHandled(operatorId, now, normalizedNote);
             }
             case UNFREEZE_USER -> {
                 profile.markAsNormalUser();
+                profile.activateAccount();
                 relation.unlock();
                 restoreRewardsFromRiskHold(profile.getUserId(), now);
-                riskEvent.markHandled(SYSTEM_ADMIN_OPERATOR_ID, now, normalizedNote);
+                riskEvent.markHandled(operatorId, now, normalizedNote);
             }
         }
 
@@ -102,8 +107,8 @@ public class RiskEventActionService {
         distributionRelationRepository.save(relation);
 
         operationAuditLogRepository.save(OperationAuditLog.create(
-                SYSTEM_ADMIN_OPERATOR_ID,
-                OPERATOR_ROLE,
+                operatorId,
+                operatorRole,
                 MODULE_NAME,
                 TARGET_TYPE,
                 riskEvent.getId(),
@@ -133,9 +138,11 @@ public class RiskEventActionService {
             rewardRecordMap.put(rewardRecord.getId(), rewardRecord);
         }
         for (RewardRecord rewardRecord : rewardRecordMap.values()) {
-            rewardRecord.markRiskHold(reason);
+            if (rewardRecord.isMutableDirectReward()) {
+                rewardRecord.markRiskHold(reason);
+            }
         }
-        rewardRecordRepository.saveAll(rewardRecordMap.values());
+        rewardRecordRepository.saveAll(rewardRecordMap.values().stream().filter(RewardRecord::isMutableDirectReward).toList());
     }
 
     private void restoreRewardsFromRiskHold(Long userId, LocalDateTime now) {
@@ -147,9 +154,11 @@ public class RiskEventActionService {
             rewardRecordMap.put(rewardRecord.getId(), rewardRecord);
         }
         for (RewardRecord rewardRecord : rewardRecordMap.values()) {
-            rewardRecord.releaseFromRiskHold(now);
+            if (rewardRecord.isMutableDirectReward()) {
+                rewardRecord.releaseFromRiskHold(now);
+            }
         }
-        rewardRecordRepository.saveAll(rewardRecordMap.values());
+        rewardRecordRepository.saveAll(rewardRecordMap.values().stream().filter(RewardRecord::isMutableDirectReward).toList());
     }
 
     private String snapshot(RiskEvent riskEvent, UserDistributionProfile profile, DistributionRelation relation) {
@@ -190,7 +199,9 @@ public class RiskEventActionService {
     }
 
     private boolean hasRiskHoldExposure(Long userId) {
-        return !rewardRecordRepository.findByBeneficiaryUserIdAndRewardStatus(userId, RewardStatus.RISK_HOLD).isEmpty()
-                || !rewardRecordRepository.findBySourceUserIdAndRewardStatus(userId, RewardStatus.RISK_HOLD).isEmpty();
+        return rewardRecordRepository.findByBeneficiaryUserIdAndRewardStatus(userId, RewardStatus.RISK_HOLD).stream()
+                .anyMatch(RewardRecord::isMutableDirectReward)
+                || rewardRecordRepository.findBySourceUserIdAndRewardStatus(userId, RewardStatus.RISK_HOLD).stream()
+                .anyMatch(RewardRecord::isMutableDirectReward);
     }
 }

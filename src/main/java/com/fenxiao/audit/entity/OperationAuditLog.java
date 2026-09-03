@@ -38,11 +38,11 @@ public class OperationAuditLog extends BaseEntity {
     private String actionName;
 
     @Lob
-    @Column(name = "before_data")
+    @Column(name = "before_data", columnDefinition = "LONGTEXT")
     private String beforeData;
 
     @Lob
-    @Column(name = "after_data")
+    @Column(name = "after_data", columnDefinition = "LONGTEXT")
     private String afterData;
 
     @Column(name = "request_ip", length = 64)

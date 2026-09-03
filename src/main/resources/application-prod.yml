@@ -27,8 +27,28 @@ management:
 app:
   admin:
     token: ${ADMIN_TOKEN}
+    session-secret: ${ADMIN_SESSION_SECRET}
+    bootstrap-username: ${ADMIN_BOOTSTRAP_USERNAME:}
+    bootstrap-password: ${ADMIN_BOOTSTRAP_PASSWORD:}
+    bootstrap-display-name: ${ADMIN_BOOTSTRAP_DISPLAY_NAME:Super Admin}
+    bootstrap-force-password-change: ${ADMIN_BOOTSTRAP_FORCE_PASSWORD_CHANGE:true}
+    session-ttl-minutes: ${ADMIN_SESSION_TTL_MINUTES:720}
+    remembered-idle-days: ${ADMIN_REMEMBERED_IDLE_DAYS:7}
+    login-window-minutes: ${ADMIN_LOGIN_WINDOW_MINUTES:10}
+    login-max-attempts: ${ADMIN_LOGIN_MAX_ATTEMPTS:5}
+    account-lock-minutes: ${ADMIN_ACCOUNT_LOCK_MINUTES:30}
+    password-max-age-days: ${ADMIN_PASSWORD_MAX_AGE_DAYS:90}
   web:
     allowed-origins: ${WEB_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173}
   distribution:
     profile-create-token: ${PROFILE_CREATE_TOKEN}
     internal-token: ${INTERNAL_DISTRIBUTION_TOKEN}
+    linky-signing-secret: ${LINKY_SIGNING_SECRET}
+    linky-replay-window-seconds: ${LINKY_REPLAY_WINDOW_SECONDS:900}
+    legacy-user-token-enabled: false
+    user-session-ttl-minutes: ${USER_SESSION_TTL_MINUTES:1440}
+    lifecycle:
+      shadow-only: ${LIFECYCLE_SHADOW_ONLY:true}
+    reward-engine:
+      enabled: ${REWARD_ENGINE_ENABLED:false}
+      version: ${REWARD_ENGINE_VERSION:BANDEIRA_V1_DIRECT_ONLY}

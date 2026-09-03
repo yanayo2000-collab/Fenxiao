@@ -3,6 +3,7 @@ package com.fenxiao.user.entity;
 import com.fenxiao.common.entity.BaseEntity;
 import com.fenxiao.distribution.domain.DistributionRole;
 import com.fenxiao.distribution.domain.UserStatus;
+import com.fenxiao.identity.domain.AccountStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -55,6 +56,16 @@ public class UserDistributionProfile extends BaseEntity {
     @Column(name = "registered_at", nullable = false)
     private LocalDateTime registeredAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "account_status", nullable = false, length = 32)
+    private AccountStatus accountStatus;
+
+    @Column(name = "cancelled_at")
+    private LocalDateTime cancelledAt;
+
+    @Column(name = "session_version", nullable = false)
+    private long sessionVersion;
+
     protected UserDistributionProfile() {
     }
 
@@ -102,6 +113,10 @@ public class UserDistributionProfile extends BaseEntity {
         return registeredAt;
     }
 
+    public AccountStatus getAccountStatus() { return accountStatus; }
+    public LocalDateTime getCancelledAt() { return cancelledAt; }
+    public long getSessionVersion() { return sessionVersion; }
+
     public static UserDistributionProfile create(Long userId, String countryCode, String languageCode, String inviteCode) {
         UserDistributionProfile profile = new UserDistributionProfile();
         profile.userId = userId;
@@ -114,6 +129,8 @@ public class UserDistributionProfile extends BaseEntity {
         profile.effectiveUser = false;
         profile.confirmedIncomeTotal = BigDecimal.ZERO;
         profile.registeredAt = LocalDateTime.now(Clock.systemUTC());
+        profile.accountStatus = AccountStatus.ACTIVE;
+        profile.sessionVersion = 0L;
         return profile;
     }
 
@@ -134,5 +151,24 @@ public class UserDistributionProfile extends BaseEntity {
 
     public void bindPhoneNumber(String phoneNumber) {
         this.phoneNumber = phoneNumber;
+    }
+
+    public void freezeAccount() {
+        if (accountStatus == AccountStatus.CANCELLED) throw new IllegalStateException("cancelled account is permanent");
+        accountStatus = AccountStatus.FROZEN;
+        sessionVersion++;
+    }
+
+    public void activateAccount() {
+        if (accountStatus == AccountStatus.CANCELLED) throw new IllegalStateException("cancelled account is permanent");
+        accountStatus = AccountStatus.ACTIVE;
+        sessionVersion++;
+    }
+
+    public void cancelAccount(LocalDateTime now) {
+        if (accountStatus == AccountStatus.CANCELLED) return;
+        accountStatus = AccountStatus.CANCELLED;
+        cancelledAt = now;
+        sessionVersion++;
     }
 }

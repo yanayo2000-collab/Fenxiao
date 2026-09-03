@@ -38,6 +38,15 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    @ExceptionHandler(ServiceUnavailableException.class)
+    public Map<String, Object> handleServiceUnavailableException(ServiceUnavailableException exception) {
+        return Map.of(
+                "code", "SERVICE_UNAVAILABLE",
+                "message", exception.getMessage()
+        );
+    }
+
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public Map<String, Object> handleValidationException(MethodArgumentNotValidException exception) {

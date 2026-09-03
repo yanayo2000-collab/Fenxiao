@@ -16,6 +16,10 @@ import java.util.Optional;
 public interface RewardRecordRepository extends JpaRepository<RewardRecord, Long> {
     List<RewardRecord> findBySourceEventIdOrderByRewardLevelAsc(String sourceEventId);
 
+    long countByRewardEngineVersion(String rewardEngineVersion);
+
+    long countByRewardEngineVersionAndRewardLevelGreaterThan(String rewardEngineVersion, Integer rewardLevel);
+
     Optional<RewardRecord> findBySourceEventIdAndBeneficiaryUserIdAndRewardLevel(String sourceEventId, Long beneficiaryUserId, Integer rewardLevel);
 
     List<RewardRecord> findTop50ByOrderByIdDesc();
@@ -37,6 +41,12 @@ public interface RewardRecordRepository extends JpaRepository<RewardRecord, Long
     List<RewardRecord> findBySourceUserIdAndRewardStatusIn(Long sourceUserId, Collection<RewardStatus> rewardStatuses);
 
     List<RewardRecord> findByRewardStatusAndUnfreezeAtLessThanEqual(RewardStatus rewardStatus, LocalDateTime now);
+
+    List<RewardRecord> findByRewardStatusAndUnfreezeAtLessThanEqualAndRewardTypeAndRewardLevel(
+            RewardStatus rewardStatus,
+            LocalDateTime now,
+            com.fenxiao.reward.domain.RewardType rewardType,
+            Integer rewardLevel);
 
     @Query("""
             select r from RewardRecord r
@@ -78,8 +88,15 @@ public interface RewardRecordRepository extends JpaRepository<RewardRecord, Long
     @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId = :beneficiaryUserId and r.rewardStatus = :status")
     BigDecimal sumRewardAmountByBeneficiaryUserIdAndStatus(Long beneficiaryUserId, RewardStatus status);
 
-    @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId = :beneficiaryUserId and r.rewardStatus = com.fenxiao.reward.domain.RewardStatus.AVAILABLE and r.withdrawStatus = 'UNCLAIMED'")
+    @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId = :beneficiaryUserId and r.rewardStatus = com.fenxiao.reward.domain.RewardStatus.AVAILABLE and r.withdrawStatus = 'UNCLAIMED' and r.rewardType = com.fenxiao.reward.domain.RewardType.DIRECT_RECRUIT and r.rewardLevel = 1")
     BigDecimal sumWithdrawableRewardAmountByBeneficiaryUserId(Long beneficiaryUserId);
+
+    List<RewardRecord> findByBeneficiaryUserIdAndRewardStatusAndWithdrawStatusAndRewardTypeAndRewardLevelOrderByIdDesc(
+            Long beneficiaryUserId,
+            RewardStatus rewardStatus,
+            String withdrawStatus,
+            com.fenxiao.reward.domain.RewardType rewardType,
+            Integer rewardLevel);
 
     @Query("select coalesce(sum(r.rewardAmount), 0) from RewardRecord r where r.beneficiaryUserId in :beneficiaryUserIds")
     BigDecimal sumRewardAmountByBeneficiaryUserIdIn(Collection<Long> beneficiaryUserIds);

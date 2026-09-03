@@ -55,16 +55,16 @@ describe('App external landing pages', () => {
     expect(markup).not.toContain('>语言<')
     expect(markup).toContain('aria-label="语言"')
     expect(markup).toContain('绑定页')
-    expect(markup).toContain('生成我的邀请码')
-    expect(markup).toContain('查看我的人收益')
+    expect(markup).toContain('>邀请<')
+    expect(markup).toContain('我的收益')
   })
 
-  it('uses the same topbar pill control class for the language selector and the bind page entry links', () => {
+  it('uses the shared consumer navigation and form system on the bind page', () => {
     const markup = renderToStaticMarkup(<App />)
 
-    expect(markup).toContain('class="bind-select-group bind-select-inline topbar-pill-control"')
-    expect(markup).toContain('class="entry-link active topbar-pill-control"')
-    expect(markup).toContain('class="entry-link topbar-pill-control"')
+    expect(markup).toContain('class="consumer-topbar"')
+    expect(markup).toContain('class="consumer-form-card"')
+    expect(markup).toContain('class="consumer-bottom-nav"')
   })
 })
 
@@ -99,6 +99,7 @@ describe('ConsoleApp admin core distribution workspace', () => {
   })
 
   it('renders login as the first admin page before any backend workspace is visible', () => {
+    window.location.pathname = '/manual-login'
     const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
 
     expect(markup).toContain('admin-login-page')
@@ -109,6 +110,7 @@ describe('ConsoleApp admin core distribution workspace', () => {
     expect(markup).toContain('type="password"')
     expect(markup).not.toContain('显示密码')
     expect(markup).toContain('进入后台')
+    expect(markup).not.toContain('双重验证码')
     expect(markup).not.toContain('admin-login-brand-panel')
     expect(markup).not.toContain('Fx')
     expect(markup).not.toContain('渠道入口')
@@ -117,13 +119,23 @@ describe('ConsoleApp admin core distribution workspace', () => {
     expect(markup).not.toContain('分销概览')
   })
 
+  it('shows a neutral restore state instead of the login form while a remembered session is checked', () => {
+    window.location.pathname = '/'
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" />)
+
+    expect(markup).toContain('正在恢复登录状态')
+    expect(markup).not.toContain('登录密码')
+    expect(markup).not.toContain('双重验证码')
+  })
+
   it('renders a module-based admin console without a separate user-workbench mode', () => {
     const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" initialAdminSession={adminTestSession} />)
 
     expect(markup).toContain('admin-console-page')
     expect(markup).toContain('admin-sidebar')
     expect(markup).toContain('admin-workspace-shell')
-    expect(markup).toContain('后台会话已建立')
+    expect(markup).toContain('admin-account-chip')
+    expect(markup).toContain('运营账号')
     expect(markup).not.toContain('后台账号')
     expect(markup).not.toContain('登录密码')
     expect(markup).not.toContain('后台登录口令')
@@ -211,16 +223,18 @@ describe('Earnings landing page', () => {
     expect(markup).toContain('手机号登录')
     expect(markup).toContain('获取验证码')
     expect(markup).toContain('验证码')
-    expect(markup).toContain('用手机号登录并继续查看收益')
-    expect(markup).toContain('如果你已经有邀请码，也可以在登录时带上邀请码完成资料初始化。')
+    expect(markup).toContain('登录后开始邀请')
+    expect(markup).toContain('邀请码（首次注册必填）')
+    expect(markup).not.toContain('立即生成邀请码')
   })
 
-  it('renders user-facing earnings guidance and next-step actions instead of console language', () => {
+  it('renders a task-first earnings home instead of console language', () => {
     const markup = renderToStaticMarkup(<App />)
 
-    expect(markup).toContain('我的收益概览')
-    expect(markup).toContain('继续去生成邀请码')
-    expect(markup).toContain('继续去绑定关系')
+    expect(markup).toContain('我的收益')
+    expect(markup).toContain('申请提现')
+    expect(markup).toContain('全部记录')
+    expect(markup).toContain('用户导航')
     expect(markup).not.toContain('控制台')
     expect(markup).not.toContain('工作台')
   })
@@ -269,8 +283,10 @@ describe('Earnings landing page', () => {
     expect(markup).toContain('提现申请管理')
     expect(markup).not.toContain('审批操作人 ID')
     expect(markup).not.toContain('操作角色')
-    expect(markup).toContain('审批备注')
-    expect(markup).toContain('当前登录账号用于审批留痕。')
+    expect(markup).toContain('提现申请详情')
+    expect(markup).toContain('选择一笔申请')
+    expect(markup).toContain('从左侧队列选择申请后，在这里完成审核和打款留痕。')
+    expect(markup).not.toContain('审批备注')
   })
 
   it('renders channel entry management instead of a static localhost link list', () => {
@@ -301,97 +317,86 @@ describe('Earnings landing page', () => {
     mountEarningsPage(false)
     const markup = renderToStaticMarkup(<App />)
 
-    expect(markup).toContain('先生成你的邀请码')
-    expect(markup).toContain('还没开始邀请也没关系。先生成邀请码，再去完成绑定，收益会自动累计到这里。')
-    expect(markup).toContain('去生成我的邀请码')
+    expect(markup).toContain('登录后查看你的邀请码')
+    expect(markup).toContain('使用手机号登录后即可邀请好友和查看收益。')
+    expect(markup).toContain('手机号登录')
     expect(markup).toContain('去绑定关系')
   })
 
-  it('renders team weekly income summary and direct-member detail placeholders', () => {
+  it('keeps team income available in a compact disclosure', () => {
     const markup = renderToStaticMarkup(<App />)
 
-    expect(markup).toContain('团队周收入')
-    expect(markup).toContain('直属下级本周 / 上周钻石收入')
-    expect(markup).toContain('团队本周钻石收入')
-    expect(markup).toContain('团队上周钻石收入')
-    expect(markup).toContain('直属下级收入明细')
-    expect(markup).toContain('每个直属下级的本周和上周钻石收入会显示在这里。')
+    expect(markup).toContain('团队概览')
+    expect(markup).toContain('团队本周收入')
+    expect(markup).not.toContain('每个直属下级的本周和上周钻石收入会显示在这里。')
   })
 
-  it('renders deep team size and reward tier summary placeholders on earnings page', () => {
+  it('keeps deep team size and reward tiers without exposing them as top-level cards', () => {
     const markup = renderToStaticMarkup(<App />)
 
-    expect(markup).toContain('三层裂变人数')
-    expect(markup).toContain('一级下级')
-    expect(markup).toContain('二级下级')
-    expect(markup).toContain('三级下级')
-    expect(markup).toContain('业务二级收益汇总')
-    expect(markup).toContain('业务三级收益汇总')
-    expect(markup).toContain('业务四级收益汇总')
-    expect(markup).toContain('按业务层级汇总你的分销提成和明细数量。')
+    expect(markup).toContain('一级用户')
+    expect(markup).toContain('二级用户')
+    expect(markup).toContain('三级用户')
+    expect(markup).toContain('直接邀请奖励')
+    expect(markup).toContain('历史二级佣金（只读）')
+    expect(markup).toContain('历史三级佣金（只读）')
+    expect(markup).not.toContain('三层裂变人数')
   })
 
-  it('renders payout guidance and a user-facing empty reward state before records arrive', () => {
+  it('renders the payout action and concise empty states', () => {
     const markup = renderToStaticMarkup(<App />)
 
-    expect(markup).toContain('奖励到账说明')
+    expect(markup).toContain('可用奖励')
     expect(markup).toContain('冻结奖励')
-    expect(markup).toContain('风险冻结')
-    expect(markup).toContain('发起提现申请')
-    expect(markup).toContain('提现只会按可用奖励里的钻石数量生成申请单，后续由运营人工发放。')
-    expect(markup).toContain('提现历史')
-    expect(markup).toContain('完整提现记录会按申请时间持续显示在这里。')
-    expect(markup).toContain('还没有提现申请')
+    expect(markup).toContain('申请提现')
+    expect(markup).toContain('提现记录')
+    expect(markup).toContain('还没有提现记录')
     expect(markup).toContain('还没有收益记录')
     expect(markup).toContain('先去生成邀请码并完成绑定，后续有收益会自动显示在这里。')
+    expect(markup).not.toContain('提现只会按可用奖励里的钻石数量生成申请单')
   })
 
-  it('renders a user-facing earnings board that explains how this page helps them track progress', () => {
+  it('removes the educational earnings board from the primary journey', () => {
     const markup = renderToStaticMarkup(<App />)
 
-    expect(markup).toContain('你的收益会在这里持续更新')
-    expect(markup).toContain('邀请码固定不变')
-    expect(markup).toContain('绑定后自动累计')
-    expect(markup).toContain('到账状态一目了然')
+    expect(markup).toContain('可用奖励')
+    expect(markup).toContain('我的收益')
+    expect(markup).not.toContain('你的收益会在这里持续更新')
+    expect(markup).not.toContain('邀请码固定不变')
   })
 
-  it('renders a formal reward activity module with status guidance', () => {
+  it('renders reward activity without a permanent status tutorial', () => {
     const markup = renderToStaticMarkup(<App />)
 
     expect(markup).toContain('最近奖励动态')
-    expect(markup).toContain('每一笔奖励都会显示状态和时间，方便你确认什么时候到账。')
-    expect(markup).toContain('状态说明')
-    expect(markup).toContain('冻结中：奖励正在等待结算')
-    expect(markup).toContain('可结算：奖励已经可以使用')
-    expect(markup).toContain('风险冻结：奖励暂时进入风控复核')
+    expect(markup).toContain('全部记录')
+    expect(markup).not.toContain('状态说明')
+    expect(markup).not.toContain('冻结中：奖励正在等待结算')
   })
 
-  it('renders polished summary cards with user-facing subtitles and status pills', () => {
+  it('prioritizes balances over explanatory summary cards', () => {
     const markup = renderToStaticMarkup(<App />)
 
-    expect(markup).toContain('来自你的下线成员累计确认收益。')
-    expect(markup).toContain('按奖励记录汇总出来的你的分销提成。')
-    expect(markup).toContain('当前已经进入可结算状态的奖励。')
-    expect(markup).toContain('已确认')
-    expect(markup).toContain('累计提成')
-    expect(markup).toContain('可立即查看')
+    expect(markup).toContain('可用奖励')
+    expect(markup).toContain('冻结奖励')
+    expect(markup).toContain('累计奖励')
+    expect(markup).not.toContain('来自你的下线成员累计确认收益。')
   })
 
-  it('renders unified product-grade detail cards for overview, progress, and settlement', () => {
+  it('moves secondary detail into progressive disclosure', () => {
     const markup = renderToStaticMarkup(<App />)
 
-    expect(markup).toContain('当前邀请码与收益总览')
-    expect(markup).toContain('绑定完成后人数和收益会持续更新')
-    expect(markup).toContain('冻结中 → 可结算 → 风险冻结')
-    expect(markup).toContain('邀请码 / 团队 / 奖励')
-    expect(markup).toContain('进度追踪')
-    expect(markup).toContain('到账路径')
+    expect(markup).toContain('<details>')
+    expect(markup).toContain('团队概览')
+    expect(markup).toContain('奖励明细')
+    expect(markup).toContain('提现记录')
+    expect(markup).not.toContain('冻结中 → 可结算 → 风险冻结')
   })
 
-  it('maps technical reward levels to business second, third, and fourth level labels', () => {
-    expect(formatBusinessRewardLevel(1, 'zh')).toBe('业务二级收益')
-    expect(formatBusinessRewardLevel(2, 'zh')).toBe('业务三级收益')
-    expect(formatBusinessRewardLevel(3, 'zh')).toBe('业务四级收益')
-    expect(formatBusinessRewardLevel(4, 'zh')).toBe('业务层级 4 收益')
+  it('maps direct rewards and legacy commission levels to safe labels', () => {
+    expect(formatBusinessRewardLevel(1, 'zh')).toBe('直接邀请奖励')
+    expect(formatBusinessRewardLevel(2, 'zh')).toBe('历史二级佣金（只读）')
+    expect(formatBusinessRewardLevel(3, 'zh')).toBe('历史三级佣金（只读）')
+    expect(formatBusinessRewardLevel(4, 'zh')).toBe('历史层级 4 佣金（只读）')
   })
 })

@@ -38,7 +38,6 @@ public class LinkyWebhookLogService {
 
     public void record(LinkyIncomeEventRequest request,
                        String linkyTimestamp,
-                       String linkySignature,
                        String requestIp,
                        DistributionAccessGuard.InternalTokenCheckResult tokenCheck,
                        DistributionAccessGuard.LinkyRequestCheckResult linkyCheck,
@@ -57,7 +56,6 @@ public class LinkyWebhookLogService {
                 request.paidAt(),
                 LocalDateTime.now(clock),
                 linkyTimestamp,
-                linkySignature,
                 tokenCheck.status(),
                 linkyCheck.signatureStatus(),
                 linkyCheck.replayStatus(),

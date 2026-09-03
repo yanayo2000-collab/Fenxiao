@@ -14,6 +14,7 @@ import com.fenxiao.distribution.api.dto.TeamListResponse;
 import com.fenxiao.distribution.api.dto.TeamWeeklyIncomeResponse;
 import com.fenxiao.distribution.api.dto.WeeklyIncomeStatsResponse;
 import com.fenxiao.distribution.api.dto.WithdrawRequestResponse;
+import com.fenxiao.distribution.api.dto.UserSessionResponse;
 import com.fenxiao.distribution.entity.InviteBindingRegistration;
 import com.fenxiao.distribution.entity.WithdrawRequest;
 import com.fenxiao.distribution.service.DistributionBindingService;
@@ -26,6 +27,7 @@ import com.fenxiao.reward.api.dto.RewardListResponse;
 import com.fenxiao.reward.api.dto.RewardSummaryResponse;
 import com.fenxiao.reward.domain.RewardStatus;
 import com.fenxiao.user.entity.UserDistributionProfile;
+import com.fenxiao.identity.service.UserSessionService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -49,6 +51,7 @@ public class DistributionController {
     private final WithdrawRequestService withdrawRequestService;
     private final PhoneAuthService phoneAuthService;
     private final DistributionAccessGuard distributionAccessGuard;
+    private final UserSessionService userSessionService;
 
     public DistributionController(DistributionBindingService distributionBindingService,
                                   DistributionFrontendService distributionFrontendService,
@@ -56,7 +59,8 @@ public class DistributionController {
                                   InviteCodeIssueService inviteCodeIssueService,
                                   WithdrawRequestService withdrawRequestService,
                                   PhoneAuthService phoneAuthService,
-                                  DistributionAccessGuard distributionAccessGuard) {
+                                  DistributionAccessGuard distributionAccessGuard,
+                                  UserSessionService userSessionService) {
         this.distributionBindingService = distributionBindingService;
         this.distributionFrontendService = distributionFrontendService;
         this.inviteBindingRegistrationService = inviteBindingRegistrationService;
@@ -64,6 +68,7 @@ public class DistributionController {
         this.withdrawRequestService = withdrawRequestService;
         this.phoneAuthService = phoneAuthService;
         this.distributionAccessGuard = distributionAccessGuard;
+        this.userSessionService = userSessionService;
     }
 
     @GetMapping("/health")
@@ -85,12 +90,13 @@ public class DistributionController {
                 request.languageCode(),
                 request.inviteCode()
         );
+        UserSessionService.IssuedSession session = userSessionService.issue(profile.getUserId());
         return new ProfileResponse(
                 profile.getUserId(),
                 profile.getInviteCode(),
                 profile.getCountryCode(),
                 profile.getLanguageCode(),
-                profile.getApiAccessToken()
+                session.accessToken()
         );
     }
 
@@ -112,6 +118,7 @@ public class DistributionController {
     @PostMapping("/invite-codes/issue")
     public IssueInviteCodeResponse issueInviteCode(@Valid @RequestBody IssueInviteCodeRequest request) {
         InviteCodeIssueService.InviteCodeIssueResult result = inviteCodeIssueService.issue(request);
+        UserSessionService.IssuedSession session = userSessionService.issue(result.profile().getUserId());
         return new IssueInviteCodeResponse(
                 result.profile().getUserId(),
                 result.record().getProductCode(),
@@ -120,7 +127,7 @@ public class DistributionController {
                 result.profile().getInviteCode(),
                 result.profile().getCountryCode(),
                 result.profile().getLanguageCode(),
-                result.profile().getApiAccessToken(),
+                session.accessToken(),
                 result.record().getIssuedAt().toString()
         );
     }
@@ -134,8 +141,21 @@ public class DistributionController {
 
     @PostMapping("/auth/phone-login")
     public ProfileResponse phoneLogin(@Valid @RequestBody PhoneLoginRequest request) {
-        UserDistributionProfile profile = phoneAuthService.login(request);
-        return new ProfileResponse(profile.getUserId(), profile.getInviteCode(), profile.getCountryCode(), profile.getLanguageCode(), profile.getApiAccessToken());
+        PhoneAuthService.LoginResult result = phoneAuthService.login(request);
+        UserDistributionProfile profile = result.profile();
+        return new ProfileResponse(profile.getUserId(), profile.getInviteCode(), profile.getCountryCode(), profile.getLanguageCode(), result.session().accessToken());
+    }
+
+    @PostMapping("/auth/session/refresh")
+    public UserSessionResponse refreshSession(@RequestHeader("X-Distribution-Token") String accessToken) {
+        UserSessionService.IssuedSession session = userSessionService.refresh(accessToken);
+        return new UserSessionResponse(session.accessToken(), session.expiresAt().toString());
+    }
+
+    @PostMapping("/auth/session/logout")
+    public Map<String, Object> logout(@RequestHeader("X-Distribution-Token") String accessToken) {
+        userSessionService.revoke(accessToken);
+        return Map.of("revoked", true);
     }
 
     @GetMapping("/home/{userId}")

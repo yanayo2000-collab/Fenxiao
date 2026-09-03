@@ -37,6 +37,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Transactional
 @SpringBootTest(properties = {
         "app.admin.token=test-admin-token",
+        "app.admin.bootstrap-username=default_admin",
+        "app.admin.bootstrap-password=test-admin-token",
+        "app.admin.bootstrap-force-password-change=false",
         "app.distribution.internal-token=test-token",
         "app.distribution.linky-signing-secret=test-linky-secret",
         "app.distribution.linky-replay-window-seconds=900"
@@ -156,6 +159,34 @@ class DistributionMvpAdminControllerTest {
                 .andExpect(jsonPath("$.effectiveUsers").value(2))
                 .andExpect(jsonPath("$.rewardTotal").value(21.0))
                 .andExpect(jsonPath("$.frozenRewardTotal").value(21.0));
+    }
+
+    @Test
+    void shouldReportBlockedLegacyRewardCandidates() throws Exception {
+        seedRules();
+        String rootCode = distributionBindingService.createProfile(11501L, "ID", "id", null).getInviteCode();
+        String level1Code = distributionBindingService.createProfile(11502L, "ID", "id", rootCode).getInviteCode();
+        String level2Code = distributionBindingService.createProfile(11503L, "ID", "id", level1Code).getInviteCode();
+        distributionBindingService.createProfile(11504L, "ID", "id", level2Code);
+        rewardCalculationService.processIncomeEvent(
+                "evt-engine-report-1",
+                11504L,
+                new BigDecimal("100.00"),
+                "USD",
+                LocalDateTime.of(2026, 4, 21, 12, 0));
+
+        mockMvc.perform(get("/admin/distribution/reports/reward-engine")
+                        .header("X-Admin-Session", loginAsAdmin())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.engineEnabled").value(true))
+                .andExpect(jsonPath("$.engineVersion").value("BANDEIRA_V1_DIRECT_ONLY"))
+                .andExpect(jsonPath("$.processedIncomeEvents").value(1))
+                .andExpect(jsonPath("$.generatedDirectRewards").value(1))
+                .andExpect(jsonPath("$.legacyRewardCandidates").value(3))
+                .andExpect(jsonPath("$.blockedLegacyRewardCandidates").value(2))
+                .andExpect(jsonPath("$.newMultilevelRewards").value(0))
+                .andExpect(jsonPath("$.safetyGatePassed").value(true));
     }
 
     @Test
@@ -285,13 +316,14 @@ class DistributionMvpAdminControllerTest {
         org.assertj.core.api.Assertions.assertThat(relation.getLockStatus().name()).isEqualTo("LOCKED");
         org.assertj.core.api.Assertions.assertThat(rewardRecord.getRewardStatus().name()).isEqualTo("RISK_HOLD");
         org.assertj.core.api.Assertions.assertThat(operationAuditLogRepository.count()).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(operationAuditLogRepository.findAll().getFirst().getOperatorId()).isPositive();
 
         mockMvc.perform(get("/admin/distribution/risk-events")
                         .header("X-Admin-Session", loginAsAdmin())
                         .param("userId", "14002")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].handledBy").value(0))
+                .andExpect(jsonPath("$.items[0].handledBy").isNumber())
                 .andExpect(jsonPath("$.items[0].handledAt").isNotEmpty())
                 .andExpect(jsonPath("$.items[0].resultNote").value("confirmed suspicious behavior"));
     }
@@ -491,7 +523,7 @@ class DistributionMvpAdminControllerTest {
     }
 
     @Test
-    void shouldRejectManualAdjustForLockedRelation() throws Exception {
+    void shouldAllowSuperAdminVersionedCorrectionForLockedRelation() throws Exception {
         seedRules();
         String rootCode = distributionBindingService.createProfile(17201L, "ID", "id", null).getInviteCode();
         distributionBindingService.createProfile(17202L, "ID", "id", rootCode);
@@ -504,11 +536,11 @@ class DistributionMvpAdminControllerTest {
                         .content("""
                                 {
                                   "level1InviterId": 17203,
-                                  "note": "should fail for locked relation"
+                                  "note": "verified historical correction"
                                 }
                                 """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("locked relation cannot be adjusted manually"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.level1InviterId").value(17203));
     }
 
     @Test
@@ -752,6 +784,7 @@ class DistributionMvpAdminControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "username": "default_admin",
                                   "password": "test-admin-token"
                                 }
                                 """))

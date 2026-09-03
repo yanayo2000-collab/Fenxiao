@@ -3,7 +3,8 @@ package com.fenxiao.common.security;
 import com.fenxiao.admin.service.AdminPermission;
 import com.fenxiao.admin.service.AdminSessionService;
 import com.fenxiao.common.api.ForbiddenException;
-import com.fenxiao.user.entity.UserDistributionProfile;
+import com.fenxiao.identity.service.UserSessionService;
+import com.fenxiao.identity.domain.AccountStatus;
 import com.fenxiao.user.repository.UserDistributionProfileRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -25,8 +26,10 @@ public class DistributionAccessGuard {
     private final String profileCreateToken;
     private final String linkySigningSecret;
     private final long linkyReplayWindowSeconds;
-    private final UserDistributionProfileRepository userDistributionProfileRepository;
     private final AdminSessionService adminSessionService;
+    private final UserSessionService userSessionService;
+    private final UserDistributionProfileRepository userProfileRepository;
+    private final boolean legacyUserTokenEnabled;
     private final Clock clock;
 
     public DistributionAccessGuard(@Value("${app.distribution.internal-token:}") String internalToken,
@@ -34,24 +37,32 @@ public class DistributionAccessGuard {
                                    @Value("${app.distribution.profile-create-token:}") String profileCreateToken,
                                    @Value("${app.distribution.linky-signing-secret:}") String linkySigningSecret,
                                    @Value("${app.distribution.linky-replay-window-seconds:900}") long linkyReplayWindowSeconds,
-                                   UserDistributionProfileRepository userDistributionProfileRepository,
+                                   @Value("${app.distribution.legacy-user-token-enabled:false}") boolean legacyUserTokenEnabled,
+                                   UserDistributionProfileRepository userProfileRepository,
                                    AdminSessionService adminSessionService,
+                                   UserSessionService userSessionService,
                                    Clock clock) {
         this.internalToken = internalToken;
         this.adminToken = adminToken;
         this.profileCreateToken = profileCreateToken;
         this.linkySigningSecret = linkySigningSecret;
         this.linkyReplayWindowSeconds = linkyReplayWindowSeconds;
-        this.userDistributionProfileRepository = userDistributionProfileRepository;
+        this.legacyUserTokenEnabled = legacyUserTokenEnabled;
+        this.userProfileRepository = userProfileRepository;
         this.adminSessionService = adminSessionService;
+        this.userSessionService = userSessionService;
         this.clock = clock;
     }
 
     public void assertUserAccess(Long targetUserId, String accessToken) {
-        UserDistributionProfile profile = userDistributionProfileRepository.findById(targetUserId)
-                .orElseThrow(() -> new ForbiddenException("distribution access denied"));
-        if (accessToken == null || accessToken.isBlank() || profile.getApiAccessToken() == null || !profile.getApiAccessToken().equals(accessToken)) {
-            throw new ForbiddenException("distribution access denied");
+        try {
+            userSessionService.assertAccess(targetUserId, accessToken);
+        } catch (ForbiddenException exception) {
+            if (!legacyUserTokenEnabled) throw exception;
+            var profile = userProfileRepository.findById(targetUserId)
+                    .filter(value -> value.getAccountStatus() == AccountStatus.ACTIVE)
+                    .filter(value -> value.getApiAccessToken() != null && value.getApiAccessToken().equals(accessToken))
+                    .orElseThrow(() -> exception);
         }
     }
 
@@ -96,7 +107,7 @@ public class DistributionAccessGuard {
                                                          String currencyCode,
                                                          String paidAt) {
         if (linkySigningSecret == null || linkySigningSecret.isBlank()) {
-            return new LinkyRequestCheckResult(true, "SKIPPED", "SKIPPED", null);
+            return new LinkyRequestCheckResult(false, "NOT_CONFIGURED", "NOT_CHECKED", "linky signature verification not configured");
         }
         if (timestamp == null || timestamp.isBlank()) {
             return new LinkyRequestCheckResult(false, "NOT_CHECKED", "INVALID_TIMESTAMP", "linky signature invalid");
@@ -122,8 +133,8 @@ public class DistributionAccessGuard {
         return new LinkyRequestCheckResult(true, "VALID", "VALID", null);
     }
 
-    public void assertAdminAccess(String token, String sessionToken) {
-        adminSessionService.assertPermission(sessionToken, AdminPermission.READ);
+    public AdminSessionService.AdminPrincipal assertAdminAccess(String token, String sessionToken) {
+        return adminSessionService.assertPermission(sessionToken, AdminPermission.READ);
     }
 
     public AdminSessionService.AdminPrincipal assertAdminWriteAccess(String token, String sessionToken) {
@@ -132,6 +143,26 @@ public class DistributionAccessGuard {
 
     public AdminSessionService.AdminPrincipal assertAdminAccountManageAccess(String token, String sessionToken) {
         return adminSessionService.assertPermission(sessionToken, AdminPermission.ACCOUNT_MANAGE);
+    }
+
+    public AdminSessionService.AdminPrincipal assertMentorManageAccess(String token, String sessionToken) {
+        return adminSessionService.assertPermission(sessionToken, AdminPermission.MENTOR_MANAGE);
+    }
+
+    public AdminSessionService.AdminPrincipal assertTeamManageAccess(String token, String sessionToken) {
+        return adminSessionService.assertPermission(sessionToken, AdminPermission.TEAM_MANAGE);
+    }
+
+    public AdminSessionService.AdminPrincipal assertFinanceAccess(String token, String sessionToken) {
+        return adminSessionService.assertPermission(sessionToken, AdminPermission.FINANCE);
+    }
+
+    public AdminSessionService.AdminPrincipal assertAdminScopedAccess(String token,String sessionToken,String platform,String guild,String region){
+        var principal=assertAdminAccess(token,sessionToken);principal.requireScope(platform,guild,region);return principal;
+    }
+
+    public AdminSessionService.AdminPrincipal assertAdminScopedWriteAccess(String token,String sessionToken,String platform,String guild,String region){
+        var principal=assertAdminWriteAccess(token,sessionToken);principal.requireScope(platform,guild,region);return principal;
     }
 
     public void assertAdminToken(String token) {

@@ -260,6 +260,7 @@ class DistributionControllerTest {
 
     @Test
     void shouldLoginWithLatestStoredPhoneVerificationCode() throws Exception {
+        String inviteCode = distributionBindingService.createProfile(59003L, "BR", "pt-br", null).getInviteCode();
         mockMvc.perform(post("/api/distribution/auth/phone-codes")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
@@ -278,11 +279,28 @@ class DistributionControllerTest {
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "phoneNumber", "+628123450003",
                                 "verificationCode", code,
-                                "countryCode", "ID"
+                                "countryCode", "ID",
+                                "inviteCode", inviteCode
                         ))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").isNumber())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty());
+    }
+
+    @Test
+    void shouldRejectNewPhoneRegistrationWithoutInviteCode() throws Exception {
+        mockMvc.perform(post("/api/distribution/auth/phone-codes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("phoneNumber", "+5511999990001"))))
+                .andExpect(status().isOk());
+        String code = phoneVerificationCodeRepository
+                .findTopByPhoneNumberAndPurposeAndConsumedFalseOrderByIdDesc("+5511999990001", "LOGIN")
+                .orElseThrow().getVerificationCode();
+        mockMvc.perform(post("/api/distribution/auth/phone-login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("phoneNumber", "+5511999990001", "verificationCode", code))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("valid invite code is required for registration"));
     }
 
     @Test
@@ -307,7 +325,7 @@ class DistributionControllerTest {
     void shouldCreateWithdrawRequestFromAvailableRewards() throws Exception {
         UserDistributionProfile profile = distributionBindingService.createProfile(54001L, "ID", "id", null);
         rewardRecordRepository.save(makeAvailableReward("evt-54001-a", profile.getUserId(), 1, "600.000000"));
-        rewardRecordRepository.save(makeAvailableReward("evt-54001-b", profile.getUserId(), 2, "450.000000"));
+        rewardRecordRepository.save(makeAvailableReward("evt-54001-b", profile.getUserId(), 1, "450.000000"));
 
         mockMvc.perform(post("/api/distribution/withdraw-requests/54001")
                         .header("X-Distribution-Token", profile.getApiAccessToken())

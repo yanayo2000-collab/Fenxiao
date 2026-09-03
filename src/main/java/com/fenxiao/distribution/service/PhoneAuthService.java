@@ -6,6 +6,7 @@ import com.fenxiao.distribution.entity.PhoneVerificationCode;
 import com.fenxiao.distribution.repository.PhoneVerificationCodeRepository;
 import com.fenxiao.user.entity.UserDistributionProfile;
 import com.fenxiao.user.repository.UserDistributionProfileRepository;
+import com.fenxiao.identity.service.UserSessionService;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,7 @@ public class PhoneAuthService {
     private final UserDistributionProfileRepository profileRepository;
     private final DistributionBindingService bindingService;
     private final SmsSender smsSender;
+    private final UserSessionService userSessionService;
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
 
@@ -32,19 +34,22 @@ public class PhoneAuthService {
     public PhoneAuthService(PhoneVerificationCodeRepository codeRepository,
                             UserDistributionProfileRepository profileRepository,
                             DistributionBindingService bindingService,
-                            SmsSender smsSender) {
-        this(codeRepository, profileRepository, bindingService, smsSender, Clock.systemUTC());
+                            SmsSender smsSender,
+                            UserSessionService userSessionService) {
+        this(codeRepository, profileRepository, bindingService, smsSender, userSessionService, Clock.systemUTC());
     }
 
     PhoneAuthService(PhoneVerificationCodeRepository codeRepository,
                      UserDistributionProfileRepository profileRepository,
                      DistributionBindingService bindingService,
                      SmsSender smsSender,
+                     UserSessionService userSessionService,
                      Clock clock) {
         this.codeRepository = codeRepository;
         this.profileRepository = profileRepository;
         this.bindingService = bindingService;
         this.smsSender = smsSender;
+        this.userSessionService = userSessionService;
         this.clock = clock;
     }
 
@@ -61,8 +66,21 @@ public class PhoneAuthService {
         return code;
     }
 
-    public UserDistributionProfile login(PhoneLoginRequest request) {
+    public LoginResult login(PhoneLoginRequest request) {
         String normalizedPhone = normalizePhone(request.phoneNumber());
+        boolean existingUser = profileRepository.findByPhoneNumber(normalizedPhone).isPresent();
+        if (!existingUser) {
+            String countryCode = defaultIfBlank(request.countryCode(), "BR").toUpperCase(Locale.ROOT);
+            if ("BR".equals(countryCode) && !normalizedPhone.startsWith("+55")) {
+                throw new IllegalArgumentException("Brazil registration requires a +55 phone number");
+            }
+            if (request.inviteCode() == null || request.inviteCode().isBlank()) {
+                throw new IllegalArgumentException("valid invite code is required for registration");
+            }
+            if (profileRepository.findByInviteCode(request.inviteCode().trim().toUpperCase(Locale.ROOT)).isEmpty()) {
+                throw new IllegalArgumentException("invite code not found");
+            }
+        }
         PhoneVerificationCode code = codeRepository.findTopByPhoneNumberAndPurposeAndConsumedFalseOrderByIdDesc(normalizedPhone, PURPOSE)
                 .orElseThrow(() -> new IllegalArgumentException("verification code not found"));
         if (code.expired(clock)) throw new IllegalStateException("verification code expired");
@@ -74,17 +92,19 @@ public class PhoneAuthService {
         }
         code.consume();
         codeRepository.save(code);
-        return profileRepository.findByPhoneNumber(normalizedPhone).orElseGet(() -> {
+        UserDistributionProfile profile = profileRepository.findByPhoneNumber(normalizedPhone).orElseGet(() -> {
             long generatedUserId = 9000000000L + Math.abs((long) normalizedPhone.hashCode());
             while (profileRepository.existsById(generatedUserId)) generatedUserId++;
-            UserDistributionProfile profile = bindingService.createProfile(
+            UserDistributionProfile createdProfile = bindingService.createProfile(
                     generatedUserId,
-                    defaultIfBlank(request.countryCode(), "ID").toUpperCase(Locale.ROOT),
-                    defaultIfBlank(request.languageCode(), "id"),
+                    defaultIfBlank(request.countryCode(), "BR").toUpperCase(Locale.ROOT),
+                    defaultIfBlank(request.languageCode(), "pt-BR").toLowerCase(Locale.ROOT),
                     request.inviteCode());
-            profile.bindPhoneNumber(normalizedPhone);
-            return profileRepository.save(profile);
+            createdProfile.bindPhoneNumber(normalizedPhone);
+            return profileRepository.save(createdProfile);
         });
+        UserSessionService.IssuedSession session = userSessionService.issue(profile.getUserId());
+        return new LoginResult(profile, session);
     }
 
     private String normalizePhone(String phoneNumber) {
@@ -93,4 +113,6 @@ public class PhoneAuthService {
         return normalized;
     }
     private String defaultIfBlank(String value, String fallback) { return value == null || value.isBlank() ? fallback : value.trim(); }
+
+    public record LoginResult(UserDistributionProfile profile, UserSessionService.IssuedSession session) {}
 }

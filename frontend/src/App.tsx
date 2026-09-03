@@ -1,14 +1,52 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import {
+  ArrowRight,
+  Bell,
+  CaretRight,
+  CheckCircle,
+  Copy,
+  Diamond,
+  Eye,
+  EyeSlash,
+  IdentificationCard,
+  LinkSimple,
+  GearSix,
+  House,
+  Megaphone,
+  Phone,
+  ShareNetwork,
+  ShieldCheck,
+  SignIn,
+  LockSimple,
+  Medal,
+  Sparkle,
+  Target,
+  User,
+  UserCircle,
+  UserPlus,
+  UsersThree,
+  Wallet,
+} from '@phosphor-icons/react'
 import './App.css'
 import {
   adjustAdminRelation,
   applyAdminRiskEventAction,
-  approveAdminWithdrawRequest,
+  applyAdminRiskEventBatchAction,
+  applyAdminWithdrawBatchAction,
+  approveWithdrawForPayment,
+  changeExperimentStatus,
+  changeAdminPassword,
   correctAdminOwnership,
+  createExperiment,
   createAdminSession,
+  createAdminAccount,
   createProfile,
   createWithdrawRequest,
   getAdminAuditLogs,
+  getAdminAccounts,
+  getAdminDeviceSessions,
+  getCurrentAdminSession,
+  getMyAdminSecurityEvents,
   getAdminGuildConfigs,
   getAdminGuildWeeklyReport,
   getAdminLinkyReplayRecords,
@@ -19,28 +57,41 @@ import {
   getAdminRewards,
   getAdminRiskEvents,
   getAdminWithdrawRequests,
+  getExperimentDashboard,
   getDistributionHome,
   getDistributionRewards,
   getDistributionRewardSummary,
   getDistributionTeam,
   getDistributionTeamWeeklyIncome,
   getWithdrawHistory,
-  issueInviteCode,
   issuePhoneCode,
+  logoutAdminSession,
+  logoutAllAdminSessions,
   phoneLogin,
   refreshAdminLinkyEligibility,
   refreshAdminLinkyEligibilityBatch,
   registerInviteBinding,
+  recordWithdrawPayment,
+  reverseWithdrawPayment,
+  resetAdminPassword,
+  unlockAdminAccount,
+  revokeAdminDeviceSession,
   rejectAdminWithdrawRequest,
   saveAdminGuildConfig,
+  updateAdminAccount,
+  enrollExperimentParticipant,
   type AdminWithdrawRequestListResponse,
+  type BatchOperationResultResponse,
+  type AdminAccountResponse,
+  type AdminDeviceSessionResponse,
+  type AdminSecurityEventResponse,
   type AuditLogListResponse,
   type DistributionHomeResponse,
+  type ExperimentDashboardResponse,
   type GuildConfigRequest,
   type GuildConfigResponse,
   type GuildWeeklyReportResponse,
   type InviteBindingResponse,
-  type IssueInviteCodeResponse,
   type LinkyEligibilityCheckResponse,
   type LinkyBatchRefreshResponse,
   type LinkyReplayRecordListResponse,
@@ -74,6 +125,9 @@ import {
   buildAdminSectionLinks,
   buildEmptyStatePreset,
   buildLinkyDiagnosticSnapshot,
+  deleteNamedFilterView,
+  saveNamedFilterView,
+  type NamedFilterView,
 } from './opsConsole'
 import { buildChannelEntryLinks } from './publicEntries'
 
@@ -91,17 +145,30 @@ type AdminAuthState = {
   username: string
   displayName: string
   role: string
+  mustChangePassword?: boolean
+  rememberMe?: boolean
+  passwordExpiresAt?: string | null
+  platformScope?: string
+  guildScope?: string
+  regionScope?: string
 }
 
 type AdminProductKey = 'ALL' | 'LINKY'
-type AdminSectionKey = 'overview' | 'channel' | 'bindings' | 'rewards' | 'settings'
+type AdminSectionKey = 'overview' | 'channel' | 'bindings' | 'rewards' | 'accounts' | 'settings'
 type RiskActionName = 'HANDLE' | 'IGNORE' | 'FREEZE_USER' | 'UNFREEZE_USER'
+type WithdrawActionName = 'approve' | 'reject' | 'paid' | 'failed' | 'reverse'
+type WithdrawQuery = { userId: string; status: string; page: string; size: string }
+type RiskQuery = { userId: string; riskStatus: string; startAt: string; endAt: string; page: string; size: string }
+type PendingBatchAction =
+  | { kind: 'withdraw'; action: 'APPROVE' | 'REJECT'; targetIds: string[] }
+  | { kind: 'risk'; action: 'HANDLE' | 'IGNORE'; targetIds: number[] }
 
 const ADMIN_SECTION_HASHES: Record<AdminSectionKey, string> = {
   overview: '#admin-overview',
   channel: '#admin-channel-entries',
   bindings: '#admin-bindings',
   rewards: '#admin-rewards',
+  accounts: '#admin-accounts',
   settings: '#admin-settings',
 }
 
@@ -121,6 +188,19 @@ type PendingRiskAction = {
   riskStatus: string
   action: RiskActionName
   note: string
+}
+
+type PendingWithdrawAction = {
+  requestNo: string
+  userId: number
+  requestedDiamondAmount: number
+  requestStatus: string
+  action: WithdrawActionName
+}
+
+type PendingAdminAccountAction = {
+  account: AdminAccountResponse
+  action: 'save' | 'toggle' | 'reset' | 'unlock'
 }
 
 type PendingRelationChange = {
@@ -145,12 +225,21 @@ const STORAGE_KEY = 'fenxiao-web-session'
 const PROFILE_CREATE_TOKEN_KEY = 'fenxiao-profile-create-token'
 const EXTERNAL_LOCALE_KEY = 'fenxiao-external-locale'
 const ADMIN_REWARD_QUERY_KEY = 'fenxiao-admin-reward-query'
+const ADMIN_WITHDRAW_QUERY_KEY = 'fenxiao-admin-withdraw-query'
 const RISK_QUERY_KEY = 'fenxiao-admin-risk-query'
+const ADMIN_WITHDRAW_VIEWS_KEY = 'fenxiao-admin-withdraw-views'
+const RISK_VIEWS_KEY = 'fenxiao-admin-risk-views'
 const LINKY_WEBHOOK_QUERY_KEY = 'fenxiao-linky-webhook-query'
 const LINKY_REPLAY_QUERY_KEY = 'fenxiao-linky-replay-query'
 const ADMIN_PRODUCT_OPTIONS: Array<{ value: AdminProductKey; label: string }> = [
   { value: 'ALL', label: '全部产品' },
   { value: 'LINKY', label: 'Linky' },
+]
+const ADMIN_ROLE_OPTIONS = [
+  { value: 'super_admin', label: '最高管理员' }, { value: 'admin', label: '管理员' },
+  { value: 'operations', label: '运营' }, { value: 'operator', label: '操作员' },
+  { value: 'finance', label: '财务' }, { value: 'customer_support', label: '客服' },
+  { value: 'mentor', label: '导师' }, { value: 'team_leader', label: '团队负责人' },
 ]
 
 function loadExternalLocale(): 'zh' | 'en' | 'es' | 'id' | 'pt' {
@@ -198,19 +287,28 @@ function saveUserSession(profile: ProfileResponse) {
 
 function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: ConsoleAppProps) {
   void initialViewMode
+  const shouldRestoreAdminSession = !initialAdminSession && typeof window !== 'undefined'
+    && (window.location.pathname === '/' || window.location.pathname.startsWith('/admin'))
   const [session, setSession] = useState<SessionState | null>(() => loadJsonState<SessionState>(STORAGE_KEY))
   const [adminSession, setAdminSession] = useState<AdminAuthState | null>(initialAdminSession)
+  const [adminSessionRestoring, setAdminSessionRestoring] = useState(shouldRestoreAdminSession)
   const [adminUsername, setAdminUsername] = useState('')
   const [adminPassword, setAdminPassword] = useState('')
+  const [adminRememberMe, setAdminRememberMe] = useState(true)
+  const [adminAccounts, setAdminAccounts] = useState<AdminAccountResponse[]>([])
+  const [adminDevices, setAdminDevices] = useState<AdminDeviceSessionResponse[]>([])
+  const [adminSecurityEvents, setAdminSecurityEvents] = useState<AdminSecurityEventResponse[]>([])
+  const [adminTemporaryPassword, setAdminTemporaryPassword] = useState('')
+  const [pendingAdminAccountAction, setPendingAdminAccountAction] = useState<PendingAdminAccountAction | null>(null)
+  const [adminAccountForm, setAdminAccountForm] = useState({ username: '', displayName: '', role: 'operator', platformScope: '*', guildScope: '*', regionScope: '*' })
+  const [adminPasswordForm, setAdminPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' })
+  const [adminAccountView, setAdminAccountView] = useState<'security' | 'staff' | 'audit'>('security')
   const [adminProduct, setAdminProduct] = useState<AdminProductKey>('ALL')
   const [activeAdminSection, setActiveAdminSection] = useState<AdminSectionKey>(() => resolveAdminSectionFromHash(typeof window !== 'undefined' ? window.location.hash : undefined))
   const [showAdvancedOps, setShowAdvancedOps] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
-  const [home, setHome] = useState<DistributionHomeResponse | null>(null)
-  const [team, setTeam] = useState<TeamListResponse | null>(null)
-  const [rewards, setRewards] = useState<RewardListResponse | null>(null)
   const [adminOverview, setAdminOverview] = useState<OverviewReportResponse | null>(null)
   const [adminRewards, setAdminRewards] = useState<RewardListResponse | null>(null)
   const [adminWithdrawRequests, setAdminWithdrawRequests] = useState<AdminWithdrawRequestListResponse | null>(null)
@@ -240,20 +338,40 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     page: '0',
     size: '10',
   })
-  const [adminWithdrawQuery, setAdminWithdrawQuery] = useState({
+  const [adminWithdrawQuery, setAdminWithdrawQuery] = useState(() => loadJsonState<WithdrawQuery>(ADMIN_WITHDRAW_QUERY_KEY) || {
     userId: '',
-    status: '',
+    status: 'PENDING_REVIEW',
     page: '0',
     size: '10',
   })
   const [adminWithdrawAction, setAdminWithdrawAction] = useState({
     remark: '',
+    paymentChannel: 'MANUAL',
+    paymentReference: '',
+    evidenceUri: '',
+    evidenceHash: '',
+    failureReason: '',
+    reversalReason: '',
+    reversalCurrency: 'DIAMOND',
   })
   const [adminWithdrawActionLoadingNo, setAdminWithdrawActionLoadingNo] = useState<string | null>(null)
   const [adminWithdrawActionMessage, setAdminWithdrawActionMessage] = useState('')
-  const [riskQuery, setRiskQuery] = useState(() => loadJsonState<{ userId: string; riskStatus: string; startAt: string; endAt: string; page: string; size: string }>(RISK_QUERY_KEY) || {
+  const [pendingWithdrawAction, setPendingWithdrawAction] = useState<PendingWithdrawAction | null>(null)
+  const [adminFinanceView, setAdminFinanceView] = useState<'withdrawals' | 'rewards'>('withdrawals')
+  const [selectedWithdrawRequestNo, setSelectedWithdrawRequestNo] = useState<string | null>(null)
+  const [selectedWithdrawRequestNos, setSelectedWithdrawRequestNos] = useState<string[]>([])
+  const [withdrawViews, setWithdrawViews] = useState(() => loadJsonState<NamedFilterView<WithdrawQuery>[]>(ADMIN_WITHDRAW_VIEWS_KEY) || [])
+  const [withdrawViewName, setWithdrawViewName] = useState('')
+  const [selectedWithdrawViewId, setSelectedWithdrawViewId] = useState('')
+  const [adminBindingView, setAdminBindingView] = useState<'users' | 'risks'>('users')
+  const [adminSettingsView, setAdminSettingsView] = useState<'experiment' | 'guilds' | 'advanced'>('experiment')
+  const [experimentCode, setExperimentCode] = useState('BANDEIRA_V1_100')
+  const [experimentDashboard, setExperimentDashboard] = useState<ExperimentDashboardResponse | null>(null)
+  const [experimentForm, setExperimentForm] = useState({ name: 'BANDEIRA V1 100人实验', primaryMetricCode: 'FIRST_INCOME', enrollmentStartsAt: '', enrollmentEndsAt: '', observationEndsAt: '' })
+  const [experimentParticipant, setExperimentParticipant] = useState({ userId: '', cohortCode: 'BR_LINKY', eligibilitySnapshot: '' })
+  const [riskQuery, setRiskQuery] = useState(() => loadJsonState<RiskQuery>(RISK_QUERY_KEY) || {
     userId: '',
-    riskStatus: '',
+    riskStatus: 'PENDING',
     startAt: '',
     endAt: '',
     page: '0',
@@ -278,7 +396,15 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     size: '5',
   })
   const [riskActionDrafts, setRiskActionDrafts] = useState<Record<number, string>>({})
+  const [selectedRiskEventIds, setSelectedRiskEventIds] = useState<number[]>([])
+  const [riskViews, setRiskViews] = useState(() => loadJsonState<NamedFilterView<RiskQuery>[]>(RISK_VIEWS_KEY) || [])
+  const [riskViewName, setRiskViewName] = useState('')
+  const [selectedRiskViewId, setSelectedRiskViewId] = useState('')
   const [pendingRiskAction, setPendingRiskAction] = useState<PendingRiskAction | null>(null)
+  const [pendingBatchAction, setPendingBatchAction] = useState<PendingBatchAction | null>(null)
+  const [batchActionNote, setBatchActionNote] = useState('')
+  const [batchActionLoading, setBatchActionLoading] = useState(false)
+  const [batchActionResult, setBatchActionResult] = useState<BatchOperationResultResponse | null>(null)
   const [riskActionLoadingId, setRiskActionLoadingId] = useState<number | null>(null)
   const [selectedLinkyDrawer, setSelectedLinkyDrawer] = useState<SelectedLinkyDrawer | null>(null)
   const [ownershipQueryUserId, setOwnershipQueryUserId] = useState('')
@@ -318,14 +444,15 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     inviteCode: form.inviteCode || session?.inviteCode || '',
   })
 
-  const canLoadData = useMemo(() => Boolean(session?.userId && session?.accessToken), [session])
-  const canLoadAdmin = useMemo(() => Boolean(adminSession?.sessionToken), [adminSession])
+  const canLoadAdmin = useMemo(() => Boolean(adminSession), [adminSession])
   const canCreateProfile = useMemo(
     () => Boolean(profileCreateToken.trim() && form.userId.trim() && form.inviteCode.trim()),
     [profileCreateToken, form.userId, form.inviteCode],
   )
   const currentAdminProductLabel = ADMIN_PRODUCT_OPTIONS.find((item) => item.value === adminProduct)?.label ?? '全部产品'
   const activeAdminProductCode = adminProduct === 'ALL' ? undefined : adminProduct
+  const adminSectionLinks = useMemo(() => buildAdminSectionLinks(adminSession?.role), [adminSession?.role])
+  const canViewAdminSection = (section: AdminSectionKey) => adminSectionLinks.some((item) => item.href === ADMIN_SECTION_HASHES[section])
   const showingProductSpecificDiagnostics = adminProduct === 'LINKY'
   const channelEntryLinks = useMemo(
     () => buildChannelEntryLinks(channelEntryForm.origin, {
@@ -347,12 +474,53 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
   }, [])
 
   useEffect(() => {
+    if (!adminSession || adminSectionLinks.some((item) => item.href === ADMIN_SECTION_HASHES[activeAdminSection])) return
+    window.location.hash = ADMIN_SECTION_HASHES.overview
+  }, [activeAdminSection, adminSectionLinks, adminSession])
+
+  useEffect(() => {
+    if (!shouldRestoreAdminSession) return
+    let cancelled = false
+    void getCurrentAdminSession()
+      .then((restored) => { if (!cancelled) setAdminSession(restored) })
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setAdminSessionRestoring(false) })
+    return () => { cancelled = true }
+  }, [shouldRestoreAdminSession])
+
+  useEffect(() => {
     localStorage.setItem(ADMIN_REWARD_QUERY_KEY, JSON.stringify(adminRewardQuery))
   }, [adminRewardQuery])
 
   useEffect(() => {
+    localStorage.setItem(ADMIN_WITHDRAW_QUERY_KEY, JSON.stringify(adminWithdrawQuery))
+  }, [adminWithdrawQuery])
+
+  useEffect(() => {
     localStorage.setItem(RISK_QUERY_KEY, JSON.stringify(riskQuery))
   }, [riskQuery])
+
+  useEffect(() => {
+    localStorage.setItem(ADMIN_WITHDRAW_VIEWS_KEY, JSON.stringify(withdrawViews))
+  }, [withdrawViews])
+
+  useEffect(() => {
+    localStorage.setItem(RISK_VIEWS_KEY, JSON.stringify(riskViews))
+  }, [riskViews])
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || typeof window === 'undefined'
+      || new URLSearchParams(window.location.search).get('adminData') !== 'stress') return
+    let cancelled = false
+    void import('./adminStressFixtures').then(({ buildAdminStressRiskEvents, buildAdminStressWithdrawRequests }) => {
+      if (cancelled) return
+      setAdminWithdrawRequests(buildAdminStressWithdrawRequests())
+      setRiskEvents(buildAdminStressRiskEvents())
+      setHasQueriedRiskEvents(true)
+      setSelectedWithdrawRequestNo((current) => current || buildAdminStressWithdrawRequests().items[0]?.requestNo || null)
+    })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     localStorage.setItem(LINKY_WEBHOOK_QUERY_KEY, JSON.stringify(linkyWebhookQuery))
@@ -416,6 +584,8 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
         size: Number(query.size || 10),
       })
       setAdminWithdrawRequests(result)
+      setSelectedWithdrawRequestNos([])
+      setSelectedWithdrawRequestNo((current) => result.items.some((item) => item.requestNo === current) ? current : result.items[0]?.requestNo ?? null)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载提现申请失败')
     } finally {
@@ -423,21 +593,37 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     }
   }
 
-  async function handleAdminWithdrawAction(requestNo: string, action: 'approve' | 'reject') {
+  async function handleAdminWithdrawAction(requestNo: string, action: WithdrawActionName) {
     if (!adminSession) return
     setAdminWithdrawActionLoadingNo(requestNo)
     setError('')
     setAdminWithdrawActionMessage('')
     try {
-      const payload = {
-        remark: adminWithdrawAction.remark.trim() || (action === 'approve' ? '运营确认已人工发放' : '运营拒绝提现申请'),
-      }
       if (action === 'approve') {
-        await approveAdminWithdrawRequest(adminSession.sessionToken, requestNo, payload)
+        await approveWithdrawForPayment(adminSession.sessionToken, requestNo, adminWithdrawAction.remark.trim() || '财务审核通过，等待打款')
+      } else if (action === 'reject') {
+        await rejectAdminWithdrawRequest(adminSession.sessionToken, requestNo, { remark: adminWithdrawAction.remark.trim() || '财务拒绝提现申请' })
+      } else if (action === 'paid') {
+        await recordWithdrawPayment(adminSession.sessionToken, requestNo, {
+          paymentChannel: adminWithdrawAction.paymentChannel.trim(), paymentReference: adminWithdrawAction.paymentReference.trim(),
+          evidenceUri: adminWithdrawAction.evidenceUri.trim(), evidenceHash: adminWithdrawAction.evidenceHash.trim(),
+        }, true)
+      } else if (action === 'failed') {
+        await recordWithdrawPayment(adminSession.sessionToken, requestNo, {
+          paymentChannel: adminWithdrawAction.paymentChannel.trim(), paymentReference: adminWithdrawAction.paymentReference.trim(),
+          evidenceUri: adminWithdrawAction.evidenceUri.trim(), evidenceHash: adminWithdrawAction.evidenceHash.trim(),
+          failureReason: adminWithdrawAction.failureReason.trim() || '打款失败，等待重试',
+        }, false)
       } else {
-        await rejectAdminWithdrawRequest(adminSession.sessionToken, requestNo, payload)
+        await reverseWithdrawPayment(adminSession.sessionToken, requestNo, {
+          reason: adminWithdrawAction.reversalReason.trim(),
+          currencyCode: adminWithdrawAction.reversalCurrency.trim().toUpperCase(),
+        })
       }
-      setAdminWithdrawActionMessage(action === 'approve' ? `已通过提现申请 ${requestNo}` : `已拒绝提现申请 ${requestNo}`)
+      const labels = { approve: '已进入待打款', reject: '已拒绝', paid: '已确认打款', failed: '已记录打款失败', reverse: '已创建冲正账目' }
+      setAdminWithdrawActionMessage(`${labels[action]} ${requestNo}`)
+      setPendingWithdrawAction(null)
+      setAdminWithdrawAction({ remark: '', paymentChannel: 'MANUAL', paymentReference: '', evidenceUri: '', evidenceHash: '', failureReason: '', reversalReason: '', reversalCurrency: 'DIAMOND' })
       await loadAdminWithdrawRequests()
     } catch (err) {
       setError(err instanceof Error ? err.message : '处理提现申请失败')
@@ -446,18 +632,193 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     }
   }
 
+  function openWithdrawActionConfirm(item: AdminWithdrawRequestListResponse['items'][number], action: WithdrawActionName) {
+    setPendingWithdrawAction({
+      requestNo: item.requestNo,
+      userId: item.userId,
+      requestedDiamondAmount: item.requestedDiamondAmount,
+      requestStatus: item.requestStatus,
+      action,
+    })
+  }
+
+  function selectWithdrawRequest(requestNo: string) {
+    if (requestNo === selectedWithdrawRequestNo) return
+    setSelectedWithdrawRequestNo(requestNo)
+    setAdminWithdrawActionMessage('')
+    setAdminWithdrawAction({ remark: '', paymentChannel: 'MANUAL', paymentReference: '', evidenceUri: '', evidenceHash: '', failureReason: '', reversalReason: '', reversalCurrency: 'DIAMOND' })
+  }
+
+  async function handleWithdrawPageChange(nextPage: number) {
+    if (nextPage < 0) return
+    const nextQuery = { ...adminWithdrawQuery, page: String(nextPage) }
+    setAdminWithdrawQuery(nextQuery)
+    await loadAdminWithdrawRequests(nextQuery)
+  }
+
+  function resetWithdrawFilters() {
+    setAdminWithdrawQuery({ userId: '', status: 'PENDING_REVIEW', page: '0', size: '10' })
+    setAdminWithdrawRequests(null)
+    setSelectedWithdrawRequestNo(null)
+    setSelectedWithdrawRequestNos([])
+    setAdminWithdrawActionMessage('')
+  }
+
   function renderAdminWithdrawActions(item: AdminWithdrawRequestListResponse['items'][number]) {
-    const disabled = !canLoadAdmin || adminWithdrawActionLoadingNo === item.requestNo || item.requestStatus !== 'PENDING'
-    return (
+    const busy = !canLoadAdmin || adminWithdrawActionLoadingNo === item.requestNo
+    if (item.requestStatus === 'PENDING_REVIEW') return (
       <div className="table-toolbar compact-toolbar">
-        <button className="primary-btn small-btn" onClick={() => void handleAdminWithdrawAction(item.requestNo, 'approve')} disabled={disabled}>
-          {adminWithdrawActionLoadingNo === item.requestNo ? '处理中…' : '通过'}
-        </button>
-        <button className="ghost-btn small-btn" onClick={() => void handleAdminWithdrawAction(item.requestNo, 'reject')} disabled={disabled}>
-          拒绝
-        </button>
+        <button className="primary-btn small-btn" onClick={() => openWithdrawActionConfirm(item, 'approve')} disabled={busy}>{busy ? '处理中…' : '通过审核'}</button>
+        <button className="ghost-btn small-btn" onClick={() => openWithdrawActionConfirm(item, 'reject')} disabled={busy || !adminWithdrawAction.remark.trim()}>拒绝</button>
       </div>
     )
+    if (item.requestStatus === 'PAYMENT_PENDING' || item.requestStatus === 'PAYMENT_FAILED') return (
+      <div className="table-toolbar compact-toolbar">
+        <button className="primary-btn small-btn" onClick={() => openWithdrawActionConfirm(item, 'paid')} disabled={busy || !adminWithdrawAction.paymentChannel.trim() || !adminWithdrawAction.paymentReference.trim()}>{busy ? '处理中…' : '确认已打款'}</button>
+        {item.requestStatus === 'PAYMENT_PENDING' ? <button className="ghost-btn small-btn" onClick={() => openWithdrawActionConfirm(item, 'failed')} disabled={busy || !adminWithdrawAction.paymentChannel.trim() || !adminWithdrawAction.failureReason.trim()}>标记失败</button> : null}
+      </div>
+    )
+    if (item.requestStatus === 'PAID_OUT') return (
+      <button className="ghost-btn small-btn" onClick={() => openWithdrawActionConfirm(item, 'reverse')} disabled={busy || !adminWithdrawAction.reversalReason.trim() || !adminWithdrawAction.reversalCurrency.trim()}>发起冲正</button>
+    )
+    return <span className="subtext">已终结</span>
+  }
+
+  function saveWithdrawView() {
+    try {
+      const next = saveNamedFilterView(withdrawViews, withdrawViewName, { ...adminWithdrawQuery, page: '0' })
+      setWithdrawViews(next)
+      setSelectedWithdrawViewId(next[0].id)
+      setWithdrawViewName('')
+      setSuccessMessage(`已保存个人筛选视图“${next[0].name}”`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存筛选视图失败')
+    }
+  }
+
+  function applyWithdrawView(viewId: string) {
+    setSelectedWithdrawViewId(viewId)
+    const view = withdrawViews.find((item) => item.id === viewId)
+    if (!view) return
+    setAdminWithdrawQuery({ ...view.query, page: '0' })
+    setAdminWithdrawRequests(null)
+    setSelectedWithdrawRequestNo(null)
+    setSelectedWithdrawRequestNos([])
+  }
+
+  function removeWithdrawView() {
+    if (!selectedWithdrawViewId) return
+    setWithdrawViews(deleteNamedFilterView(withdrawViews, selectedWithdrawViewId))
+    setSelectedWithdrawViewId('')
+  }
+
+  function saveRiskView() {
+    try {
+      const next = saveNamedFilterView(riskViews, riskViewName, { ...riskQuery, page: '0' })
+      setRiskViews(next)
+      setSelectedRiskViewId(next[0].id)
+      setRiskViewName('')
+      setSuccessMessage(`已保存个人筛选视图“${next[0].name}”`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存筛选视图失败')
+    }
+  }
+
+  function applyRiskView(viewId: string) {
+    setSelectedRiskViewId(viewId)
+    const view = riskViews.find((item) => item.id === viewId)
+    if (!view) return
+    setRiskQuery({ ...view.query, page: '0' })
+    setRiskEvents(null)
+    setHasQueriedRiskEvents(false)
+    setSelectedRiskEventIds([])
+  }
+
+  function removeRiskView() {
+    if (!selectedRiskViewId) return
+    setRiskViews(deleteNamedFilterView(riskViews, selectedRiskViewId))
+    setSelectedRiskViewId('')
+  }
+
+  async function handleBatchAction() {
+    if (!adminSession || !pendingBatchAction) return
+    if ((pendingBatchAction.action === 'REJECT' || pendingBatchAction.action === 'IGNORE') && !batchActionNote.trim()) {
+      setError('批量拒绝或忽略必须填写统一原因。')
+      return
+    }
+    setBatchActionLoading(true)
+    setError('')
+    try {
+      const result = pendingBatchAction.kind === 'withdraw'
+        ? await applyAdminWithdrawBatchAction(adminSession.sessionToken, {
+            requestNos: pendingBatchAction.targetIds,
+            action: pendingBatchAction.action,
+            remark: batchActionNote.trim() || undefined,
+          })
+        : await applyAdminRiskEventBatchAction(adminSession.sessionToken, {
+            riskEventIds: pendingBatchAction.targetIds,
+            action: pendingBatchAction.action,
+            note: batchActionNote.trim() || undefined,
+          })
+      setBatchActionResult(result)
+      setSuccessMessage(`批量操作完成：成功 ${result.successCount} 条，失败 ${result.failureCount} 条。`)
+      if (pendingBatchAction.kind === 'withdraw') {
+        setSelectedWithdrawRequestNos([])
+        await loadAdminWithdrawRequests()
+      } else {
+        setSelectedRiskEventIds([])
+        await loadRiskEvents(riskQuery)
+      }
+      setPendingBatchAction(null)
+      setBatchActionNote('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '批量操作失败')
+    } finally {
+      setBatchActionLoading(false)
+    }
+  }
+
+  async function handleLoadExperiment() {
+    if (!adminSession || !experimentCode.trim()) return
+    setLoading(true); setError('')
+    try { setExperimentDashboard(await getExperimentDashboard(adminSession.sessionToken, experimentCode.trim())) }
+    catch (err) { setError(err instanceof Error ? err.message : '加载实验看板失败') }
+    finally { setLoading(false) }
+  }
+
+  async function handleCreateExperiment() {
+    if (!adminSession) return
+    setLoading(true); setError('')
+    try {
+      await createExperiment(adminSession.sessionToken, {
+        experimentCode: experimentCode.trim(), experimentName: experimentForm.name.trim(), plannedSampleSize: 100,
+        primaryMetricCode: experimentForm.primaryMetricCode.trim(), enrollmentStartsAt: experimentForm.enrollmentStartsAt,
+        enrollmentEndsAt: experimentForm.enrollmentEndsAt, observationEndsAt: experimentForm.observationEndsAt,
+      })
+      setSuccessMessage('100 人实验已创建为草稿，确认后再开启招募。')
+      await handleLoadExperiment()
+    } catch (err) { setError(err instanceof Error ? err.message : '创建实验失败') }
+    finally { setLoading(false) }
+  }
+
+  async function handleExperimentStatus(status: string) {
+    if (!adminSession) return
+    setLoading(true); setError('')
+    try { await changeExperimentStatus(adminSession.sessionToken, experimentCode.trim(), status, '后台人工确认'); await handleLoadExperiment() }
+    catch (err) { setError(err instanceof Error ? err.message : '更新实验状态失败') }
+    finally { setLoading(false) }
+  }
+
+  async function handleEnrollParticipant() {
+    if (!adminSession || !experimentParticipant.userId) return
+    setLoading(true); setError('')
+    try {
+      await enrollExperimentParticipant(adminSession.sessionToken, experimentCode.trim(), {
+        userId: Number(experimentParticipant.userId), cohortCode: experimentParticipant.cohortCode.trim(), eligibilitySnapshot: experimentParticipant.eligibilitySnapshot.trim(),
+      })
+      setExperimentParticipant({ ...experimentParticipant, userId: '', eligibilitySnapshot: '' }); await handleLoadExperiment()
+    } catch (err) { setError(err instanceof Error ? err.message : '加入实验队列失败') }
+    finally { setLoading(false) }
   }
 
   async function loadRiskEvents(query = riskQuery) {
@@ -475,6 +836,7 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
         size: Number(query.size || 10),
       })
       setRiskEvents(result)
+      setSelectedRiskEventIds([])
       setHasQueriedRiskEvents(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载风险事件失败')
@@ -579,9 +941,6 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
       })
       const nextSession = saveUserSession(profile)
       setSession(nextSession)
-      setHome(null)
-      setTeam(null)
-      setRewards(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建分销档案失败')
     } finally {
@@ -594,9 +953,13 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     setLoading(true)
     setError('')
     try {
-      const nextSession = await createAdminSession({ username: adminUsername.trim(), password: adminPassword })
+      const nextSession = await createAdminSession({ username: adminUsername.trim(), password: adminPassword, rememberMe: adminRememberMe })
       setAdminSession(nextSession)
+      if (typeof window !== 'undefined' && window.location.pathname === '/' && window.history?.replaceState) {
+        window.history.replaceState(null, '', `/admin${window.location.hash || ''}`)
+      }
       setAdminPassword('')
+      if (nextSession.mustChangePassword) return
       const [overviewResult, auditResult] = await Promise.all([
         getAdminOverview(nextSession.sessionToken, activeAdminProductCode),
         getAdminAuditLogs(nextSession.sessionToken, {
@@ -614,7 +977,7 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     }
   }
 
-  function handleAdminLogout() {
+  function clearAdminState() {
     setAdminSession(null)
     setAdminOverview(null)
     setAdminRewards(null)
@@ -630,12 +993,73 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     setHasQueriedLinkyWebhookLogs(false)
     setHasQueriedLinkyReplayRecords(false)
     setPendingRiskAction(null)
+    setPendingWithdrawAction(null)
+    setPendingAdminAccountAction(null)
     setSelectedLinkyDrawer(null)
     setPendingRelationChange(null)
     setRiskActionDrafts({})
     setSuccessMessage('')
   }
 
+  async function handleAdminLogout() {
+    try { await logoutAdminSession() } finally { clearAdminState() }
+  }
+
+  async function handleChangeAdminPassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError('')
+    if (adminPasswordForm.newPassword !== adminPasswordForm.confirmPassword) { setError('两次输入的新密码不一致'); return }
+    try {
+      await changeAdminPassword({ currentPassword: adminPasswordForm.currentPassword, newPassword: adminPasswordForm.newPassword })
+      clearAdminState(); setAdminPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+    } catch (err) { setError(err instanceof Error ? err.message : '修改密码失败') }
+  }
+
+  async function handleLoadAdminIdentityCenter() {
+    setLoading(true); setError('')
+    try {
+      const [devices, events] = await Promise.all([getAdminDeviceSessions(), getMyAdminSecurityEvents()])
+      setAdminDevices(devices); setAdminSecurityEvents(events)
+      if (adminSession?.role.toLowerCase() === 'super_admin') setAdminAccounts(await getAdminAccounts())
+    } catch (err) { setError(err instanceof Error ? err.message : '加载账号中心失败') }
+    finally { setLoading(false) }
+  }
+
+  async function handleCreateAdminAccount(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setLoading(true); setError(''); setAdminTemporaryPassword('')
+    try {
+      const created = await createAdminAccount(adminAccountForm); setAdminTemporaryPassword(created.temporaryPassword)
+      setAdminAccountForm({ username: '', displayName: '', role: 'operator', platformScope: '*', guildScope: '*', regionScope: '*' })
+      setAdminAccounts(await getAdminAccounts())
+    } catch (err) { setError(err instanceof Error ? err.message : '创建员工账号失败') }
+    finally { setLoading(false) }
+  }
+
+  async function handleToggleAdminAccount(account: AdminAccountResponse) {
+    setLoading(true); setError('')
+    try { await updateAdminAccount(account.id, { displayName: account.displayName, role: account.role, enabled: !account.enabled, platformScope: account.platformScope, guildScope: account.guildScope, regionScope: account.regionScope }); setAdminAccounts(await getAdminAccounts()); setPendingAdminAccountAction(null); setSuccessMessage(`员工账号已${account.enabled ? '停用' : '恢复'}`) }
+    catch (err) { setError(err instanceof Error ? err.message : '更新员工账号失败') } finally { setLoading(false) }
+  }
+
+  async function handleSaveAdminAccount(account: AdminAccountResponse) {
+    setLoading(true); setError('')
+    try { await updateAdminAccount(account.id, { displayName: account.displayName, role: account.role, enabled: account.enabled, platformScope: account.platformScope, guildScope: account.guildScope, regionScope: account.regionScope }); setAdminAccounts(await getAdminAccounts()); setPendingAdminAccountAction(null); setSuccessMessage('员工账号已更新') }
+    catch (err) { setError(err instanceof Error ? err.message : '更新员工账号失败') } finally { setLoading(false) }
+  }
+
+  async function handleResetAdminPassword(id: number) {
+    setLoading(true); setError(''); setAdminTemporaryPassword('')
+    try { const result = await resetAdminPassword(id); setAdminTemporaryPassword(result.temporaryPassword); setAdminAccounts(await getAdminAccounts()); setPendingAdminAccountAction(null); setSuccessMessage('员工密码已重置，旧会话已失效') }
+    catch (err) { setError(err instanceof Error ? err.message : '重置密码失败') } finally { setLoading(false) }
+  }
+
+  async function handleUnlockAdminAccount(id: number) {
+    setLoading(true); setError('')
+    try { await unlockAdminAccount(id); setAdminAccounts(await getAdminAccounts()); setPendingAdminAccountAction(null); setSuccessMessage('员工账号已解锁') }
+    catch (err) { setError(err instanceof Error ? err.message : '解锁账号失败') } finally { setLoading(false) }
+  }
+
+  async function handleLogoutAllAdminDevices() { try { await logoutAllAdminSessions() } finally { clearAdminState() } }
+  async function handleRevokeAdminDevice(id: number) { await revokeAdminDeviceSession(id); if (adminDevices.find((item) => item.id === id)?.current) clearAdminState(); else setAdminDevices(await getAdminDeviceSessions()) }
   async function handleCopyFingerprint(fingerprint: string) {
     try {
       await navigator.clipboard.writeText(fingerprint)
@@ -670,33 +1094,23 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     }
   }
 
-  async function handleLoadDashboard() {
-    if (!session) return
-    setLoading(true)
-    setError('')
-    try {
-      const [homeData, teamData, rewardData] = await Promise.all([
-        getDistributionHome(session.userId, session.accessToken),
-        getDistributionTeam(session.userId, session.accessToken),
-        getDistributionRewards(session.userId, session.accessToken),
-      ])
-      setHome(homeData)
-      setTeam(teamData)
-      setRewards(rewardData)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '加载用户工作台失败')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   async function handleLoadAdminOverview() {
     if (!adminSession) return
     setLoading(true)
     setError('')
     try {
-      const overview = await getAdminOverview(adminSession.sessionToken, activeAdminProductCode)
+      const [overview, pendingWithdrawals, pendingRisks] = await Promise.all([
+        getAdminOverview(adminSession.sessionToken, activeAdminProductCode),
+        canViewAdminSection('rewards')
+          ? getAdminWithdrawRequests(adminSession.sessionToken, { status: 'PENDING_REVIEW', page: 0, size: 1 })
+          : Promise.resolve(null),
+        canViewAdminSection('bindings')
+          ? getAdminRiskEvents(adminSession.sessionToken, { riskStatus: 'PENDING', product: activeAdminProductCode, page: 0, size: 1 })
+          : Promise.resolve(null),
+      ])
       setAdminOverview(overview)
+      if (pendingWithdrawals) setAdminWithdrawRequests(pendingWithdrawals)
+      if (pendingRisks) setRiskEvents(pendingRisks)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载运营概览失败')
     } finally {
@@ -1015,14 +1429,6 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     }
   }
 
-  function handleLogout() {
-    localStorage.removeItem(STORAGE_KEY)
-    setSession(null)
-    setHome(null)
-    setTeam(null)
-    setRewards(null)
-  }
-
   function handleProfileCreateTokenSave() {
     localStorage.setItem(PROFILE_CREATE_TOKEN_KEY, profileCreateToken)
   }
@@ -1056,35 +1462,10 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     })
   }
 
-  const pendingRiskCount = riskEvents?.items?.filter((item) => item.riskStatus === 'PENDING').length ?? 0
   const processedLinkyRequestCount = linkyWebhookLogs?.items?.filter((item) => item.requestStatus === 'PROCESSED').length ?? 0
   const replayedLinkyRequestCount = linkyReplayRecords?.items?.filter((item) => item.hitCount > 1).length
     ?? linkyWebhookLogs?.items?.filter((item) => item.replayRecordStatus === 'REPLAYED').length
     ?? 0
-
-  const adminSummaryItems = [
-    {
-      label: '后台状态',
-      value: adminSession ? '已进入后台' : '待进入',
-      hint: adminSession ? `${adminSession.displayName} · ${adminSession.role}` : '使用后台账号登录后，概览、关系和收益会联动。',
-    },
-    {
-      label: '当前产品视角',
-      value: currentAdminProductLabel,
-      hint: adminProduct === 'ALL' ? '当前按多产品总盘子查看，Linky 只是其中一个产品选项。' : '当前已切到 Linky 视角，便于继续看该产品的绑定、收益和高级排查。',
-    },
-    {
-      label: '当前焦点',
-      value: !adminSession ? '先登录' : !adminOverview ? '先同步总览' : pendingRiskCount > 0 ? '先处理异常' : '按问题进入模块',
-      hint: !adminSession
-        ? '首页第一步先建立后台会话。'
-        : !adminOverview
-          ? '先拉一次总览，再决定后面先查收益、绑定还是异常。'
-          : pendingRiskCount > 0
-            ? '当前有待处理异常，建议优先看异常处理。'
-            : '可以直接按问题进入收益记录、绑定关系或高级排查。',
-    },
-  ]
 
   const rewardPageLabel = adminRewards
     ? `本次命中 ${adminRewards.total} 条，当前第 ${adminRewards.page + 1} 页，每页 ${adminRewards.size} 条。`
@@ -1092,6 +1473,9 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
   const riskPageLabel = riskEvents
     ? `本次命中 ${riskEvents.total} 条，当前第 ${riskEvents.page + 1} 页，每页 ${riskEvents.size} 条。`
     : '先执行一次风险事件查询'
+  const withdrawPageLabel = adminWithdrawRequests
+    ? `共 ${adminWithdrawRequests.total} 笔 · 第 ${adminWithdrawRequests.page + 1} 页 · 每页 ${adminWithdrawRequests.size} 笔`
+    : '按条件查询提现申请'
   const rewardEmptyState = buildEmptyStatePreset('reward', hasQueriedAdminRewards)
   const riskEmptyState = buildEmptyStatePreset('risk', hasQueriedRiskEvents)
   const linkyWebhookEmptyState = buildEmptyStatePreset('linky-webhook', hasQueriedLinkyWebhookLogs)
@@ -1119,18 +1503,22 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
   const hasRewardNextPage = adminRewards ? (adminRewards.page + 1) * adminRewards.size < adminRewards.total : false
   const hasRiskPrevPage = Number(riskQuery.page) > 0
   const hasRiskNextPage = riskEvents ? (riskEvents.page + 1) * riskEvents.size < riskEvents.total : false
+  const hasWithdrawPrevPage = Number(adminWithdrawQuery.page) > 0
+  const hasWithdrawNextPage = adminWithdrawRequests ? (adminWithdrawRequests.page + 1) * adminWithdrawRequests.size < adminWithdrawRequests.total : false
   const hasLinkyWebhookPrevPage = Number(linkyWebhookQuery.page) > 0
   const hasLinkyWebhookNextPage = linkyWebhookLogs ? (linkyWebhookLogs.page + 1) * linkyWebhookLogs.size < linkyWebhookLogs.total : false
   const hasLinkyReplayPrevPage = Number(linkyReplayQuery.page) > 0
   const hasLinkyReplayNextPage = linkyReplayRecords ? (linkyReplayRecords.page + 1) * linkyReplayRecords.size < linkyReplayRecords.total : false
+  const selectedWithdrawRequest = adminWithdrawRequests?.items.find((item) => item.requestNo === selectedWithdrawRequestNo) ?? null
+  const selectedWithdrawIsReview = selectedWithdrawRequest?.requestStatus === 'PENDING_REVIEW'
+  const selectedWithdrawIsPayment = selectedWithdrawRequest?.requestStatus === 'PAYMENT_PENDING' || selectedWithdrawRequest?.requestStatus === 'PAYMENT_FAILED'
+  const selectedWithdrawIsPaid = selectedWithdrawRequest?.requestStatus === 'PAID_OUT'
   const relationPreview = adminRelation
     ? buildRelationPreview(adminRelation, relationAdjustInviterId)
     : null
   const activeOwnershipItem = adminOwnership?.items.find((item) => item.ownershipStatus === 'ACTIVE')
   const isJointWorkbenchReady = Boolean(adminOwnership || adminRelation)
   const jointAuditFocus = auditQuery.moduleName || '全部'
-  const adminSectionLinks = buildAdminSectionLinks()
-
   const selectedLinkyTitle = selectedLinkyDrawer?.kind === 'webhook'
     ? buildLinkyWebhookHeadline(selectedLinkyDrawer.item)
     : selectedLinkyDrawer?.item.linkyOrderId
@@ -1195,6 +1583,19 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     canUnfreezeRisk,
   ]
 
+  if (adminSessionRestoring) {
+    return (
+      <div className="admin-login-page">
+        <section className="admin-login-shell">
+          <div className="admin-login-form-panel admin-session-restoring" role="status" aria-live="polite">
+            <div className="admin-login-form-head"><h1>正在恢复登录状态</h1></div>
+            <p className="inline-hint">正在确认本机登录信息，请稍候。</p>
+          </div>
+        </section>
+      </div>
+    )
+  }
+
   if (!adminSession) {
     return (
       <div className="admin-login-page">
@@ -1220,6 +1621,10 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
                 登录密码
                 <input className="admin-password-input" type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="请输入登录密码" autoComplete="current-password" />
               </label>
+              <label className="admin-remember-row">
+                <input type="checkbox" checked={adminRememberMe} onChange={(e) => setAdminRememberMe(e.target.checked)} />
+                <span>在本机保持登录；连续 7 天未使用后自动退出</span>
+              </label>
               <button className="primary-btn admin-login-submit" type="submit" disabled={loading || !adminUsername.trim() || !adminPassword.trim()}>进入后台</button>
             </form>
           </div>
@@ -1228,20 +1633,30 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
     )
   }
 
+  if (adminSession.mustChangePassword) {
+    return (
+      <div className="admin-login-page">
+        <section className="admin-login-shell"><div className="admin-login-form-panel">
+          <div className="admin-login-form-head"><h1>首次登录，请修改密码</h1></div>
+          {error ? <section className="alert-banner error admin-login-alert"><strong>修改失败</strong><span>{error}</span></section> : null}
+          <form className="admin-login-form" onSubmit={handleChangeAdminPassword}>
+            <label>临时密码<input type="password" autoComplete="current-password" value={adminPasswordForm.currentPassword} onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, currentPassword: e.target.value })} /></label>
+            <label>新密码<input type="password" autoComplete="new-password" value={adminPasswordForm.newPassword} onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, newPassword: e.target.value })} /></label>
+            <label>确认新密码<input type="password" autoComplete="new-password" value={adminPasswordForm.confirmPassword} onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, confirmPassword: e.target.value })} /></label>
+            <p className="inline-hint">至少 12 位，并包含大小写字母、数字、符号中的至少三类。</p>
+            <button className="primary-btn admin-login-submit" type="submit">修改密码并重新登录</button>
+          </form>
+        </div></section>
+      </div>
+    )
+  }
+
   return (
-    <div className="page-shell admin-console-page">
-      <header className="hero-card admin-topbar">
-        <div className="hero-copy">
-          <div className="hero-badges">
-            <Badge label="Fenxiao" tone="primary" />
-            <Badge label="Distribution Console" tone="neutral" />
-            <Badge label={currentAdminProductLabel} tone="success" />
-          </div>
-          <p className="eyebrow">Distribution Console</p>
-          <h1>多产品分销运营后台</h1>
-          <p className="subtext">
-            接入、渠道、绑定、收益、配置分模块处理。
-          </p>
+    <div className="page-shell admin-console-page admin-console-v3">
+      <header className="admin-topbar">
+        <div className="admin-page-heading">
+          <p className="eyebrow">运营后台</p>
+          <h1>{adminSectionLinks.find((item) => item.href === ADMIN_SECTION_HASHES[activeAdminSection])?.label}</h1>
         </div>
         <div className="hero-actions">
           <label className="hero-select-field">
@@ -1252,39 +1667,105 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
               ))}
             </select>
           </label>
-          {session ? <button className="ghost-btn" onClick={handleLogout}>退出用户会话</button> : null}
+          <div className="admin-account-chip">
+            <UserCircle size={28} weight="duotone" />
+            <span><strong>{adminSession.displayName}</strong><small>{formatAdminRole(adminSession.role)}</small></span>
+          </div>
+          <button className="ghost-btn" onClick={handleAdminLogout}>退出</button>
         </div>
       </header>
 
       {error ? (
-        <section className="alert-banner error">
+        <section className="alert-banner error" role="alert">
           <strong>操作失败</strong>
           <span>{error}</span>
         </section>
       ) : successMessage ? (
-        <section className="alert-banner info">
+        <section className="alert-banner info" role="status" aria-live="polite">
           <strong>已更新</strong>
           <span>{successMessage}</span>
         </section>
       ) : null}
 
-      {activeAdminSection === 'overview' ? (
-        <section className="overview-grid">
-          {adminSummaryItems.map((item) => <SummaryCard key={item.label} {...item} />)}
-        </section>
-      ) : null}
-
-      <section className="ops-priority-board compact-admin-nav admin-sidebar">
+      <aside className="admin-sidebar">
         <div className="admin-nav-strip" id="admin-modules" aria-label="后台模块导航">
           {adminSectionLinks.map((item) => (
-            <a key={item.label} className={`admin-nav-chip ${item.href === ADMIN_SECTION_HASHES[activeAdminSection] ? 'is-active' : ''}`} href={item.href}>{item.label}</a>
+            <a key={item.label} className={`admin-nav-chip ${item.href === ADMIN_SECTION_HASHES[activeAdminSection] ? 'is-active' : ''}`} href={item.href} aria-current={item.href === ADMIN_SECTION_HASHES[activeAdminSection] ? 'page' : undefined}>
+              <AdminNavIcon label={item.label} />
+              <span>{item.label}</span>
+            </a>
           ))}
         </div>
-      </section>
+        <div className="admin-environment"><span />{window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '本地环境' : '生产环境'}</div>
+      </aside>
 
       <div className="console-layout admin-layout admin-workspace-shell">
         <main className="console-main">
+          {activeAdminSection === 'accounts' ? (
+            <div className="stack-gap" id="admin-accounts">
+              <PanelSection eyebrow="Identity" title="账号与安全中心" description="" action={<button className="primary-btn" onClick={() => void handleLoadAdminIdentityCenter()} disabled={loading}>刷新账号中心</button>}>
+                <div className="admin-view-tabs" role="tablist" aria-label="账号中心分类">
+                  <button className={adminAccountView === 'security' ? 'is-active' : ''} onClick={() => setAdminAccountView('security')} role="tab" aria-selected={adminAccountView === 'security'}>我的安全</button>
+                  {adminSession.role.toLowerCase() === 'super_admin' ? <button className={adminAccountView === 'staff' ? 'is-active' : ''} onClick={() => setAdminAccountView('staff')} role="tab" aria-selected={adminAccountView === 'staff'}>员工与权限</button> : null}
+                  <button className={adminAccountView === 'audit' ? 'is-active' : ''} onClick={() => setAdminAccountView('audit')} role="tab" aria-selected={adminAccountView === 'audit'}>安全记录</button>
+                </div>
+                <div className="admin-account-section" hidden={adminAccountView !== 'security'}>
+                <div className="content-grid two-columns entity-grid">
+                  <InfoCard title="修改我的密码" tone="neutral">
+                    <InfoRow label="密码到期时间" value={adminSession.passwordExpiresAt ? formatDateTime(adminSession.passwordExpiresAt) : '未设置'} />
+                    <form className="grid-form compact-form" onSubmit={handleChangeAdminPassword}>
+                      <label>当前密码<input type="password" autoComplete="current-password" value={adminPasswordForm.currentPassword} onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, currentPassword: e.target.value })} /></label>
+                      <label>新密码<input type="password" autoComplete="new-password" value={adminPasswordForm.newPassword} onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, newPassword: e.target.value })} /></label>
+                      <label>确认新密码<input type="password" autoComplete="new-password" value={adminPasswordForm.confirmPassword} onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, confirmPassword: e.target.value })} /></label>
+                      <button className="primary-btn small-btn" type="submit">修改并退出全部设备</button>
+                    </form>
+                  </InfoCard>
+                </div>
+                <InfoCard title="本机与其他登录设备" tone="neutral">
+                  <div className="table-toolbar"><button className="ghost-btn small-btn" onClick={() => void handleLogoutAllAdminDevices()}>退出全部设备</button></div>
+                  <DataTable headers={['设备', '最近使用', '到期时间', '网络地址', '状态', '操作']} rows={adminDevices.map((item) => [item.userAgent || '未知设备', formatDateTime(item.lastSeenAt), formatDateTime(item.expiresAt), item.ipAddress || '-', item.current ? '本机' : item.rememberMe ? '保持登录' : '普通会话', <button className="ghost-btn small-btn" onClick={() => void handleRevokeAdminDevice(item.id)}>退出</button>])} emptyText="刷新后查看当前登录设备" />
+                </InfoCard>
+                </div>
+                {adminSession.role.toLowerCase() === 'super_admin' ? (
+                  <div className="admin-account-section" hidden={adminAccountView !== 'staff'}>
+                    <InfoCard title="新增员工账号" tone="success">
+                      <form className="grid-form compact-form exception-filter-grid" onSubmit={handleCreateAdminAccount}>
+                        <label>登录账号<input required value={adminAccountForm.username} onChange={(e) => setAdminAccountForm({ ...adminAccountForm, username: e.target.value })} /></label>
+                        <label>员工姓名<input required value={adminAccountForm.displayName} onChange={(e) => setAdminAccountForm({ ...adminAccountForm, displayName: e.target.value })} /></label>
+                        <label>角色<select value={adminAccountForm.role} onChange={(e) => setAdminAccountForm({ ...adminAccountForm, role: e.target.value })}>{ADMIN_ROLE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+                        <label>平台范围<input value={adminAccountForm.platformScope} onChange={(e) => setAdminAccountForm({ ...adminAccountForm, platformScope: e.target.value })} placeholder="* / TIMO,LINKY" /></label>
+                        <label>公会范围<input value={adminAccountForm.guildScope} onChange={(e) => setAdminAccountForm({ ...adminAccountForm, guildScope: e.target.value })} placeholder="* / guild ids" /></label>
+                        <label>地区范围<input value={adminAccountForm.regionScope} onChange={(e) => setAdminAccountForm({ ...adminAccountForm, regionScope: e.target.value })} placeholder="* / BR,MX,ID" /></label>
+                        <button className="primary-btn small-btn" type="submit">创建员工账号</button>
+                      </form>
+                      {adminTemporaryPassword ? <div className="alert-banner info top-gap"><strong>一次性临时密码</strong><code>{adminTemporaryPassword}</code><button className="ghost-btn small-btn" onClick={() => navigator.clipboard.writeText(adminTemporaryPassword)}>复制</button></div> : null}
+                    </InfoCard>
+                    <InfoCard title="员工账号" tone="neutral">
+                      <DataTable headers={['账号/姓名', '角色', '平台/公会/地区', '安全状态', '最近登录', '操作']} rows={adminAccounts.map((account, index) => [
+                        <div className="stack-gap small"><strong>{account.username}</strong><input value={account.displayName} onChange={(e) => setAdminAccounts((items) => items.map((item, i) => i === index ? { ...item, displayName: e.target.value } : item))} /></div>,
+                        <select value={account.role} onChange={(e) => setAdminAccounts((items) => items.map((item, i) => i === index ? { ...item, role: e.target.value } : item))}>{ADMIN_ROLE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>,
+                        <div className="stack-gap small"><input value={account.platformScope} onChange={(e) => setAdminAccounts((items) => items.map((item, i) => i === index ? { ...item, platformScope: e.target.value } : item))} /><input value={account.guildScope} onChange={(e) => setAdminAccounts((items) => items.map((item, i) => i === index ? { ...item, guildScope: e.target.value } : item))} /><input value={account.regionScope} onChange={(e) => setAdminAccounts((items) => items.map((item, i) => i === index ? { ...item, regionScope: e.target.value } : item))} /></div>,
+                        <span>{account.enabled ? '已启用' : '已停用'} · {account.lockedUntil ? `锁定至 ${formatDateTime(account.lockedUntil)}` : '未锁定'} · {account.activeSessions} 台设备</span>,
+                        formatDateTime(account.lastLoginAt || undefined),
+                        <div className="action-row"><button className="ghost-btn small-btn" onClick={() => setPendingAdminAccountAction({ account, action: 'save' })}>保存</button><button className="ghost-btn small-btn" onClick={() => setPendingAdminAccountAction({ account, action: 'toggle' })}>{account.enabled ? '停用' : '恢复'}</button>{account.lockedUntil ? <button className="ghost-btn small-btn" onClick={() => setPendingAdminAccountAction({ account, action: 'unlock' })}>解锁</button> : null}<button className="ghost-btn small-btn" onClick={() => setPendingAdminAccountAction({ account, action: 'reset' })}>重置密码</button></div>,
+                      ])} emptyText="点击刷新账号中心加载员工账号" />
+                    </InfoCard>
+                  </div>
+                ) : null}
+                <div className="admin-account-section" hidden={adminAccountView !== 'audit'}><InfoCard title="最近安全事件" tone="neutral"><DataTable headers={['时间', '事件', '结果', '网络地址', '说明']} rows={adminSecurityEvents.map((item) => [formatDateTime(item.occurredAt), item.eventType, item.success ? '成功' : '失败', item.ipAddress || '-', item.detail || '-'])} emptyText="刷新后查看最近安全事件" /></InfoCard></div>
+              </PanelSection>
+            </div>
+          ) : null}
           {activeAdminSection === 'settings' ? (
+            <div className="admin-view-tabs" role="tablist" aria-label="配置分类">
+              <button className={adminSettingsView === 'experiment' ? 'is-active' : ''} onClick={() => setAdminSettingsView('experiment')} role="tab" aria-selected={adminSettingsView === 'experiment'}>100 人实验</button>
+              <button className={adminSettingsView === 'guilds' ? 'is-active' : ''} onClick={() => setAdminSettingsView('guilds')} role="tab" aria-selected={adminSettingsView === 'guilds'}>公会配置</button>
+              <button className={adminSettingsView === 'advanced' ? 'is-active' : ''} onClick={() => setAdminSettingsView('advanced')} role="tab" aria-selected={adminSettingsView === 'advanced'}>高级接入</button>
+            </div>
+          ) : null}
+
+          {activeAdminSection === 'settings' ? (
+            <div hidden={adminSettingsView !== 'advanced'}>
               <PanelSection
                 sectionId="admin-onboarding"
                 eyebrow="Onboarding"
@@ -1323,10 +1804,8 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
                       <InfoRow label="用户 ID" value={session.userId} />
                       <InfoRow label="邀请码" value={session.inviteCode} />
                       <InfoRow label="国家 / 语言" value={`${session.countryCode} / ${session.languageCode}`} />
-                      <InfoRow label="Access Token" value={session.accessToken} code />
                       <div className="action-row top-gap">
                         <button className="ghost-btn small-btn" type="button" onClick={() => handleCopyInviteCode(session.inviteCode)}>复制邀请码</button>
-                        <button className="primary-btn small-btn" type="button" onClick={handleLoadDashboard} disabled={!canLoadData || loading}>同步当前用户收益</button>
                       </div>
                     </InfoCard>
                   ) : (
@@ -1334,110 +1813,38 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
                   )}
                 </div>
               </PanelSection>
+            </div>
           ) : null}
-
-          {activeAdminSection === 'overview' ? (
-              <PanelSection
-                sectionId="admin-user-facts"
-                eyebrow="User Snapshot"
-                title="当前用户收益快照"
-                description=""
-                action={<button className="primary-btn" onClick={handleLoadDashboard} disabled={!canLoadData || loading}>刷新当前用户收益</button>}
-              >
-                <div className="stats-grid">
-                  <Metric label="邀请人数" value={home?.invitedUsers} hint="直属与裂变邀请总量" tone="neutral" />
-                  <Metric label="有效用户" value={home?.effectiveUsers} hint="已满足锁定条件的用户" tone="success" />
-                  <Metric label="总奖励" value={home?.totalReward} hint="累计奖励规模" tone="primary" />
-                  <Metric label="可用奖励" value={home?.availableReward} hint="可进入后续提现流程" tone="success" />
-                  <Metric label="冻结奖励" value={home?.frozenReward} hint="仍在冻结周期内" tone="warning" />
-                  <Metric label="风险冻结" value={home?.riskHoldReward} hint="因风控暂时冻结" tone="danger" />
-                </div>
-                <div className="content-grid two-columns entity-grid top-gap-xl">
-                  <PanelSection eyebrow="Team" title="直属团队" description="看当前用户的一度团队关系和锁定状态。">
-                    {team?.items?.length ? (
-                      <DataTable
-                        headers={['用户ID', '邀请码', '国家', '有效用户', '确认收益', '锁定状态', '绑定时间']}
-                        rows={team.items.map((item) => [
-                          item.userId,
-                          item.inviteCode,
-                          item.countryCode,
-                          item.effectiveUser ? '是' : '否',
-                          item.confirmedIncomeTotal,
-                          item.lockStatus,
-                          item.bindTime,
-                        ])}
-                        emptyText="暂无团队数据"
-                      />
-                    ) : (
-                      <EmptyState title="直属团队待同步" description="创建用户后并产生下级绑定，这里会显示一度团队成员。" />
-                    )}
-                  </PanelSection>
-
-                  <PanelSection eyebrow="Rewards" title="奖励明细" description="快速看来源用户、奖励层级和当前奖励状态。">
-                    {rewards?.items?.length ? (
-                      <DataTable
-                        headers={['来源用户', '层级', '奖励金额', '状态', '计算时间']}
-                        rows={rewards.items.map((item) => [
-                          item.sourceUserId,
-                          item.rewardLevel,
-                          item.rewardAmount,
-                          item.rewardStatus,
-                          item.calculatedAt,
-                        ])}
-                        emptyText="暂无奖励数据"
-                      />
-                    ) : (
-                      <EmptyState title="奖励记录待同步" description="当用户链路产生收益事件后，这里会显示对应奖励明细。" />
-                    )}
-                  </PanelSection>
-                </div>
-              </PanelSection>
-          ) : null}
-
-              <PanelSection
-                sectionId="admin-login"
-                eyebrow="Access"
-                title="进入运营后台"
-                description=""
-                action={adminSession ? <button className="ghost-btn" onClick={handleAdminLogout}>退出后台</button> : undefined}
-              >
-                {adminSession ? (
-                  <InfoCard title="后台会话已建立" tone="success">
-                    <InfoRow label="登录状态" value="已登录" />
-                    <InfoRow label="当前账号" value={`${adminSession.displayName}（${adminSession.username}）`} />
-                    <InfoRow label="角色" value={adminSession.role} />
-                    <InfoRow label="会话到期" value={formatDateTime(adminSession.expiresAt)} />
-                  </InfoCard>
-                ) : (
-                  <form className="grid-form compact-form exception-filter-grid" onSubmit={handleAdminLogin}>
-                    <label>
-                      后台账号
-                      <input value={adminUsername} onChange={(e) => setAdminUsername(e.target.value)} placeholder="请输入后台账号" autoComplete="username" />
-                    </label>
-                    <label>
-                      登录密码
-                      <input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="请输入登录密码" autoComplete="current-password" />
-                    </label>
-                    <button className="primary-btn" type="submit" disabled={loading || !adminUsername.trim() || !adminPassword.trim()}>登录后台</button>
-                  </form>
-                )}
-              </PanelSection>
 
           {activeAdminSection === 'overview' ? (
               <PanelSection
                 sectionId="admin-overview"
                 eyebrow="Overview"
-                title="分销概览"
-                description=""
-                action={<button className="primary-btn" onClick={handleLoadAdminOverview} disabled={loading || !canLoadAdmin}>同步分销概览</button>}
+                title="今日工作台"
+                description={`${formatAdminRole(adminSession.role)}视角 · 先处理阻塞，再查看业务趋势`}
+                action={<button className="primary-btn" onClick={handleLoadAdminOverview} disabled={loading || !canLoadAdmin}>{loading ? '刷新中…' : '刷新工作台'}</button>}
               >
-                <div className="stats-grid">
-                  <Metric label="邀请人数" value={adminOverview?.invitedUsers} hint="当前视角下累计邀请规模" tone="neutral" />
-                  <Metric label="有效人数" value={adminOverview?.effectiveUsers} hint="已满足有效归因条件的用户" tone="success" />
-                  <Metric label="累计奖励" value={adminOverview?.rewardTotal} hint="当前视角下累计奖励规模" tone="primary" />
-                  <Metric label="冻结奖励" value={adminOverview?.frozenRewardTotal} hint="仍在冻结或待复核中的奖励" tone="warning" />
-                  <Metric label="可用奖励" value={adminOverview?.availableRewardTotal} hint="当前已可结算的奖励" tone="success" />
-                  <Metric label="待处理异常" value={adminOverview?.riskEventCount} hint="需要人工继续处理的异常或风险事件" tone="danger" />
+                <div className="admin-overview-grid">
+                  <section className="admin-overview-priority" aria-labelledby="admin-priority-title">
+                    <div className="admin-subsection-head"><div><h3 id="admin-priority-title">需要你处理</h3><p>按业务阻塞程度排序</p></div><span>今日</span></div>
+                    <div className="admin-task-board" aria-label="运营待办">
+                      {canViewAdminSection('rewards') ? <a href="#admin-rewards"><span>待审核提现<small>进入财务队列</small></span><strong>{adminWithdrawRequests?.total ?? '—'}</strong><CaretRight size={16} /></a> : null}
+                      {canViewAdminSection('bindings') ? <a href="#admin-bindings" onClick={() => { setAdminBindingView('risks'); if (!riskEvents) void handleLoadRiskEvents() }}><span>待处理异常<small>核验绑定与风险</small></span><strong>{riskEvents?.total ?? adminOverview?.riskEventCount ?? '—'}</strong><CaretRight size={16} /></a> : null}
+                      {canViewAdminSection('channel') ? <a href="#admin-channel-entries"><span>渠道入口<small>创建可追踪链接</small></span><strong>生成</strong><CaretRight size={16} /></a> : null}
+                      <a href="#admin-accounts"><span>工作台状态<small>{currentAdminProductLabel}</small></span><strong>{adminOverview ? '已更新' : '待刷新'}</strong><CaretRight size={16} /></a>
+                    </div>
+                  </section>
+                  <section className="admin-overview-pulse" aria-labelledby="admin-pulse-title">
+                    <div className="admin-subsection-head"><div><h3 id="admin-pulse-title">关键指标</h3><p>当前产品累计数据</p></div></div>
+                    <div className="stats-grid">
+                      <Metric label="邀请人数" value={adminOverview?.invitedUsers} hint="累计邀请" tone="neutral" />
+                      <Metric label="有效人数" value={adminOverview?.effectiveUsers} hint="有效归因" tone="success" />
+                      <Metric label="累计奖励" value={adminOverview?.rewardTotal} hint="奖励总额" tone="primary" />
+                      <Metric label="冻结奖励" value={adminOverview?.frozenRewardTotal} hint="待复核" tone="warning" />
+                      <Metric label="可用奖励" value={adminOverview?.availableRewardTotal} hint="可结算" tone="success" />
+                      <Metric label="待处理异常" value={adminOverview?.riskEventCount} hint="需人工处理" tone="danger" />
+                    </div>
+                  </section>
                 </div>
               </PanelSection>
           ) : null}
@@ -1495,7 +1902,12 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
           ) : null}
 
           {activeAdminSection === 'rewards' ? (
-              <div className="content-grid two-columns entity-grid">
+              <div className="admin-finance-workbench">
+                <div className="admin-view-tabs" role="tablist" aria-label="收益与提现分类">
+                  <button className={adminFinanceView === 'withdrawals' ? 'is-active' : ''} onClick={() => setAdminFinanceView('withdrawals')} role="tab" aria-selected={adminFinanceView === 'withdrawals'}>提现审核</button>
+                  <button className={adminFinanceView === 'rewards' ? 'is-active' : ''} onClick={() => setAdminFinanceView('rewards')} role="tab" aria-selected={adminFinanceView === 'rewards'}>奖励流水</button>
+                </div>
+                {adminFinanceView === 'rewards' ? (
                 <PanelSection
                   sectionId="admin-rewards"
                   eyebrow="Rewards"
@@ -1514,9 +1926,9 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
                           状态
                           <select value={adminRewardQuery.status} onChange={(e) => setAdminRewardQuery({ ...adminRewardQuery, status: e.target.value })}>
                             <option value="">全部</option>
-                            <option value="FROZEN">FROZEN</option>
-                            <option value="AVAILABLE">AVAILABLE</option>
-                            <option value="RISK_HOLD">RISK_HOLD</option>
+                            <option value="FROZEN">冻结中</option>
+                            <option value="AVAILABLE">可用</option>
+                            <option value="RISK_HOLD">风险冻结</option>
                           </select>
                         </label>
                       </div>
@@ -1545,72 +1957,83 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
                     <EmptyState title="暂无后台奖励数据" description="先按受益用户或状态查一页。" actionLabel={rewardEmptyState.actionLabel} />
                   )}
                 </PanelSection>
-
+                ) : null}
+                {adminFinanceView === 'withdrawals' ? (
                 <PanelSection
                   sectionId="admin-withdraw-requests"
                   eyebrow="Withdraw"
                   title="提现申请管理"
-                  description=""
-                  action={<button className="primary-btn" onClick={() => void loadAdminWithdrawRequests()} disabled={loading || !canLoadAdmin}>查询提现申请</button>}
+                  description="先筛选队列，再在右侧核对详情并完成留痕操作。"
                 >
-                  <InfoCard title="筛选条件" tone="neutral">
-                    <div className="query-shell soft-query-shell compact-query-shell">
-                      <div className="grid-form compact-form exception-filter-grid">
-                        <label>
-                          用户 ID
-                          <input value={adminWithdrawQuery.userId} onChange={(e) => setAdminWithdrawQuery({ ...adminWithdrawQuery, userId: e.target.value })} placeholder="例如 54001" />
-                        </label>
-                        <label>
-                          状态
-                          <select value={adminWithdrawQuery.status} onChange={(e) => setAdminWithdrawQuery({ ...adminWithdrawQuery, status: e.target.value })}>
-                            <option value="">全部</option>
-                            <option value="PENDING">PENDING</option>
-                            <option value="PAID_OUT">PAID_OUT</option>
-                            <option value="REJECTED">REJECTED</option>
-                          </select>
-                        </label>
-                        <label>
-                          审批备注
-                          <input value={adminWithdrawAction.remark} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, remark: e.target.value })} placeholder="例如 已人工发放 / 拒绝原因" />
-                        </label>
-                      </div>
-                      <InlineHint text="当前登录账号用于审批留痕。" />
-                      {adminWithdrawActionMessage ? <InlineHint text={adminWithdrawActionMessage} /> : null}
+                  <form className="admin-filter-bar" onSubmit={(event) => { event.preventDefault(); void loadAdminWithdrawRequests() }} aria-label="提现队列筛选">
+                    <label>用户 ID<input value={adminWithdrawQuery.userId} onChange={(e) => setAdminWithdrawQuery({ ...adminWithdrawQuery, userId: e.target.value, page: '0' })} placeholder="输入用户 ID…" inputMode="numeric" /></label>
+                    <label>状态<select value={adminWithdrawQuery.status} onChange={(e) => setAdminWithdrawQuery({ ...adminWithdrawQuery, status: e.target.value, page: '0' })}>
+                      <option value="">全部</option><option value="PENDING_REVIEW">待审核</option><option value="PAYMENT_PENDING">待打款</option><option value="PAYMENT_FAILED">打款失败</option><option value="PAID_OUT">已打款</option><option value="REJECTED">已拒绝</option><option value="REVERSED">已冲正</option>
+                    </select></label>
+                    <div className="admin-filter-actions"><button className="primary-btn small-btn" type="submit" disabled={loading || !canLoadAdmin}>{loading ? '查询中…' : '查询'}</button><button className="ghost-btn small-btn" type="button" onClick={resetWithdrawFilters} disabled={loading}>重置</button></div>
+                  </form>
+                  <div className="admin-saved-views" aria-label="提现个人筛选视图">
+                    <select value={selectedWithdrawViewId} onChange={(event) => applyWithdrawView(event.target.value)} aria-label="选择提现筛选视图"><option value="">个人筛选视图</option>{withdrawViews.map((view) => <option key={view.id} value={view.id}>{view.name}</option>)}</select>
+                    <input value={withdrawViewName} onChange={(event) => setWithdrawViewName(event.target.value)} placeholder="给当前筛选命名…" aria-label="提现筛选视图名称" />
+                    <button className="ghost-btn small-btn" type="button" onClick={saveWithdrawView} disabled={!withdrawViewName.trim()}>保存视图</button>
+                    <button className="ghost-btn small-btn" type="button" onClick={removeWithdrawView} disabled={!selectedWithdrawViewId}>删除</button>
+                  </div>
+                  <div className="admin-split-workbench" aria-busy={loading}>
+                    <div className="admin-queue-pane">
+                      {selectedWithdrawRequestNos.length ? <div className="admin-batch-bar" role="region" aria-label="提现批量操作"><strong>已选 {selectedWithdrawRequestNos.length} 笔待审核</strong><div><button className="primary-btn small-btn" type="button" onClick={() => { setBatchActionResult(null); setPendingBatchAction({ kind: 'withdraw', action: 'APPROVE', targetIds: selectedWithdrawRequestNos }) }}>批量通过</button><button className="ghost-btn small-btn" type="button" onClick={() => { setBatchActionResult(null); setPendingBatchAction({ kind: 'withdraw', action: 'REJECT', targetIds: selectedWithdrawRequestNos }) }}>批量拒绝</button><button className="ghost-btn small-btn" type="button" onClick={() => setSelectedWithdrawRequestNos([])}>清空</button></div></div> : null}
+                      {batchActionResult ? <BatchResultSummary result={batchActionResult} /> : null}
+                      {adminWithdrawRequests?.items?.length ? <DataTable
+                        headers={[<input type="checkbox" aria-label="选择本页全部待审核申请" checked={adminWithdrawRequests.items.some((item) => item.requestStatus === 'PENDING_REVIEW') && adminWithdrawRequests.items.filter((item) => item.requestStatus === 'PENDING_REVIEW').every((item) => selectedWithdrawRequestNos.includes(item.requestNo))} onChange={(event) => setSelectedWithdrawRequestNos(event.target.checked ? adminWithdrawRequests.items.filter((item) => item.requestStatus === 'PENDING_REVIEW').map((item) => item.requestNo) : [])} />, '申请单号', '用户 ID', '申请钻石', '状态', '申请时间']}
+                        rows={adminWithdrawRequests.items.map((item) => [
+                          <input type="checkbox" aria-label={`选择提现申请 ${item.requestNo}`} disabled={item.requestStatus !== 'PENDING_REVIEW'} checked={selectedWithdrawRequestNos.includes(item.requestNo)} onChange={(event) => setSelectedWithdrawRequestNos((current) => event.target.checked ? [...current, item.requestNo] : current.filter((requestNo) => requestNo !== item.requestNo))} />,
+                          <button className={`admin-table-link ${selectedWithdrawRequestNo === item.requestNo ? 'is-active' : ''}`} onClick={() => selectWithdrawRequest(item.requestNo)} aria-pressed={selectedWithdrawRequestNo === item.requestNo}>{item.requestNo}</button>,
+                          item.userId, item.requestedDiamondAmount, renderStatusBadge(item.requestStatus), formatDateTime(item.requestedAt),
+                        ])}
+                        rowClassNames={adminWithdrawRequests.items.map((item) => selectedWithdrawRequestNo === item.requestNo ? 'is-selected' : '')}
+                        emptyText="暂无提现申请"
+                      /> : <EmptyState title="暂无提现申请" description="按用户或状态查询后，申请会显示在处理队列。" actionLabel="建议先查看待审核" />}
+                      <div className="admin-pagination"><span className="admin-page-note" role="status">{withdrawPageLabel}</span><div><button className="ghost-btn small-btn" type="button" onClick={() => void handleWithdrawPageChange(Number(adminWithdrawQuery.page) - 1)} disabled={loading || !hasWithdrawPrevPage}>上一页</button><button className="ghost-btn small-btn" type="button" onClick={() => void handleWithdrawPageChange(Number(adminWithdrawQuery.page) + 1)} disabled={loading || !hasWithdrawNextPage}>下一页</button></div></div>
                     </div>
-                  </InfoCard>
-
-                  {adminWithdrawRequests?.items?.length ? (
-                    <DataTable
-                      headers={['申请单号', '用户 ID', '申请钻石', '状态', '申请周', '申请时间', '操作']}
-                      rows={adminWithdrawRequests.items.map((item) => [
-                        item.requestNo,
-                        item.userId,
-                        item.requestedDiamondAmount,
-                        renderStatusBadge(item.requestStatus),
-                        item.requestWeek,
-                        formatDateTime(item.requestedAt),
-                        renderAdminWithdrawActions(item),
-                      ])}
-                      emptyText="暂无提现申请"
-                    />
-                  ) : (
-                    <EmptyState title="暂无提现申请" description="有用户发起提现后，这里会列出待处理申请单。" actionLabel="建议先按用户 ID 或状态查询" />
-                  )}
+                    <aside className={`admin-detail-pane ${selectedWithdrawRequest ? 'is-open' : ''}`} aria-label="提现申请详情">
+                      {selectedWithdrawRequest ? <>
+                        <button className="admin-mobile-detail-close" type="button" onClick={() => setSelectedWithdrawRequestNo(null)} aria-label="关闭申请详情">关闭</button>
+                        <div className="admin-detail-heading"><div><span>申请单</span><h3>{selectedWithdrawRequest.requestNo}</h3></div>{renderStatusBadge(selectedWithdrawRequest.requestStatus)}</div>
+                        <div className="admin-detail-facts"><InfoRow label="用户 ID" value={selectedWithdrawRequest.userId} /><InfoRow label="申请钻石" value={selectedWithdrawRequest.requestedDiamondAmount} /><InfoRow label="申请周" value={selectedWithdrawRequest.requestWeek} /><InfoRow label="申请时间" value={formatDateTime(selectedWithdrawRequest.requestedAt)} /></div>
+                        {selectedWithdrawIsReview ? <div className="admin-action-form"><label>审批备注<input value={adminWithdrawAction.remark} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, remark: e.target.value })} placeholder="通过说明；拒绝时必须填写原因…" /></label></div> : null}
+                        {selectedWithdrawIsPayment ? <div className="admin-action-form">
+                          <label>打款渠道<input value={adminWithdrawAction.paymentChannel} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, paymentChannel: e.target.value })} placeholder="MANUAL / PIX" /></label>
+                          <label>支付凭证号<input value={adminWithdrawAction.paymentReference} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, paymentReference: e.target.value })} placeholder="确认打款时必须填写流水号…" /></label>
+                          <label>打款失败原因<input value={adminWithdrawAction.failureReason} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, failureReason: e.target.value })} placeholder="标记失败时必须填写原因…" /></label>
+                          <details><summary>补充审计凭证</summary><div className="stack-gap small top-gap"><label>凭证地址<input value={adminWithdrawAction.evidenceUri} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, evidenceUri: e.target.value })} placeholder="受控存储中的凭证地址…" /></label><label>凭证摘要<input value={adminWithdrawAction.evidenceHash} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, evidenceHash: e.target.value })} placeholder="SHA-256" spellCheck={false} /></label></div></details>
+                        </div> : null}
+                        {selectedWithdrawIsPaid ? <div className="admin-action-form"><label>冲正原因<input value={adminWithdrawAction.reversalReason} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, reversalReason: e.target.value })} placeholder="必须说明冲正依据…" /></label><label>账本币种<input value={adminWithdrawAction.reversalCurrency} onChange={(e) => setAdminWithdrawAction({ ...adminWithdrawAction, reversalCurrency: e.target.value.toUpperCase() })} placeholder="DIAMOND" /></label></div> : null}
+                        <InlineHint text={selectedWithdrawIsReview ? '拒绝必须填写原因；提交前会再次确认。' : selectedWithdrawIsPayment ? '确认打款必须填写渠道与流水号；失败必须填写原因。' : selectedWithdrawIsPaid ? '已打款记录不可删除；纠错必须创建冲正账目并保留完整历史。' : '该申请已进入终态，仅保留审计查看。'} />
+                        {adminWithdrawActionMessage ? <InlineHint text={adminWithdrawActionMessage} /> : null}
+                        <div className="admin-detail-actions">{renderAdminWithdrawActions(selectedWithdrawRequest)}</div>
+                      </> : <EmptyState title="选择一笔申请" description="从左侧队列选择申请后，在这里完成审核和打款留痕。" />}
+                    </aside>
+                  </div>
                 </PanelSection>
+                ) : null}
               </div>
           ) : null}
 
           {activeAdminSection === 'bindings' || activeAdminSection === 'settings' ? (
-              <div className="content-grid two-columns entity-grid">
+              <div className="admin-workbench-container" hidden={activeAdminSection === 'settings' && adminSettingsView === 'advanced'}>
                 <PanelSection
                   sectionId="admin-bindings"
                   eyebrow="Bindings"
                   title={activeAdminSection === 'settings' ? '配置' : '绑定关系管理'}
                   description=""
-                  action={activeAdminSection === 'bindings' ? <button className="primary-btn" onClick={handleLoadRelation} disabled={loading || !relationQueryUserId || !canLoadAdmin}>查询绑定关系</button> : undefined}
+                  action={activeAdminSection === 'bindings' && adminBindingView === 'users' ? <button className="primary-btn" onClick={handleLoadRelation} disabled={loading || !canLoadAdmin || !relationQueryUserId}>查询用户关系</button> : undefined}
                 >
                   {activeAdminSection === 'bindings' ? (
                     <>
+                  <div className="admin-view-tabs" role="tablist" aria-label="绑定与风险分类">
+                    <button className={adminBindingView === 'users' ? 'is-active' : ''} onClick={() => setAdminBindingView('users')} role="tab" aria-selected={adminBindingView === 'users'}>用户与绑定</button>
+                    <button className={adminBindingView === 'risks' ? 'is-active' : ''} onClick={() => { setAdminBindingView('risks'); if (!riskEvents) void handleLoadRiskEvents() }} role="tab" aria-selected={adminBindingView === 'risks'}>风险队列{riskEvents?.total ? ` · ${riskEvents.total}` : ''}</button>
+                  </div>
+                  <div className="admin-binding-user-workbench" hidden={adminBindingView !== 'users'}>
                   <InfoCard title="查询入口" tone="neutral">
                     <div className="grid-form compact-form single-line">
                       <label>
@@ -1662,11 +2085,64 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
                       <EmptyState title="还没有资格结果" description="输入 Linky 账号后刷新，这里会显示当前公会归属和注册资格。" actionLabel="推荐先刷一条真实账号" />
                     )}
                   </InfoCard>
+                  </div>
+                  <div className="admin-risk-workbench" hidden={adminBindingView !== 'risks'}>
+                    <form className="admin-filter-bar" onSubmit={(event) => { event.preventDefault(); void handleLoadRiskEvents() }} aria-label="风险队列筛选">
+                      <label>用户 ID<input value={riskQuery.userId} onChange={(e) => setRiskQuery({ ...riskQuery, userId: e.target.value, page: '0' })} placeholder="输入用户 ID…" inputMode="numeric" /></label>
+                      <label>状态<select value={riskQuery.riskStatus} onChange={(e) => setRiskQuery({ ...riskQuery, riskStatus: e.target.value, page: '0' })}><option value="PENDING">待处理</option><option value="HANDLED">已处理</option><option value="IGNORED">已忽略</option><option value="">全部</option></select></label>
+                      <div className="admin-filter-actions"><button className="primary-btn small-btn" type="submit" disabled={loading || !canLoadAdmin}>{loading ? '查询中…' : '查询'}</button><button className="ghost-btn small-btn" type="button" onClick={() => { setRiskQuery({ userId: '', riskStatus: 'PENDING', startAt: '', endAt: '', page: '0', size: '10' }); setRiskEvents(null); setHasQueriedRiskEvents(false) }} disabled={loading}>重置</button></div>
+                    </form>
+                    <div className="admin-saved-views" aria-label="风险个人筛选视图"><select value={selectedRiskViewId} onChange={(event) => applyRiskView(event.target.value)} aria-label="选择风险筛选视图"><option value="">个人筛选视图</option>{riskViews.map((view) => <option key={view.id} value={view.id}>{view.name}</option>)}</select><input value={riskViewName} onChange={(event) => setRiskViewName(event.target.value)} placeholder="给当前筛选命名…" aria-label="风险筛选视图名称" /><button className="ghost-btn small-btn" type="button" onClick={saveRiskView} disabled={!riskViewName.trim()}>保存视图</button><button className="ghost-btn small-btn" type="button" onClick={removeRiskView} disabled={!selectedRiskViewId}>删除</button></div>
+                    {selectedRiskEventIds.length ? <div className="admin-batch-bar" role="region" aria-label="风险批量操作"><strong>已选 {selectedRiskEventIds.length} 条待处理风险</strong><div><button className="primary-btn small-btn" type="button" onClick={() => { setBatchActionResult(null); setPendingBatchAction({ kind: 'risk', action: 'HANDLE', targetIds: selectedRiskEventIds }) }}>批量处理</button><button className="ghost-btn small-btn" type="button" onClick={() => { setBatchActionResult(null); setPendingBatchAction({ kind: 'risk', action: 'IGNORE', targetIds: selectedRiskEventIds }) }}>批量忽略</button><button className="ghost-btn small-btn" type="button" onClick={() => setSelectedRiskEventIds([])}>清空</button></div></div> : null}
+                    {batchActionResult ? <BatchResultSummary result={batchActionResult} /> : null}
+                    {riskEvents?.items?.length ? <DataTable headers={[<input type="checkbox" aria-label="选择本页全部待处理风险" checked={riskEvents.items.some((item) => item.riskStatus === 'PENDING') && riskEvents.items.filter((item) => item.riskStatus === 'PENDING').every((item) => selectedRiskEventIds.includes(item.id))} onChange={(event) => setSelectedRiskEventIds(event.target.checked ? riskEvents.items.filter((item) => item.riskStatus === 'PENDING').map((item) => item.id) : [])} />, '事件', '用户', '风险', '状态', '发现时间', '处理']} rows={riskEvents.items.map((item) => [
+                      <input type="checkbox" aria-label={`选择风险事件 ${item.id}`} disabled={item.riskStatus !== 'PENDING'} checked={selectedRiskEventIds.includes(item.id)} onChange={(event) => setSelectedRiskEventIds((current) => event.target.checked ? [...current, item.id] : current.filter((riskEventId) => riskEventId !== item.id))} />,
+                      `#${item.id}`, `#${item.userId}`, <div><strong>{item.riskType}</strong><small className="admin-cell-note">等级 {item.riskLevel}</small></div>, renderStatusBadge(item.riskStatus), formatDateTime(item.detectedAt),
+                      <div className="admin-row-actions"><input value={riskActionDrafts[item.id] || ''} onChange={(e) => updateRiskActionDraft(item.id, e.target.value)} placeholder="处理备注…" aria-label={`风险事件 ${item.id} 处理备注`} />{item.riskStatus === 'PENDING' ? <><button className="primary-btn small-btn" onClick={() => openRiskActionConfirm(item, 'HANDLE')} disabled={riskActionLoadingId === item.id}>处理</button><button className="ghost-btn small-btn" onClick={() => openRiskActionConfirm(item, 'IGNORE')} disabled={riskActionLoadingId === item.id || !(riskActionDrafts[item.id] || '').trim()}>忽略</button><button className="ghost-btn small-btn" onClick={() => openRiskActionConfirm(item, 'FREEZE_USER')} disabled={riskActionLoadingId === item.id || !(riskActionDrafts[item.id] || '').trim()}>冻结用户</button></> : item.riskStatus === 'HANDLED' ? <button className="ghost-btn small-btn" onClick={() => openRiskActionConfirm(item, 'UNFREEZE_USER')} disabled={riskActionLoadingId === item.id}>解冻用户</button> : null}</div>,
+                    ])} emptyText="当前筛选下没有风险事件" /> : <EmptyState title="暂无待处理风险" description="当前筛选下没有需要人工处置的事件。" actionLabel="可切换状态查看历史" />}
+                    <InlineHint text="忽略或冻结用户属于高影响操作，必须先填写处理备注并二次确认。" />
+                    <div className="table-toolbar"><button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) - 1)} disabled={!hasRiskPrevPage}>上一页</button><span className="admin-page-note">{riskPageLabel}</span><button className="ghost-btn small-btn" onClick={() => handleRiskPageChange(Number(riskQuery.page) + 1)} disabled={!hasRiskNextPage}>下一页</button></div>
+                  </div>
                     </>
                   ) : null}
 
                   {activeAdminSection === 'settings' ? (
                     <>
+                  <div hidden={adminSettingsView !== 'experiment'}>
+                  <InfoCard title="100 人验证实验" tone="neutral">
+                    <div className="grid-form compact-form exception-filter-grid">
+                      <label>实验代码<input value={experimentCode} onChange={(e) => setExperimentCode(e.target.value)} placeholder="BANDEIRA_V1_100" /></label>
+                      <label>实验名称<input value={experimentForm.name} onChange={(e) => setExperimentForm({ ...experimentForm, name: e.target.value })} /></label>
+                      <label>主指标<input value={experimentForm.primaryMetricCode} onChange={(e) => setExperimentForm({ ...experimentForm, primaryMetricCode: e.target.value })} placeholder="FIRST_INCOME" /></label>
+                      <label>招募开始<input type="datetime-local" value={experimentForm.enrollmentStartsAt} onChange={(e) => setExperimentForm({ ...experimentForm, enrollmentStartsAt: e.target.value })} /></label>
+                      <label>招募结束<input type="datetime-local" value={experimentForm.enrollmentEndsAt} onChange={(e) => setExperimentForm({ ...experimentForm, enrollmentEndsAt: e.target.value })} /></label>
+                      <label>观察结束<input type="datetime-local" value={experimentForm.observationEndsAt} onChange={(e) => setExperimentForm({ ...experimentForm, observationEndsAt: e.target.value })} /></label>
+                    </div>
+                    <InlineHint text="样本上限固定为 100；退出用户仍计入固定分母，生产不自动生成测试用户或指标。" />
+                    <div className="table-toolbar top-gap">
+                      <button className="ghost-btn small-btn" onClick={() => void handleLoadExperiment()} disabled={loading || !experimentCode.trim()}>加载看板</button>
+                      <button className="primary-btn small-btn" onClick={() => void handleCreateExperiment()} disabled={loading || !experimentForm.enrollmentStartsAt || !experimentForm.enrollmentEndsAt || !experimentForm.observationEndsAt}>创建草稿</button>
+                      <button className="ghost-btn small-btn" onClick={() => void handleExperimentStatus('ENROLLING')} disabled={loading || experimentDashboard?.status !== 'DRAFT'}>开启招募</button>
+                      <button className="ghost-btn small-btn" onClick={() => void handleExperimentStatus('RUNNING')} disabled={loading || experimentDashboard?.status !== 'ENROLLING'}>开始观察</button>
+                      <button className="ghost-btn small-btn" onClick={() => void handleExperimentStatus('COMPLETED')} disabled={loading || experimentDashboard?.status !== 'RUNNING'}>完成实验</button>
+                    </div>
+                    {experimentDashboard ? <div className="relation-grid top-gap">
+                      <RelationItem label="状态" value={renderStatusBadge(experimentDashboard.status)} />
+                      <RelationItem label="固定分母" value={`${experimentDashboard.fixedDenominator} / ${experimentDashboard.plannedSampleSize}`} />
+                      <RelationItem label="观察中" value={experimentDashboard.active} />
+                      <RelationItem label="已完成" value={experimentDashboard.completed} />
+                      <RelationItem label="退出（仍计分母）" value={experimentDashboard.withdrawn} />
+                      <RelationItem label={experimentDashboard.primaryMetricCode} value={`${experimentDashboard.convertedCount} 人 / ${experimentDashboard.metricTotal}`} />
+                    </div> : null}
+                    <div className="grid-form compact-form exception-filter-grid top-gap">
+                      <label>用户 ID<input value={experimentParticipant.userId} onChange={(e) => setExperimentParticipant({ ...experimentParticipant, userId: e.target.value })} /></label>
+                      <label>队列分组<input value={experimentParticipant.cohortCode} onChange={(e) => setExperimentParticipant({ ...experimentParticipant, cohortCode: e.target.value })} /></label>
+                      <label>资格快照<input value={experimentParticipant.eligibilitySnapshot} onChange={(e) => setExperimentParticipant({ ...experimentParticipant, eligibilitySnapshot: e.target.value })} placeholder='{"phoneVerified":true}' /></label>
+                    </div>
+                    <button className="primary-btn small-btn top-gap" onClick={() => void handleEnrollParticipant()} disabled={loading || experimentDashboard?.status !== 'ENROLLING' || !experimentParticipant.userId || !experimentParticipant.eligibilitySnapshot.trim()}>加入实验队列</button>
+                  </InfoCard>
+                  </div>
+                  <div hidden={adminSettingsView !== 'guilds'}>
                   <InfoCard title="公会周报" tone="success">
                     <div className="grid-form compact-form exception-filter-grid">
                       <label>
@@ -1676,8 +2152,8 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
                       <label>
                         周期
                         <select value={guildWeeklyQuery.week} onChange={(e) => setGuildWeeklyQuery({ ...guildWeeklyQuery, week: e.target.value })}>
-                          <option value="CURRENT">CURRENT</option>
-                          <option value="PREVIOUS">PREVIOUS</option>
+                          <option value="CURRENT">本周</option>
+                          <option value="PREVIOUS">上周</option>
                         </select>
                       </label>
                     </div>
@@ -1756,10 +2232,11 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
                       <EmptyState title="暂无公会配置" description="点击查询公会配置加载现有映射；保存后会显示上级分销人对应的 Linky 公会邀请码。" />
                     )}
                   </InfoCard>
+                  </div>
                     </>
                   ) : null}
 
-                  {activeAdminSection === 'bindings' ? (
+                  {activeAdminSection === 'bindings' && adminBindingView === 'users' ? (
                   adminRelation ? (
                     <div className="stack-gap relation-workbench">
                       <div className="relation-grid">
@@ -1838,6 +2315,65 @@ function ConsoleApp({ initialViewMode = 'user', initialAdminSession = null }: Co
         </DrawerDialog>
       ) : null}
 
+      {pendingAdminAccountAction ? (
+        <ConfirmDialog
+          title={`确认${adminAccountActionLabel(pendingAdminAccountAction)}?`}
+          tone={pendingAdminAccountAction.action === 'save' ? 'primary' : pendingAdminAccountAction.action === 'unlock' || (!pendingAdminAccountAction.account.enabled && pendingAdminAccountAction.action === 'toggle') ? 'success' : 'warning'}
+          confirmText={`确认${adminAccountActionLabel(pendingAdminAccountAction)}`}
+          onCancel={() => setPendingAdminAccountAction(null)}
+          onConfirm={() => {
+            const { account, action } = pendingAdminAccountAction
+            if (action === 'save') void handleSaveAdminAccount(account)
+            else if (action === 'toggle') void handleToggleAdminAccount(account)
+            else if (action === 'reset') void handleResetAdminPassword(account.id)
+            else void handleUnlockAdminAccount(account.id)
+          }}
+          loading={loading}
+        >
+          <InfoRow label="员工账号" value={`${pendingAdminAccountAction.account.username} / ${pendingAdminAccountAction.account.displayName}`} />
+          <InfoRow label="角色" value={formatAdminRole(pendingAdminAccountAction.account.role)} />
+          <InfoRow label="数据范围" value={`${pendingAdminAccountAction.account.platformScope} / ${pendingAdminAccountAction.account.guildScope} / ${pendingAdminAccountAction.account.regionScope}`} />
+          {pendingAdminAccountAction.action === 'reset' ? <InlineHint text="重置后旧会话立即失效，临时密码只显示一次。" /> : null}
+          {pendingAdminAccountAction.action === 'toggle' && pendingAdminAccountAction.account.enabled ? <InlineHint text="停用后该员工不能继续登录，现有会话也会失效。" /> : null}
+        </ConfirmDialog>
+      ) : null}
+
+      {pendingWithdrawAction ? (
+        <ConfirmDialog
+          title={`确认${withdrawActionLabel(pendingWithdrawAction.action)}?`}
+          tone={pendingWithdrawAction.action === 'reject' || pendingWithdrawAction.action === 'failed' || pendingWithdrawAction.action === 'reverse' ? 'warning' : 'primary'}
+          confirmText={`确认${withdrawActionLabel(pendingWithdrawAction.action)}`}
+          onCancel={() => setPendingWithdrawAction(null)}
+          onConfirm={() => void handleAdminWithdrawAction(pendingWithdrawAction.requestNo, pendingWithdrawAction.action)}
+          loading={adminWithdrawActionLoadingNo === pendingWithdrawAction.requestNo}
+        >
+          <InfoRow label="申请单" value={pendingWithdrawAction.requestNo} />
+          <InfoRow label="用户" value={`#${pendingWithdrawAction.userId}`} />
+          <InfoRow label="申请钻石" value={pendingWithdrawAction.requestedDiamondAmount} />
+          <InfoRow label="当前状态" value={renderStatusBadge(pendingWithdrawAction.requestStatus)} />
+          {pendingWithdrawAction.action === 'reject' ? <InfoRow label="拒绝原因" value={adminWithdrawAction.remark} /> : null}
+          {pendingWithdrawAction.action === 'paid' ? <><InfoRow label="打款渠道" value={adminWithdrawAction.paymentChannel} /><InfoRow label="支付流水号" value={adminWithdrawAction.paymentReference} /></> : null}
+          {pendingWithdrawAction.action === 'failed' ? <InfoRow label="失败原因" value={adminWithdrawAction.failureReason} /> : null}
+          {pendingWithdrawAction.action === 'reverse' ? <><InfoRow label="冲正原因" value={adminWithdrawAction.reversalReason} /><InfoRow label="账本币种" value={adminWithdrawAction.reversalCurrency} /><InlineHint text="确认后将新增不可变冲正账目；原支付与审批历史不会被删除。" /></> : null}
+        </ConfirmDialog>
+      ) : null}
+
+      {pendingBatchAction ? (
+        <ConfirmDialog
+          title={`确认批量${pendingBatchAction.kind === 'withdraw' ? pendingBatchAction.action === 'APPROVE' ? '通过提现' : '拒绝提现' : pendingBatchAction.action === 'HANDLE' ? '处理风险' : '忽略风险'}?`}
+          tone={pendingBatchAction.action === 'REJECT' || pendingBatchAction.action === 'IGNORE' ? 'warning' : 'primary'}
+          confirmText={`确认处理 ${pendingBatchAction.targetIds.length} 条`}
+          onCancel={() => { setPendingBatchAction(null); setBatchActionNote('') }}
+          onConfirm={() => void handleBatchAction()}
+          loading={batchActionLoading}
+        >
+          <InfoRow label="选中数量" value={pendingBatchAction.targetIds.length} />
+          <InfoRow label="处理范围" value={pendingBatchAction.targetIds.slice(0, 5).join('、') + (pendingBatchAction.targetIds.length > 5 ? ` 等 ${pendingBatchAction.targetIds.length} 条` : '')} />
+          <label className="dialog-field">统一备注<input value={batchActionNote} onChange={(event) => setBatchActionNote(event.target.value)} placeholder={pendingBatchAction.action === 'REJECT' || pendingBatchAction.action === 'IGNORE' ? '此操作必须填写原因…' : '可填写本批次处理依据…'} /></label>
+          <InlineHint text="系统会逐项执行并返回成功/失败明细；单条失败不会掩盖其他条目的真实结果。" />
+        </ConfirmDialog>
+      ) : null}
+
       {pendingRiskAction ? (
         <ConfirmDialog
           title={`确认${riskActionLabel(pendingRiskAction.action)}?`}
@@ -1890,15 +2426,14 @@ function PanelSection({ eyebrow, title, description, action, children, sectionId
   )
 }
 
-function SummaryCard({ label, value, hint }: { label: string; value: string; hint: string }) {
-  const isPending = value.includes('待') || value === '未设置'
-  return (
-    <div className={`summary-card ${isPending ? 'is-pending' : 'is-ready'}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <p>{hint}</p>
-    </div>
-  )
+function AdminNavIcon({ label }: { label: string }) {
+  const props = { size: 18, weight: 'duotone' as const }
+  if (label === '分销概览') return <House {...props} />
+  if (label === '渠道入口') return <Megaphone {...props} />
+  if (label === '绑定关系') return <LinkSimple {...props} />
+  if (label === '收益提现') return <Wallet {...props} />
+  if (label === '账号中心') return <UsersThree {...props} />
+  return <GearSix {...props} />
 }
 
 function DiagnosticBanner({ eyebrow, title, description, tone }: { eyebrow: string; title: string; description: string; tone: 'success' | 'warning' | 'danger' }) {
@@ -1928,10 +2463,6 @@ function RelationItem({ label, value }: { label: string; value: React.ReactNode 
       <strong>{value ?? '-'}</strong>
     </div>
   )
-}
-
-function Badge({ label, tone }: { label: string; tone: 'primary' | 'neutral' | 'success' }) {
-  return <span className={`badge badge-${tone}`}>{label}</span>
 }
 
 function InfoCard({ title, tone, children }: { title: string; tone: 'success' | 'neutral'; children: React.ReactNode }) {
@@ -1988,7 +2519,7 @@ void RoadmapList
 
 function ToastStack({ items, tone = 'neutral' }: { items: string[]; tone?: 'neutral' | 'success' | 'warning' }) {
   return (
-    <div className={`toast-stack tone-${tone}`}>
+    <div className={`toast-stack tone-${tone}`} role="status" aria-live="polite">
       {items.map((item) => (
         <div className="toast-note" key={item}>{item}</div>
       ))}
@@ -2017,9 +2548,33 @@ function ConfirmDialog({
   onCancel: () => void
   onConfirm: () => void
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    dialogRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !loading) onCancel()
+      if (event.key !== 'Tab' || !dialogRef.current) return
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'))
+      if (!focusable.length) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = previousOverflow
+      previousFocus?.focus()
+    }
+  }, [loading, onCancel])
+
   return (
-    <div className="dialog-backdrop">
-      <div className={`dialog-card tone-${tone}`}>
+    <div className="dialog-backdrop" role="presentation">
+      <div ref={dialogRef} className={`dialog-card tone-${tone}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="dialog-head">
           <div>
             <p className="panel-eyebrow">确认操作</p>
@@ -2040,6 +2595,11 @@ function ConfirmDialog({
 function StatusBadge({ status }: { status: string }) {
   const badgeMap: Record<string, { label: string; tone: 'success' | 'warning' | 'danger' | 'primary' | 'neutral' }> = {
     AVAILABLE: { label: '已可用', tone: 'success' },
+    PENDING_REVIEW: { label: '待审核', tone: 'primary' },
+    PAYMENT_PENDING: { label: '待打款', tone: 'warning' },
+    PAYMENT_FAILED: { label: '打款失败', tone: 'danger' },
+    PAID_OUT: { label: '已打款', tone: 'success' },
+    REVERSED: { label: '已冲正', tone: 'neutral' },
     HANDLED: { label: '已处理', tone: 'success' },
     PROCESSED: { label: '已处理', tone: 'success' },
     IGNORED: { label: '已忽略', tone: 'neutral' },
@@ -2098,6 +2658,21 @@ function riskActionLabel(action: RiskActionName) {
   }
 }
 
+function withdrawActionLabel(action: WithdrawActionName) {
+  if (action === 'approve') return '通过审核'
+  if (action === 'reject') return '拒绝申请'
+  if (action === 'paid') return '记录已打款'
+  if (action === 'reverse') return '发起账本冲正'
+  return '记录打款失败'
+}
+
+function adminAccountActionLabel(input: PendingAdminAccountAction) {
+  if (input.action === 'save') return '保存权限变更'
+  if (input.action === 'reset') return '重置员工密码'
+  if (input.action === 'unlock') return '解锁员工账号'
+  return input.account.enabled ? '停用员工账号' : '恢复员工账号'
+}
+
 function buildRelationPreview(relation: RelationDetailResponse, nextInviterIdRaw: string) {
   const nextLevel1InviterId = nextInviterIdRaw.trim() ? Number(nextInviterIdRaw) : null
   const changed = nextLevel1InviterId !== relation.level1InviterId
@@ -2128,18 +2703,18 @@ function canUnfreezeRisk(status: string) {
   return status === 'HANDLED'
 }
 
-function DataTable({ headers, rows, emptyText }: { headers: string[]; rows?: Array<Array<React.ReactNode>>; emptyText: string }) {
+function DataTable({ headers, rows, emptyText, rowClassNames }: { headers: React.ReactNode[]; rows?: Array<Array<React.ReactNode>>; emptyText: string; rowClassNames?: string[] }) {
   return (
     <div className="table-shell">
       <table>
         <thead>
           <tr>
-            {headers.map((header) => <th key={header}>{header}</th>)}
+            {headers.map((header, index) => <th key={index}>{header}</th>)}
           </tr>
         </thead>
         <tbody>
           {rows?.length ? rows.map((row, index) => (
-            <tr key={`${row[0]}-${index}`}>
+            <tr key={`${row[0]}-${index}`} className={rowClassNames?.[index] || undefined}>
               {row.map((cell, cellIndex) => <td key={`${index}-${cellIndex}`}>{cell}</td>)}
             </tr>
           )) : (
@@ -2147,6 +2722,16 @@ function DataTable({ headers, rows, emptyText }: { headers: string[]; rows?: Arr
           )}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+function BatchResultSummary({ result }: { result: BatchOperationResultResponse }) {
+  const failures = result.items.filter((item) => !item.success)
+  return (
+    <div className={`admin-batch-result ${failures.length ? 'has-failures' : ''}`} role="status">
+      <strong>批量回执：成功 {result.successCount} 条，失败 {result.failureCount} 条</strong>
+      {failures.length ? <details><summary>查看失败明细</summary><ul>{failures.map((item) => <li key={item.targetId}><code>{item.targetId}</code><span>{item.message || '操作失败'}</span></li>)}</ul></details> : <span>全部条目已完成。</span>}
     </div>
   )
 }
@@ -2232,6 +2817,14 @@ function formatDateTime(value?: string) {
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`
 }
 
+function formatAdminRole(role: string) {
+  const labels: Record<string, string> = {
+    super_admin: '最高管理员', admin: '管理员', operator: '操作员', operations: '运营',
+    finance: '财务', customer_support: '客服', mentor: '导师', team_leader: '团队负责人', viewer: '只读',
+  }
+  return labels[role.toLowerCase()] ?? role
+}
+
 // eslint-disable-next-line react-refresh/only-export-components
 export function buildBindGuildInviteGuidance(message: string) {
   const inviteCodeMatch = message.match(/invite code\s+([A-Za-z0-9_-]+)/i)
@@ -2289,8 +2882,8 @@ function BindLandingPage() {
       inviterUserId: '邀请人用户 ID',
       status: '状态',
       navBind: '绑定页',
-      navInvite: '生成我的邀请码',
-      navEarnings: '查看我的人收益',
+      navInvite: '邀请好友',
+      navEarnings: '我的收益',
     },
     en: {
       languageLabel: 'Language',
@@ -2463,7 +3056,7 @@ function BindLandingPage() {
   } as const
 
   const [locale, setLocale] = useState<keyof typeof copyByLocale>(() => loadExternalLocale())
-  const [product, setProduct] = useState('linky')
+  const product = 'linky'
   const [form, setForm] = useState({
     inviteCode: initialInviteCode,
     whatsappNumber: '',
@@ -2501,127 +3094,85 @@ function BindLandingPage() {
   }
 
   return (
-    <div className="page-shell bind-page-shell">
-      <section className="bind-canvas">
-        <div className="bind-backdrop bind-backdrop-left" />
-        <div className="bind-backdrop bind-backdrop-right" />
-
-        <header className="bind-topbar">
-          <div>
-            <p className="bind-kicker">{copy.kicker}</p>
-            <strong className="bind-brand">Referral Hub</strong>
-          </div>
-          <div className="bind-topbar-controls">
-            <label className="bind-select-group bind-select-inline topbar-pill-control">
-              <select aria-label={copy.languageLabel} value={locale} onChange={(event) => setLocale(event.target.value as keyof typeof copyByLocale)}>
-                <option value="zh">中文</option>
-                <option value="en">English</option>
-                <option value="es">Español</option>
-                <option value="id">Bahasa Indonesia</option>
-                <option value="pt">Português</option>
-              </select>
-            </label>
+    <div className="consumer-app-page">
+      <main className="consumer-shell consumer-form-shell">
+        <header className="consumer-topbar">
+          <a className="consumer-brand" href="/earnings"><img className="consumer-brand-logo" src="/bandeira-logo-v1.png" alt="" />BANDEIRA</a>
+          <div className="consumer-topbar-actions">
+            <select className="consumer-language" aria-label={copy.languageLabel} value={locale} onChange={(event) => setLocale(event.target.value as keyof typeof copyByLocale)}>
+              <option value="zh">中文</option>
+              <option value="en">EN</option>
+              <option value="es">ES</option>
+              <option value="id">ID</option>
+              <option value="pt">PT</option>
+            </select>
+            <a className="consumer-account-link" href="/earnings">
+              <Wallet weight="regular" aria-hidden="true" />
+              <span>{copy.navEarnings}</span>
+              <CaretRight weight="bold" aria-hidden="true" />
+            </a>
           </div>
         </header>
 
-        <nav className="entry-link-bar">
-          <a className="entry-link active topbar-pill-control" href="/bind">{copy.navBind}</a>
-          <a className="entry-link topbar-pill-control" href="/invite">{copy.navInvite}</a>
-          <a className="entry-link topbar-pill-control" href="/earnings">{copy.navEarnings}</a>
-        </nav>
-
-        <div className="bind-stage">
-          <div className="bind-copy-zone">
-            <h1>{copy.heroTitle}</h1>
-            <p className="bind-hero-text">{copy.heroSubtitle}</p>
+        <section className="consumer-commercial-hero consumer-bind-hero">
+          <span className="consumer-visually-hidden">{copy.navBind}</span>
+          <div className="consumer-commercial-kicker"><Diamond weight="fill" aria-hidden="true" /> BANDEIRA REWARDS</div>
+          <h1>{copy.heroTitle}</h1>
+          <p>{copy.productLabel} · Linky · {copy.heroSubtitle}</p>
+          <div className="consumer-commercial-proof">
+            <span><ShieldCheck weight="fill" aria-hidden="true" />归属锁定</span>
+            <span><LinkSimple weight="bold" aria-hidden="true" />记录可追踪</span>
           </div>
+        </section>
 
-          <div className="bind-form-zone">
-            <div className="bind-form-head">
-              <h2>{copy.formTitle}</h2>
-            </div>
+        {error ? (
+          <section className="consumer-banner is-error" role="alert">
+            <strong>{guildInviteGuidance?.title ?? copy.failure}</strong>
+            <span>{guildInviteGuidance?.description ?? error}</span>
+            {guildInviteGuidance ? <span>公会邀请码：<strong>{guildInviteGuidance.inviteCode}</strong></span> : null}
+          </section>
+        ) : result ? (
+          <section className="consumer-banner is-success" role="status"><strong>{copy.success}</strong><span>{copy.successText}</span></section>
+        ) : null}
 
-            {error ? (
-              <section className="bind-inline-banner bind-inline-banner-error">
-                <strong>{guildInviteGuidance?.title ?? copy.failure}</strong>
-                {guildInviteGuidance ? (
-                  <>
-                    <span>{guildInviteGuidance.description}</span>
-                    <span>对应 Linky 公会邀请码：<strong>{guildInviteGuidance.inviteCode}</strong></span>
-                  </>
-                ) : (
-                  <span>{error}</span>
-                )}
-              </section>
-            ) : result ? (
-              <section className="bind-inline-banner bind-inline-banner-success">
-                <strong>{copy.success}</strong>
-                <span>{copy.successText}</span>
-              </section>
-            ) : null}
-
-            <form className="bind-form" onSubmit={handleSubmit}>
-              <div className="bind-field-grid bind-field-grid-top">
-                <label className="bind-input-group">
-                  <span>{copy.productLabel}</span>
-                  <select value={product} onChange={(event) => setProduct(event.target.value)}>
-                    <option value="linky">Linky</option>
-                  </select>
-                </label>
-                <label className="bind-input-group">
-                  <span>{copy.whatsappNumber}</span>
-                  <input
-                    value={form.whatsappNumber}
-                    onChange={(e) => setForm({ ...form, whatsappNumber: e.target.value })}
-                    placeholder={copy.whatsappPlaceholder}
-                  />
-                </label>
-              </div>
-
-              <div className="bind-field-grid">
-                <label className="bind-input-group">
-                  <span>{copy.linkyAccount}</span>
-                  <input
-                    value={form.linkyAccount}
-                    onChange={(e) => setForm({ ...form, linkyAccount: e.target.value.replace(/\D/g, '').slice(0, 8) })}
-                    placeholder={copy.linkyPlaceholder}
-                    inputMode="numeric"
-                  />
-                </label>
-                <label className="bind-input-group">
-                  <span>{copy.inviteCode}</span>
-                  <input
-                    value={form.inviteCode}
-                    onChange={(e) => setForm({ ...form, inviteCode: e.target.value.toUpperCase() })}
-                    placeholder={copy.inviteCodePlaceholder}
-                  />
-                </label>
-              </div>
-
-              <button className="bind-submit-btn" type="submit" disabled={loading || !canSubmit}>
-                {loading ? copy.submitting : copy.submit}
-              </button>
-            </form>
-
-          </div>
-        </div>
+        <form className="consumer-form-card" onSubmit={handleSubmit}>
+          <label className="consumer-field">
+            <span>{copy.inviteCode}</span>
+            <input value={form.inviteCode} onChange={(event) => setForm({ ...form, inviteCode: event.target.value.toUpperCase() })} placeholder={copy.inviteCodePlaceholder} autoFocus />
+          </label>
+          <label className="consumer-field">
+            <span>{copy.whatsappNumber}</span>
+            <input value={form.whatsappNumber} onChange={(event) => setForm({ ...form, whatsappNumber: event.target.value })} placeholder={copy.whatsappPlaceholder} inputMode="tel" />
+          </label>
+          <label className="consumer-field">
+            <span>{copy.linkyAccount}</span>
+            <input value={form.linkyAccount} onChange={(event) => setForm({ ...form, linkyAccount: event.target.value.replace(/\D/g, '').slice(0, 8) })} placeholder={copy.linkyPlaceholder} inputMode="numeric" />
+          </label>
+          <input type="hidden" value={product} readOnly />
+          <button className="consumer-form-submit" type="submit" disabled={loading || !canSubmit}>
+            {loading ? copy.submitting : copy.submit}<ArrowRight weight="bold" aria-hidden="true" />
+          </button>
+          <p className="consumer-form-note"><ShieldCheck weight="fill" aria-hidden="true" />{copy.fact1}</p>
+        </form>
 
         {result ? (
-          <section className="bind-result-strip">
-            <div className="bind-result-head">
-              <p className="bind-kicker">{copy.resultTitle}</p>
-              <h3>{copy.resultWritten}</h3>
-            </div>
-            <div className="bind-result-grid">
-              <div className="bind-result-item"><span>{copy.inviteCode}</span><strong>{result.inviteCode}</strong></div>
-              <div className="bind-result-item"><span>{copy.inviterUserId}</span><strong>{result.inviterUserId}</strong></div>
-              <div className="bind-result-item"><span>{copy.whatsappNumber}</span><strong>{result.whatsappNumber}</strong></div>
-              <div className="bind-result-item"><span>{copy.linkyAccount}</span><strong>{result.linkyAccount}</strong></div>
-              <div className="bind-result-item"><span>{copy.status}</span><strong>{result.bindStatus}</strong></div>
-            </div>
+          <section className="consumer-result-card">
+            <div><CheckCircle weight="fill" aria-hidden="true" /><strong>{copy.resultWritten}</strong></div>
+            <dl>
+              <div><dt>{copy.inviteCode}</dt><dd>{result.inviteCode}</dd></div>
+              <div><dt>{copy.linkyAccount}</dt><dd>{result.linkyAccount}</dd></div>
+              <div><dt>{copy.status}</dt><dd>{result.bindStatus === 'BOUND' ? copy.success : result.bindStatus}</dd></div>
+            </dl>
+            <a href="/earnings">{copy.navEarnings}<ArrowRight weight="bold" aria-hidden="true" /></a>
           </section>
         ) : null}
-      </section>
+
+        <nav className="consumer-bottom-nav" aria-label="用户导航">
+          <a href="/earnings"><Wallet weight="regular" aria-hidden="true" /><span>{locale === 'zh' ? '收益' : copy.navEarnings}</span></a>
+          <a href="/invite"><UserPlus weight="regular" aria-hidden="true" /><span>{locale === 'zh' ? '邀请' : copy.navInvite}</span></a>
+          <a className="is-active" href="/bind"><LinkSimple weight="fill" aria-hidden="true" /><span>{locale === 'zh' ? '绑定' : copy.navBind}</span></a>
+        </nav>
+      </main>
     </div>
   )
 }
@@ -2638,29 +3189,29 @@ function formatMoney(value?: number | null) {
 export function formatBusinessRewardLevel(rewardLevel?: number | null, locale: string = 'zh') {
   if (locale === 'zh') {
     const labels: Record<number, string> = {
-      1: '业务二级收益',
-      2: '业务三级收益',
-      3: '业务四级收益',
+      1: '直接邀请奖励',
+      2: '历史二级佣金（只读）',
+      3: '历史三级佣金（只读）',
     }
-    return labels[rewardLevel ?? 0] ?? `业务层级 ${rewardLevel ?? '-'} 收益`
+    return labels[rewardLevel ?? 0] ?? `历史层级 ${rewardLevel ?? '-'} 佣金（只读）`
   }
   const labels: Record<number, string> = {
-    1: 'Business second-level reward',
-    2: 'Business third-level reward',
-    3: 'Business fourth-level reward',
+    1: 'Direct invite reward',
+    2: 'Legacy level 2 commission (read-only)',
+    3: 'Legacy level 3 commission (read-only)',
   }
-  return labels[rewardLevel ?? 0] ?? `Business level ${rewardLevel ?? '-'} reward`
+  return labels[rewardLevel ?? 0] ?? `Legacy level ${rewardLevel ?? '-'} commission (read-only)`
 }
 
 const externalPageCopyByLocale = {
   zh: {
     navBind: '绑定页',
-    navInvite: '生成我的邀请码',
-    navEarnings: '查看我的人收益',
+    navInvite: '邀请好友',
+    navEarnings: '我的收益',
     languageLabel: '语言',
     inviteKicker: 'INVITE CODE ENTRY',
-    inviteTitle: '生成我的邀请码',
-    inviteSubtitle: '填完信息，马上生成并复制你的邀请码。',
+    inviteTitle: '邀请好友',
+    inviteSubtitle: '登录后复制邀请码或分享绑定链接。',
     productLabel: '产品',
     whatsappLabel: 'WhatsApp 号码',
     appAccountLabel: 'app 账户（8位数字）',
@@ -2673,17 +3224,17 @@ const externalPageCopyByLocale = {
     copySuccess: '邀请码已复制。',
     copyFailure: '复制邀请码失败，请手动复制。',
     earningsKicker: 'EARNINGS ENTRY',
-    earningsTitle: '查看我的人收益',
-    earningsSubtitle: '看两部分：被邀请人的收益 + 你的提成。',
+    earningsTitle: '我的收益',
+    earningsSubtitle: '查看可用、冻结和累计奖励。',
     boardTitle: '你的收益会在这里持续更新',
     boardSubtitle: '从邀请码、绑定到奖励到账，这一页会持续帮你看清进度。',
     boardBadgeCode: '邀请码固定不变',
     boardBadgeBind: '绑定后自动累计',
     boardBadgeStatus: '到账状态一目了然',
     noSession: '还没有用户会话，请先去“生成我的邀请码”页面生成邀请码。',
-    noSessionTitle: '先生成你的邀请码',
-    noSessionHint: '还没开始邀请也没关系。先生成邀请码，再去完成绑定，收益会自动累计到这里。',
-    noSessionPrimary: '去生成我的邀请码',
+    noSessionTitle: '登录后查看你的邀请码',
+    noSessionHint: '使用手机号登录后即可邀请好友和查看收益。',
+    noSessionPrimary: '手机号登录',
     noSessionSecondary: '去绑定关系',
     inviteeIncome: '被邀请人的收益',
     inviteeIncomeBadge: '已确认',
@@ -2713,7 +3264,7 @@ const externalPageCopyByLocale = {
     inviteCode: '邀请码',
     invitedUsers: '邀请人数',
     effectiveUsers: '有效人数',
-    totalReward: '总奖励',
+    totalReward: '累计奖励',
     rewardRecords: '收益记录',
     rewardActivityTitle: '最近奖励动态',
     rewardActivityHint: '每一笔奖励都会显示状态和时间，方便你确认什么时候到账。',
@@ -3058,24 +3609,18 @@ const externalPageCopyByLocale = {
 function InviteCodePage() {
   const [session, setSession] = useState<SessionState | null>(() => loadJsonState<SessionState>(STORAGE_KEY))
   const [locale, setLocale] = useState<keyof typeof externalPageCopyByLocale>(() => loadExternalLocale())
-  const [form, setForm] = useState({
-    productCode: 'linky',
-    whatsappNumber: '',
-    appAccount: '',
-  })
+  const incomingInviteCode = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('inviteCode')?.trim().toUpperCase() ?? '' : ''
   const [phoneForm, setPhoneForm] = useState({
     phoneNumber: '',
     verificationCode: '',
-    inviteCode: session?.inviteCode ?? '',
-    countryCode: session?.countryCode ?? 'ID',
-    languageCode: session?.languageCode ?? 'id',
+    inviteCode: incomingInviteCode || session?.inviteCode || '',
+    countryCode: session?.countryCode ?? 'BR',
+    languageCode: session?.languageCode ?? 'pt-br',
   })
   const [phoneCodeHint, setPhoneCodeHint] = useState('')
   const [phoneAuthLoading, setPhoneAuthLoading] = useState(false)
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [issued, setIssued] = useState<IssueInviteCodeResponse | null>(null)
   const copy = externalPageCopyByLocale[locale]
 
   useEffect(() => {
@@ -3084,33 +3629,8 @@ function InviteCodePage() {
     }
   }, [locale])
 
-  async function handleGenerateInviteCode(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setLoading(true)
-    setError('')
-    setSuccess('')
-    try {
-      const response = await issueInviteCode(form)
-      const nextSession: SessionState = {
-        userId: response.userId,
-        inviteCode: response.inviteCode,
-        countryCode: response.countryCode,
-        languageCode: response.languageCode,
-        accessToken: response.accessToken,
-      }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSession))
-      setSession(nextSession)
-      setIssued(response)
-      setSuccess(copy.issueSuccess)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : copy.issueFailure)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   async function handleCopyInviteCode() {
-    const inviteCode = issued?.inviteCode || session?.inviteCode
+    const inviteCode = session?.inviteCode
     if (!inviteCode) return
     try {
       await navigator.clipboard.writeText(inviteCode)
@@ -3118,6 +3638,23 @@ function InviteCodePage() {
       setError('')
     } catch {
       setError(copy.copyFailure)
+    }
+  }
+
+  async function handleShareInviteCode() {
+    if (!session?.inviteCode) return
+    const shareUrl = `${window.location.origin}/bind?inviteCode=${encodeURIComponent(session.inviteCode)}`
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'BANDEIRA 邀请', text: `使用邀请码 ${session.inviteCode} 完成绑定`, url: shareUrl })
+      } else {
+        await navigator.clipboard.writeText(shareUrl)
+        setSuccess('邀请链接已复制。')
+      }
+      setError('')
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      setError('分享失败，请稍后重试。')
     }
   }
 
@@ -3152,7 +3689,7 @@ function InviteCodePage() {
       const nextSession = saveUserSession(profile)
       setSession(nextSession)
       setPhoneForm({ ...phoneForm, inviteCode: profile.inviteCode, countryCode: profile.countryCode, languageCode: profile.languageCode })
-      setSuccess('手机号登录成功，可以继续查看收益。')
+      setSuccess('登录成功，你的邀请码已准备好。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '手机号登录失败')
     } finally {
@@ -3161,125 +3698,74 @@ function InviteCodePage() {
   }
 
   return (
-    <div className="page-shell route-page-shell">
-      <section className="route-surface">
-        <header className="route-header">
-          <div>
-            <p className="route-kicker">{copy.inviteKicker}</p>
-            <h1>{copy.inviteTitle}</h1>
-            <p>{copy.inviteSubtitle}</p>
-          </div>
-          <div className="route-nav-links">
-            <label className="bind-select-group route-select-group route-select-inline topbar-pill-control">
+    <div className="consumer-app-page">
+      <main className="consumer-shell consumer-form-shell">
+        <header className="consumer-topbar">
+          <a className="consumer-brand" href="/earnings"><img className="consumer-brand-logo" src="/bandeira-logo-v1.png" alt="" />BANDEIRA</a>
+          <div className="consumer-topbar-actions">
+            <label className="consumer-language-select">
               <select aria-label={copy.languageLabel} value={locale} onChange={(event) => setLocale(event.target.value as keyof typeof externalPageCopyByLocale)}>
-                <option value="zh">中文</option>
-                <option value="en">English</option>
-                <option value="es">Español</option>
-                <option value="id">Bahasa Indonesia</option>
-                <option value="pt">Português</option>
+                <option value="zh">中文</option><option value="en">English</option><option value="es">Español</option><option value="id">Bahasa Indonesia</option><option value="pt">Português</option>
               </select>
             </label>
-            <a className="topbar-pill-control" href="/bind">{copy.navBind}</a>
-            <a className="topbar-pill-control active" href="/invite">{copy.navInvite}</a>
-            <a className="topbar-pill-control" href="/earnings">{copy.navEarnings}</a>
+            <a className="consumer-account-link" href="/earnings"><UserCircle size={26} weight="duotone" /><span>{copy.navEarnings}</span><CaretRight size={18} /></a>
           </div>
         </header>
 
-        {error ? <div className="route-banner route-banner-error">{error}</div> : null}
-        {success ? <div className="route-banner route-banner-success">{success}</div> : null}
+        <section className="consumer-commercial-heading">
+          <p><Diamond weight="fill" aria-hidden="true" /> BANDEIRA REWARDS</p>
+          <h1>{copy.inviteTitle}</h1>
+          <span>{copy.inviteSubtitle}</span>
+        </section>
 
-        <div className="route-grid two-columns-route">
-          <form className="route-panel route-form" onSubmit={handleGenerateInviteCode}>
-            <div className="route-field-grid">
-              <label>
-                {copy.productLabel}
-                <select value={form.productCode} onChange={(e) => setForm({ ...form, productCode: e.target.value })}>
-                  <option value="linky">Linky</option>
-                </select>
-              </label>
-              <label>
-                {copy.whatsappLabel}
-                <input value={form.whatsappNumber} onChange={(e) => setForm({ ...form, whatsappNumber: e.target.value })} placeholder="ex. +6281234567890" />
-              </label>
+        {error ? <div className="consumer-banner is-error"><strong>操作失败</strong><span>{error}</span></div> : null}
+        {success ? <div className="consumer-banner is-success"><CheckCircle size={20} weight="fill" /><span>{success}</span></div> : null}
+
+        {session ? (
+          <section className="consumer-invite-card">
+            <div className="consumer-invite-card-top"><span>专属邀请权益</span><Diamond weight="fill" aria-hidden="true" /></div>
+            <p>我的邀请码</p>
+            <strong>{session.inviteCode}</strong>
+            <span className="consumer-invite-caption">好友完成绑定后，邀请进度会自动更新。</span>
+            <div className="consumer-invite-actions">
+              <button type="button" onClick={handleCopyInviteCode}><Copy size={21} />复制邀请码</button>
+              <button type="button" onClick={handleShareInviteCode}><ShareNetwork size={21} />分享邀请链接</button>
             </div>
-            <div className="route-field-grid single-field-route">
-              <label>
-                {copy.appAccountLabel}
-                <input value={form.appAccount} onChange={(e) => setForm({ ...form, appAccount: e.target.value.replace(/\D/g, '').slice(0, 8) })} placeholder="ex. 12345678" />
-              </label>
+          </section>
+        ) : (
+          <form id="phone-login" className="consumer-form-card" onSubmit={handlePhoneLogin}>
+            <div className="consumer-form-card-heading"><div><h2>登录后开始邀请</h2><p>验证码登录，无需设置密码。</p></div><ShieldCheck size={28} weight="duotone" /></div>
+            <label className="consumer-field"><span>手机号 / WhatsApp</span><div className="consumer-input-with-icon"><Phone size={20} /><input value={phoneForm.phoneNumber} onChange={(e) => setPhoneForm({ ...phoneForm, phoneNumber: e.target.value })} placeholder="例如 +5511999999999" /></div></label>
+            <label className="consumer-field"><span>验证码</span><div className="consumer-code-row"><input value={phoneForm.verificationCode} onChange={(e) => setPhoneForm({ ...phoneForm, verificationCode: e.target.value.replace(/\D/g, '').slice(0, 6) })} placeholder="6 位验证码" /><button type="button" onClick={handleIssuePhoneCode} disabled={phoneAuthLoading || !phoneForm.phoneNumber.trim()}>获取验证码</button></div></label>
+            <div className="consumer-field-grid">
+              <label className="consumer-field"><span>邀请码（首次注册必填）</span><input value={phoneForm.inviteCode} onChange={(e) => setPhoneForm({ ...phoneForm, inviteCode: e.target.value.trim().toUpperCase() })} placeholder="新用户请输入有效邀请码" /></label>
+              <label className="consumer-field"><span>国家</span><input value={phoneForm.countryCode} onChange={(e) => setPhoneForm({ ...phoneForm, countryCode: e.target.value.trim().toUpperCase() })} placeholder="BR" /></label>
             </div>
-            <button className="primary-btn route-primary-btn" type="submit" disabled={loading || !form.whatsappNumber.trim() || form.appAccount.length !== 8}>
-              {loading ? copy.generating : copy.generateButton}
-            </button>
+            {phoneCodeHint ? <p className="consumer-form-note">{phoneCodeHint}</p> : null}
+            <button className="consumer-form-submit" type="submit" disabled={phoneAuthLoading || !phoneForm.phoneNumber.trim() || phoneForm.verificationCode.length < 6}><SignIn size={21} />手机号登录</button>
           </form>
+        )}
 
-          <div className="route-panel">
-            <p className="route-label">{copy.myInviteCode}</p>
-            <h2>{issued?.inviteCode || session?.inviteCode || '--'}</h2>
-            <div className="route-detail-list compact">
-              <div><span>{copy.productLabel}</span><strong>{issued?.productCode || form.productCode.toUpperCase()}</strong></div>
-              <div><span>{copy.whatsappLabel}</span><strong>{issued?.whatsappNumber || '--'}</strong></div>
-              <div><span>{copy.appAccountLabel}</span><strong>{issued?.appAccount || '--'}</strong></div>
-            </div>
-            <div className="route-action-row">
-              <button className="primary-btn" type="button" onClick={handleCopyInviteCode} disabled={!(issued?.inviteCode || session?.inviteCode)}>{copy.copyInviteCode}</button>
-            </div>
-          </div>
-        </div>
+        {session ? (
+          <section className="consumer-account-card">
+            <IdentificationCard size={30} weight="duotone" />
+            <div><span>当前账户</span><strong>用户 {session.userId} · {session.countryCode}</strong></div>
+            <a href={`/bind?inviteCode=${encodeURIComponent(session.inviteCode)}`}>去绑定<CaretRight size={18} /></a>
+          </section>
+        ) : null}
 
-        <div className="route-grid two-columns-route top-gap-xl">
-          <form className="route-panel route-form" onSubmit={handlePhoneLogin}>
-            <div className="route-detail-card-head">
-              <div>
-                <p className="route-label">手机号登录</p>
-                <h3 className="route-section-title">用手机号登录并继续查看收益</h3>
-              </div>
-              <span className="route-detail-badge">验证码登录</span>
-            </div>
-            <p className="route-caption route-panel-copy">如果你已经有邀请码，也可以在登录时带上邀请码完成资料初始化。</p>
-            <div className="route-field-grid">
-              <label>
-                手机号
-                <input value={phoneForm.phoneNumber} onChange={(e) => setPhoneForm({ ...phoneForm, phoneNumber: e.target.value })} placeholder="ex. +6281234567890" />
-              </label>
-              <label>
-                验证码
-                <input value={phoneForm.verificationCode} onChange={(e) => setPhoneForm({ ...phoneForm, verificationCode: e.target.value.replace(/\D/g, '').slice(0, 6) })} placeholder="6 位验证码" />
-              </label>
-            </div>
-            <div className="route-field-grid">
-              <label>
-                邀请码（可选）
-                <input value={phoneForm.inviteCode} onChange={(e) => setPhoneForm({ ...phoneForm, inviteCode: e.target.value.trim().toUpperCase() })} placeholder="已有邀请码可填写" />
-              </label>
-              <label>
-                国家
-                <input value={phoneForm.countryCode} onChange={(e) => setPhoneForm({ ...phoneForm, countryCode: e.target.value.trim().toUpperCase() })} placeholder="ID" />
-              </label>
-            </div>
-            <div className="route-action-row top-gap">
-              <button className="ghost-btn" type="button" onClick={handleIssuePhoneCode} disabled={phoneAuthLoading || !phoneForm.phoneNumber.trim()}>获取验证码</button>
-              <button className="primary-btn" type="submit" disabled={phoneAuthLoading || !phoneForm.phoneNumber.trim() || phoneForm.verificationCode.length < 6}>手机号登录</button>
-            </div>
-            {phoneCodeHint ? <p className="route-caption route-panel-copy">{phoneCodeHint}</p> : null}
-          </form>
-          <div className="route-panel route-detail-card">
-            <p className="route-label">登录后可继续</p>
-            <div className="route-detail-list compact">
-              <div><span>当前用户</span><strong>{session?.userId ?? '--'}</strong></div>
-              <div><span>当前邀请码</span><strong>{session?.inviteCode ?? issued?.inviteCode ?? '--'}</strong></div>
-              <div><span>收益入口</span><strong>/earnings</strong></div>
-            </div>
-            <p className="route-caption route-panel-copy">手机号登录会保存用户访问凭证，后续查看收益、团队和提现历史不需要再手动输入 token。</p>
-          </div>
-        </div>
-      </section>
+        <nav className="consumer-bottom-nav" aria-label="主要导航">
+          <a href="/earnings"><span><Diamond size={24} weight="duotone" /></span><small>{copy.navEarnings}</small></a>
+          <a className="is-active" href="/invite"><span><UserPlus size={24} weight="duotone" /></span><small>{copy.navInvite}</small></a>
+          <a href="/bind"><span><UserCircle size={24} weight="duotone" /></span><small>{copy.navBind}</small></a>
+        </nav>
+      </main>
     </div>
   )
 }
 
 function EarningsPage() {
-  const [session] = useState<SessionState | null>(() => loadJsonState<SessionState>(STORAGE_KEY))
+  const [session, setSession] = useState<SessionState | null>(() => loadJsonState<SessionState>(STORAGE_KEY))
   const [locale, setLocale] = useState<keyof typeof externalPageCopyByLocale>(() => loadExternalLocale())
   const [home, setHome] = useState<DistributionHomeResponse | null>(null)
   const [team, setTeam] = useState<TeamListResponse | null>(null)
@@ -3291,6 +3777,9 @@ function EarningsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const [showBalance, setShowBalance] = useState(true)
+  const [teamDetailsOpen, setTeamDetailsOpen] = useState(false)
+  const [rewardDetailsOpen, setRewardDetailsOpen] = useState(false)
   const copy = externalPageCopyByLocale[locale]
 
   useEffect(() => {
@@ -3320,7 +3809,14 @@ function EarningsPage() {
         setRewardSummary(rewardSummaryData)
         setWithdrawHistory(withdrawHistoryData)
       } catch (err) {
-        setError(err instanceof Error ? err.message : '加载收益失败')
+        const message = err instanceof Error ? err.message : '加载收益失败'
+        if (/access denied|unauthorized|session/i.test(message)) {
+          window.localStorage.removeItem(STORAGE_KEY)
+          setSession(null)
+          setError('登录状态已过期，请重新登录。')
+        } else {
+          setError(message)
+        }
       } finally {
         setLoading(false)
       }
@@ -3366,310 +3862,232 @@ function EarningsPage() {
   const rewardTierSummary = rewardSummary?.tiers ?? []
   const tierSummaryByLevel = new Map(rewardTierSummary.map((tier) => [tier.rewardLevel, tier]))
 
+  function getRewardActivityTitle(level?: number | null) {
+    if (locale !== 'zh') return formatBusinessRewardLevel(level, locale)
+    if (level === 1) return '直接邀请奖励'
+    if (level === 2) return '历史二级佣金（只读）'
+    if (level === 3) return '历史三级佣金（只读）'
+    return '历史层级佣金（只读）'
+  }
+
+  function formatRewardDate(value?: string) {
+    if (!value) return '--'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : locale, {
+      month: 'short',
+      day: 'numeric',
+    }).format(date)
+  }
+
+  const availableReward = home?.availableReward ?? 0
+  const totalReward = home?.totalReward ?? myCommission
+  const frozenReward = home?.frozenReward ?? 0
+  const effectiveUsersThisView = home?.effectiveUsers ?? 0
+  const growthTarget = 10
+  const growthProgress = Math.min(100, Math.round((effectiveUsersThisView / growthTarget) * 100))
+  const growthRemaining = Math.max(0, growthTarget - effectiveUsersThisView)
+
   return (
-    <div className="page-shell route-page-shell">
-      <section className="route-surface">
-        <header className="route-header">
-          <div>
-            <p className="route-kicker">{copy.earningsKicker}</p>
-            <h1>{copy.earningsTitle}</h1>
-            <p>{copy.earningsSubtitle}</p>
-          </div>
-          <div className="route-nav-links">
-            <label className="bind-select-group route-select-group route-select-inline topbar-pill-control">
-              <select aria-label={copy.languageLabel} value={locale} onChange={(event) => setLocale(event.target.value as keyof typeof externalPageCopyByLocale)}>
+    <div className="consumer-app-page">
+      <main className="consumer-shell">
+        <header className="consumer-topbar">
+          <a className="consumer-brand" href="/earnings"><img className="consumer-brand-logo" src="/bandeira-logo-v1.png" alt="" />BANDEIRA</a>
+          <div className="consumer-topbar-actions">
+            {!session ? (
+              <select className="consumer-language" aria-label={copy.languageLabel} value={locale} onChange={(event) => setLocale(event.target.value as keyof typeof externalPageCopyByLocale)}>
                 <option value="zh">中文</option>
-                <option value="en">English</option>
-                <option value="es">Español</option>
-                <option value="id">Bahasa Indonesia</option>
-                <option value="pt">Português</option>
+                <option value="en">EN</option>
+                <option value="es">ES</option>
+                <option value="id">ID</option>
+                <option value="pt">PT</option>
               </select>
-            </label>
-            <a className="topbar-pill-control" href="/bind">{copy.navBind}</a>
-            <a className="topbar-pill-control" href="/invite">{copy.navInvite}</a>
-            <a className="topbar-pill-control active" href="/earnings">{copy.navEarnings}</a>
+            ) : null}
+            <a className="consumer-account-link" href="/invite#phone-login">
+              <UserCircle weight="regular" aria-hidden="true" />
+              <span>{session ? '我的账户' : '登录'}</span>
+              <CaretRight weight="bold" aria-hidden="true" />
+            </a>
           </div>
         </header>
 
-        {error ? <div className="route-banner route-banner-error">{error}</div> : null}
-        {!error && successMessage ? <div className="route-banner route-banner-success">{successMessage}</div> : null}
-
-        <div className="route-panel route-board-panel top-gap-xl">
-          <p className="route-label">{copy.earningsOverview}</p>
-          <h2>{copy.boardTitle}</h2>
-          <p className="route-caption route-board-copy">{copy.boardSubtitle}</p>
-          <div className="route-badge-row">
-            <span className="route-board-badge">{copy.boardBadgeCode}</span>
-            <span className="route-board-badge">{copy.boardBadgeBind}</span>
-            <span className="route-board-badge">{copy.boardBadgeStatus}</span>
-          </div>
-        </div>
+        {error ? <div className="consumer-banner is-error" role="alert">{error}</div> : null}
+        {!error && successMessage ? <div className="consumer-banner is-success" role="status">{successMessage}</div> : null}
 
         {!session ? (
-          <div className="route-panel route-onboarding-panel top-gap-xl">
-            <p className="route-label">{copy.noSessionTitle}</p>
-            <h2>{copy.noSessionTitle}</h2>
-            <p className="route-caption route-onboarding-copy">{copy.noSessionHint}</p>
-            <div className="route-action-row">
-              <a className="primary-btn" href="/invite">{copy.noSessionPrimary}</a>
-              <a className="ghost-btn" href="/bind">{copy.noSessionSecondary}</a>
-            </div>
-          </div>
-        ) : null}
-
-        <div className="route-grid three-columns-route top-gap-xl">
-          <div className="route-panel route-metric-panel">
-            <div className="route-metric-head">
-              <p className="route-label">{copy.inviteeIncome}</p>
-              <span className="route-metric-pill">{copy.inviteeIncomeBadge}</span>
-            </div>
-            <h2>{formatMoney(inviteeIncome)}</h2>
-            <p className="route-caption">{copy.inviteeIncomeHint}</p>
-          </div>
-          <div className="route-panel route-metric-panel">
-            <div className="route-metric-head">
-              <p className="route-label">{copy.myCommission}</p>
-              <span className="route-metric-pill">{copy.myCommissionBadge}</span>
-            </div>
-            <h2>{formatMoney(myCommission)}</h2>
-            <p className="route-caption">{copy.myCommissionHint}</p>
-          </div>
-          <div className="route-panel route-metric-panel">
-            <div className="route-metric-head">
-              <p className="route-label">{copy.availableReward}</p>
-              <span className="route-metric-pill">{copy.availableRewardBadge}</span>
-            </div>
-            <h2>{formatMoney(home?.availableReward)}</h2>
-            <p className="route-caption">{copy.availableRewardHint}</p>
-          </div>
-        </div>
-
-        <div className="route-grid two-columns-route top-gap-xl">
-          <div className="route-panel route-detail-card">
-            <div className="route-detail-card-head">
+          <section className="consumer-auth-gate">
+            <div className="consumer-auth-icon"><Wallet weight="duotone" aria-hidden="true" /></div>
+            <p className="consumer-eyebrow">{copy.earningsOverview}</p>
+            <h1>{copy.noSessionTitle}</h1>
+            <p>{copy.noSessionHint}</p>
+            <a className="consumer-primary-link" href="/invite#phone-login">
+              {copy.noSessionPrimary}<ArrowRight weight="bold" aria-hidden="true" />
+            </a>
+            <a className="consumer-secondary-link" href="/bind">{copy.noSessionSecondary}</a>
+          </section>
+        ) : (
+          <>
+            <div className="consumer-home-greeting">
+              <h1 className="consumer-visually-hidden">{copy.earningsTitle}</h1>
+              <span className="consumer-home-avatar"><User weight="fill" aria-hidden="true" /></span>
               <div>
-                <p className="route-label">{copy.earningsOverview}</p>
-                <h3 className="route-section-title">{copy.overviewCardTitle}</h3>
+                <strong>{locale === 'zh' ? '早上好，伙伴！' : copy.earningsTitle}</strong>
+                <span>{locale === 'zh' ? '每一次有效邀请，都在积累你的奖励。' : copy.earningsSubtitle}</span>
               </div>
-              <span className="route-detail-badge">{copy.overviewBadge}</span>
+              <a className="consumer-notification-link" href="#all-rewards" aria-label="查看奖励记录"><Bell weight="regular" aria-hidden="true" /><i /></a>
             </div>
-            <div className="route-detail-list compact">
-              <div><span>{copy.inviteCode}</span><strong>{home?.inviteCode || session?.inviteCode || '--'}</strong></div>
-              <div><span>{copy.invitedUsers}</span><strong>{home?.invitedUsers ?? '--'}</strong></div>
-              <div><span>{copy.effectiveUsers}</span><strong>{home?.effectiveUsers ?? '--'}</strong></div>
-              <div><span>{copy.totalReward}</span><strong>{formatMoney(home?.totalReward)}</strong></div>
-            </div>
-          </div>
 
-          <div className="route-panel route-detail-card">
-            <div className="route-detail-card-head">
-              <div>
-                <p className="route-label">{copy.progressTitle}</p>
-                <h3 className="route-section-title">{copy.progressCardTitle}</h3>
-              </div>
-              <span className="route-detail-badge">{copy.progressBadge}</span>
-            </div>
-            <div className="route-detail-list compact">
-              <div><span>{copy.frozenReward}</span><strong>{formatMoney(home?.frozenReward)}</strong></div>
-              <div><span>{copy.availableReward}</span><strong>{formatMoney(home?.availableReward)}</strong></div>
-              <div><span>{copy.riskHoldReward}</span><strong>{formatMoney(home?.riskHoldReward)}</strong></div>
-            </div>
-            <p className="route-caption route-panel-copy">{copy.progressHint}</p>
-          </div>
-        </div>
-
-        <div className="route-panel top-gap-xl">
-          <div className="route-detail-card-head">
-            <div>
-              <p className="route-label">三层裂变人数</p>
-              <h3 className="route-section-title">下级 / 下下级 / 下下下级人数</h3>
-            </div>
-            <span className="route-detail-badge">总团队 {home?.totalTeamUsers ?? '--'}</span>
-          </div>
-          <p className="route-caption route-panel-copy">用户端完整展示三层裂变人数，避免只看到直属下级。</p>
-          <div className="route-grid three-columns-route top-gap">
-            <div className="route-detail-list compact">
-              <div><span>一级下级</span><strong>{home?.directInvitedUsers ?? '--'}</strong></div>
-              <div><span>有效一级</span><strong>{home?.directEffectiveUsers ?? '--'}</strong></div>
-            </div>
-            <div className="route-detail-list compact">
-              <div><span>二级下级</span><strong>{home?.secondLevelInvitedUsers ?? '--'}</strong></div>
-              <div><span>有效二级</span><strong>{home?.secondLevelEffectiveUsers ?? '--'}</strong></div>
-            </div>
-            <div className="route-detail-list compact">
-              <div><span>三级下级</span><strong>{home?.thirdLevelInvitedUsers ?? '--'}</strong></div>
-              <div><span>有效三级</span><strong>{home?.thirdLevelEffectiveUsers ?? '--'}</strong></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="route-panel top-gap-xl">
-          <div className="route-detail-card-head">
-            <div>
-              <p className="route-label">收益层级汇总</p>
-              <h3 className="route-section-title">业务二级 / 三级 / 四级收益汇总</h3>
-            </div>
-            <span className="route-detail-badge">明细按层级展开</span>
-          </div>
-          <p className="route-caption route-panel-copy">按业务层级汇总你的分销提成和明细数量。</p>
-          <div className="route-grid three-columns-route top-gap">
-            {[1, 2, 3].map((level) => {
-              const tier = tierSummaryByLevel.get(level)
-              return (
-                <div className="route-detail-list compact" key={level}>
-                  <div><span>{tier?.businessLevelLabel || formatBusinessRewardLevel(level, locale)}汇总</span><strong>{formatMoney(tier?.rewardAmount)}</strong></div>
-                  <div><span>明细数量</span><strong>{tier?.rewardCount ?? '--'}</strong></div>
+            <section className="consumer-balance-card" aria-label={copy.availableReward}>
+              <div className="consumer-balance-top">
+                <div className="consumer-balance-label">
+                  <span>{copy.availableReward}</span>
+                  <button type="button" className="consumer-icon-button" onClick={() => setShowBalance((value) => !value)} aria-label={showBalance ? '隐藏余额' : '显示余额'}>
+                    {showBalance ? <Eye weight="regular" aria-hidden="true" /> : <EyeSlash weight="regular" aria-hidden="true" />}
+                  </button>
                 </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="route-panel top-gap-xl">
-          <div className="route-detail-card-head">
-            <div>
-              <p className="route-label">团队周收入</p>
-              <h3 className="route-section-title">直属下级本周 / 上周钻石收入</h3>
-            </div>
-            <span className="route-detail-badge">{teamWeeklyIncome?.currentWeek || '本周'} / {teamWeeklyIncome?.previousWeek || '上周'}</span>
-          </div>
-          <p className="route-caption route-panel-copy">每个直属下级的本周和上周钻石收入会显示在这里。</p>
-          <div className="route-grid two-columns-route top-gap">
-            <div className="route-detail-list compact">
-              <div><span>团队本周钻石收入</span><strong>{formatMoney(teamWeeklyIncome?.currentWeekTeamIncome)}</strong></div>
-            </div>
-            <div className="route-detail-list compact">
-              <div><span>团队上周钻石收入</span><strong>{formatMoney(teamWeeklyIncome?.previousWeekTeamIncome)}</strong></div>
-            </div>
-          </div>
-          <div className="top-gap">
-            <h4 className="route-section-subtitle">直属下级收入明细</h4>
-            {teamWeeklyIncome?.items?.length ? (
-              <div className="route-record-list top-gap">
-                {teamWeeklyIncome.items.map((item) => (
-                  <div className="route-record-item" key={item.userId}>
-                    <div className="route-record-topline">
-                      <strong>用户 #{item.userId}</strong>
-                      <span className={`route-status-pill status-${item.effectiveUser ? 'available' : 'frozen'}`}>{item.effectiveUser ? '有效用户' : '待转化'}</span>
-                    </div>
-                    <span>本周 {formatMoney(item.currentWeekIncome)} · 上周 {formatMoney(item.previousWeekIncome)}</span>
-                    <em>邀请码 {item.inviteCode || '--'}</em>
-                  </div>
-                ))}
+                <button className="consumer-hero-withdraw" type="button" onClick={handleCreateWithdrawRequest} disabled={loading || availableReward <= 0}>
+                  {loading ? '处理中…' : '申请提现'}<CaretRight weight="bold" aria-hidden="true" />
+                </button>
               </div>
-            ) : (
-              <div className="route-empty-state top-gap">
-                <strong>暂无直属下级收入</strong>
-                <p>当直属下级产生 Linky 收入并完成收益同步后，本周和上周钻石收入会自动展示。</p>
+              <div className="consumer-balance-value">
+                <Diamond weight="fill" aria-hidden="true" />
+                <strong>{showBalance ? formatMoney(availableReward) : '••••••'}</strong>
               </div>
-            )}
-          </div>
-        </div>
-
-        <div className="route-grid two-columns-route top-gap-xl">
-          <div className="route-panel">
-            <p className="route-label">{copy.rewardRecords}</p>
-            <h3 className="route-section-title">{copy.rewardActivityTitle}</h3>
-            <p className="route-caption route-panel-copy">{copy.rewardActivityHint}</p>
-            <div className="route-status-guide">
-              <strong>{copy.rewardStatusGuideTitle}</strong>
-              <ul>
-                <li>{copy.rewardStatusGuideFrozen}</li>
-                <li>{copy.rewardStatusGuideAvailable}</li>
-                <li>{copy.rewardStatusGuideRiskHold}</li>
-              </ul>
-            </div>
-            {loading ? <p className="route-caption">{copy.loading}</p> : rewardItems.length ? (
-              <div className="route-record-list">
-                {rewardItems.slice(0, 6).map((item, index) => (
-                  <div className="route-record-item" key={`${item.sourceUserId}-${item.calculatedAt}-${index}`}>
-                    <div className="route-record-topline">
-                      <strong>用户 #{item.sourceUserId}</strong>
-                      <span className={`route-status-pill status-${item.rewardStatus.toLowerCase()}`}>{getRewardStatusLabel(item.rewardStatus)}</span>
-                    </div>
-                    <span>{formatBusinessRewardLevel(item.rewardLevel, locale)} · {copy.commissionTail} {formatMoney(item.rewardAmount)}</span>
-                    <em>{formatDateTime(item.calculatedAt)}</em>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="route-empty-state">
-                <strong>{copy.emptyRewardsTitle}</strong>
-                <p>{copy.emptyRewardsHint}</p>
-                <a className="ghost-btn" href="/invite">{copy.emptyRewardsAction}</a>
-              </div>
-            )}
-          </div>
-
-          <div className="route-panel route-detail-card">
-            <div className="route-detail-card-head">
-              <div>
-                <p className="route-label">{copy.settlementTitle}</p>
-                <h3 className="route-section-title">{copy.settlementCardTitle}</h3>
-              </div>
-              <span className="route-detail-badge">{copy.settlementBadge}</span>
-            </div>
-            <div className="route-detail-list compact">
-              <div><span>{copy.totalReward}</span><strong>{formatMoney(home?.totalReward)}</strong></div>
-              <div><span>{copy.frozenReward}</span><strong>{formatMoney(home?.frozenReward)}</strong></div>
-              <div><span>{copy.availableReward}</span><strong>{formatMoney(home?.availableReward)}</strong></div>
-              <div><span>{copy.riskHoldReward}</span><strong>{formatMoney(home?.riskHoldReward)}</strong></div>
-            </div>
-            <p className="route-caption route-panel-copy">{copy.settlementHint}</p>
-            <div className="route-action-row top-gap">
-              <button className="primary-btn" type="button" onClick={handleCreateWithdrawRequest} disabled={loading || !session || !home?.availableReward || home.availableReward <= 0}>
-                发起提现申请
-              </button>
-            </div>
-            <p className="route-caption route-panel-copy">提现只会按可用奖励里的钻石数量生成申请单，后续由运营人工发放。</p>
-            {withdrawRequest ? (
-              <div className="route-detail-list compact top-gap">
-                <div><span>最近申请单号</span><strong>{withdrawRequest.requestNo}</strong></div>
-                <div><span>申请钻石</span><strong>{withdrawRequest.requestedDiamondAmount}</strong></div>
-                <div><span>申请状态</span><strong>{withdrawRequest.requestStatus}</strong></div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="route-panel top-gap-xl">
-          <div className="route-detail-card-head">
-            <div>
-              <p className="route-label">提现历史</p>
-              <h3 className="route-section-title">完整提现记录</h3>
-            </div>
-            <span className="route-detail-badge">最近 10 条</span>
-          </div>
-          <p className="route-caption route-panel-copy">完整提现记录会按申请时间持续显示在这里。</p>
-          {withdrawHistory?.items?.length ? (
-            <div className="route-record-list top-gap">
-              {withdrawHistory.items.map((item) => (
-                <div className="route-record-item" key={item.requestNo}>
-                  <div className="route-record-topline">
-                    <strong>{item.requestNo}</strong>
-                    <span className={`route-status-pill status-${item.requestStatus.toLowerCase().replaceAll('_', '-')}`}>{item.requestStatus}</span>
-                  </div>
-                  <span>申请钻石 {item.requestedDiamondAmount} · {item.requestWeek}</span>
-                  <em>{formatDateTime(item.requestedAt)}</em>
+              <div className="consumer-balance-metrics">
+                <div>
+                  <span>{copy.frozenReward}</span>
+                  <strong>{showBalance ? formatMoney(frozenReward) : '••••'}</strong>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="route-empty-state top-gap">
-              <strong>还没有提现申请</strong>
-              <p>当你发起提现后，申请单号、钻石数量和处理状态都会显示在这里。</p>
-            </div>
-          )}
-        </div>
+                <div>
+                  <span>{copy.totalReward}</span>
+                  <strong>{showBalance ? formatMoney(totalReward) : '••••'}</strong>
+                </div>
+                <div>
+                  <span>{copy.inviteeIncome}</span>
+                  <strong>{showBalance ? formatMoney(inviteeIncome) : '••••'}</strong>
+                </div>
+                <div>
+                  <span>{copy.effectiveUsers}</span>
+                  <strong>{effectiveUsersThisView}</strong>
+                </div>
+              </div>
+            </section>
 
-        <div className="route-panel top-gap-xl">
-          <p className="route-label">{copy.nextStepsTitle}</p>
-          <div className="route-action-row">
-            <a className="primary-btn" href="/invite">{copy.nextInvite}</a>
-            <a className="ghost-btn" href="/bind">{copy.nextBind}</a>
-          </div>
-        </div>
-      </section>
+            <button className="consumer-growth-card" type="button" onClick={() => setTeamDetailsOpen(true)}>
+              <span className="consumer-growth-medal"><Medal weight="duotone" aria-hidden="true" /></span>
+              <span className="consumer-growth-copy">
+                <span><strong>新星邀请人</strong><b>{effectiveUsersThisView}<small>/{growthTarget}</small></b></span>
+                <i><em style={{ width: `${growthProgress}%` }} /></i>
+                <small>{growthRemaining > 0 ? <>再邀请 <strong>{growthRemaining}</strong> 位有效用户，即可完成本阶段目标</> : '本阶段目标已完成，继续保持增长'}</small>
+              </span>
+              <CaretRight weight="bold" aria-hidden="true" />
+            </button>
+
+            <button className="consumer-team-summary" type="button" onClick={() => setTeamDetailsOpen(true)}>
+              <span className="consumer-card-title"><UsersThree weight="fill" aria-hidden="true" />邀请概览（本周）</span>
+              <CaretRight weight="bold" aria-hidden="true" />
+              <span className="consumer-team-summary-grid">
+                <span><small>已邀请用户</small><strong>{home?.directInvitedUsers ?? 0}</strong></span>
+                <span><small>下线确认收益</small><strong>{formatMoney(inviteeIncome)}</strong></span>
+                <span><small>我的累计奖励</small><strong>{formatMoney(totalReward)}</strong></span>
+              </span>
+            </button>
+
+            <section className="consumer-task-section">
+              <div className="consumer-section-head consumer-task-head">
+                <h2><Target weight="fill" aria-hidden="true" />今天怎么推进收益</h2>
+                <span>4 个关键动作</span>
+              </div>
+
+              <div className="consumer-task-list">
+                <a href="/invite"><span className="is-orange"><UserPlus weight="fill" /></span><div><strong>邀请新用户</strong><small>当前已邀请 {home?.directInvitedUsers ?? 0} 人</small></div><b>去邀请</b></a>
+                <a href="/bind"><span className="is-pink"><LinkSimple weight="bold" /></span><div><strong>完成平台绑定</strong><small>登记并验证 Timo / Linky ID</small></div><b>去绑定</b></a>
+                <button type="button" onClick={() => setTeamDetailsOpen(true)}><span className="is-green"><UsersThree weight="fill" /></span><div><strong>跟进有效用户</strong><small>本期有效用户 {effectiveUsersThisView} 人</small></div><b>查看团队</b></button>
+                <button type="button" onClick={() => setRewardDetailsOpen(true)}><span className="is-purple"><Sparkle weight="fill" /></span><div><strong>查看奖励记录</strong><small>当前共 {rewardItems.length} 笔奖励</small></div><b>查看记录</b></button>
+              </div>
+            </section>
+
+            <section className="consumer-activity-section">
+              <div className="consumer-section-head">
+                <h2>{copy.rewardActivityTitle}</h2>
+                <button type="button" onClick={() => setRewardDetailsOpen(true)}>{locale === 'zh' ? '全部记录' : copy.rewardRecords}<CaretRight weight="bold" aria-hidden="true" /></button>
+              </div>
+
+              {loading ? (
+                <div className="consumer-loading-list" aria-label={copy.loading}>
+                  <span /><span /><span />
+                </div>
+              ) : rewardItems.length ? (
+                <div className="consumer-activity-list">
+                  {rewardItems.slice(0, 3).map((item, index) => {
+                    const isAvailable = item.rewardStatus === 'AVAILABLE'
+                    return (
+                      <article className="consumer-activity-row" key={`${item.sourceUserId}-${item.calculatedAt}-${index}`}>
+                        <span className={`consumer-activity-icon ${isAvailable ? 'is-available' : 'is-frozen'}`}>
+                          {isAvailable ? <CheckCircle weight="fill" aria-hidden="true" /> : <LockSimple weight="fill" aria-hidden="true" />}
+                        </span>
+                        <div className="consumer-activity-copy">
+                          <strong>{getRewardActivityTitle(item.rewardLevel)}</strong>
+                          <span>{locale === 'zh' ? '来自用户' : copy.inviteeIncome} #{item.sourceUserId}</span>
+                        </div>
+                        <div className={`consumer-activity-amount ${isAvailable ? 'is-available' : 'is-frozen'}`}>
+                          <strong>+ {formatMoney(item.rewardAmount)}</strong>
+                          <span>{getRewardStatusLabel(item.rewardStatus)} · {formatRewardDate(item.calculatedAt)}</span>
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="consumer-empty-state">
+                  <UserPlus weight="duotone" aria-hidden="true" />
+                  <div><strong>{copy.emptyRewardsTitle}</strong><p>{copy.emptyRewardsHint}</p></div>
+                  <a href="/invite">{copy.emptyRewardsAction}</a>
+                </div>
+              )}
+            </section>
+
+            <section className="consumer-details" id="team-details">
+              <details open={teamDetailsOpen} onToggle={(event) => setTeamDetailsOpen(event.currentTarget.open)}>
+                <summary><span>团队概览</span><strong>{home?.totalTeamUsers ?? 0} 人</strong></summary>
+                <div className="consumer-detail-grid">
+                  <div><span>一级用户</span><strong>{home?.directInvitedUsers ?? 0}</strong></div>
+                  <div><span>二级用户</span><strong>{home?.secondLevelInvitedUsers ?? 0}</strong></div>
+                  <div><span>三级用户</span><strong>{home?.thirdLevelInvitedUsers ?? 0}</strong></div>
+                  <div><span>团队本周收入</span><strong>{formatMoney(teamWeeklyIncome?.currentWeekTeamIncome)}</strong></div>
+                </div>
+              </details>
+              <details id="all-rewards" open={rewardDetailsOpen} onToggle={(event) => setRewardDetailsOpen(event.currentTarget.open)}>
+                <summary><span>奖励明细</span><strong>{rewardItems.length} 笔</strong></summary>
+                <div className="consumer-detail-grid">
+                  {[1, 2, 3].map((level) => {
+                    const tier = tierSummaryByLevel.get(level)
+                    return <div key={level}><span>{tier?.businessLevelLabel || formatBusinessRewardLevel(level, locale)}</span><strong>{formatMoney(tier?.rewardAmount)}</strong></div>
+                  })}
+                  <div><span>{copy.inviteeIncome}</span><strong>{formatMoney(inviteeIncome)}</strong></div>
+                </div>
+              </details>
+              <details>
+                <summary><span>提现记录</span><strong>{withdrawHistory?.total ?? 0} 条</strong></summary>
+                {withdrawRequest ? <p className="consumer-detail-note">最近申请 {withdrawRequest.requestNo} · {withdrawRequest.requestedDiamondAmount} 钻石</p> : null}
+                {withdrawHistory?.items?.length ? (
+                  <div className="consumer-withdraw-list">
+                    {withdrawHistory.items.slice(0, 5).map((item) => (
+                      <div key={item.requestNo}><span>{item.requestNo}<small>{formatRewardDate(item.requestedAt)}</small></span><strong>{item.requestedDiamondAmount} · {item.requestStatus}</strong></div>
+                    ))}
+                  </div>
+                ) : <p className="consumer-detail-note">还没有提现记录。</p>}
+              </details>
+            </section>
+          </>
+        )}
+
+        <nav className="consumer-bottom-nav" aria-label="用户导航">
+          <a className="is-active" href="/earnings"><Wallet weight="fill" aria-hidden="true" /><span>{locale === 'zh' ? '收益' : copy.navEarnings}</span></a>
+          <a href="/invite"><UserPlus weight="regular" aria-hidden="true" /><span>{locale === 'zh' ? '邀请' : copy.navInvite}</span></a>
+          <a href="/invite#phone-login"><User weight="regular" aria-hidden="true" /><span>{locale === 'zh' ? '我的' : '账户'}</span></a>
+        </nav>
+      </main>
     </div>
   )
 }
@@ -3679,7 +4097,17 @@ function App() {
   if (pathname.startsWith('/bind')) return <BindLandingPage />
   if (pathname.startsWith('/invite')) return <InviteCodePage />
   if (pathname.startsWith('/earnings')) return <EarningsPage />
-  return <ConsoleApp />
+  const designPreview = import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('adminPreview') === '1'
+  return <ConsoleApp initialAdminSession={designPreview ? {
+    sessionToken: 'local-design-preview',
+    expiresAt: '2099-12-31T23:59:59Z',
+    username: 'design-preview',
+    displayName: 'BANDEIRA Admin',
+    role: 'super_admin',
+    platformScope: '*',
+    guildScope: '*',
+    regionScope: 'BR',
+  } : null} />
 }
 
 export { ConsoleApp }

@@ -12,6 +12,14 @@ import java.util.Optional;
 public interface IncomeEventRepository extends JpaRepository<IncomeEvent, Long> {
     Optional<IncomeEvent> findBySourceEventId(String sourceEventId);
 
+    long countByRewardEngineVersion(String rewardEngineVersion);
+
+    @Query("select coalesce(sum(i.legacyCandidateCount), 0) from IncomeEvent i where i.rewardEngineVersion = :rewardEngineVersion")
+    long sumLegacyCandidateCountByRewardEngineVersion(String rewardEngineVersion);
+
+    @Query("select coalesce(sum(i.generatedRewardCount), 0) from IncomeEvent i where i.rewardEngineVersion = :rewardEngineVersion")
+    long sumGeneratedRewardCountByRewardEngineVersion(String rewardEngineVersion);
+
     @Query("select coalesce(sum(i.incomeAmount), 0) from IncomeEvent i where i.userId = :userId and i.eventTime >= :startAt and i.eventTime < :endAt")
     BigDecimal sumIncomeAmountByUserIdAndEventTimeBetween(Long userId, LocalDateTime startAt, LocalDateTime endAt);
 

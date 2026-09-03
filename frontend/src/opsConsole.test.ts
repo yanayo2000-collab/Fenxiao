@@ -141,6 +141,11 @@ describe('buildAdminSectionLinks', () => {
         href: '#admin-rewards',
       },
       {
+        label: '账号中心',
+        description: '员工、密码和设备安全。',
+        href: '#admin-accounts',
+      },
+      {
         label: '配置',
         description: '接入、公会和产品配置。',
         href: '#admin-settings',
@@ -160,7 +165,7 @@ describe('buildLinkyDiagnosticSnapshot', () => {
     })).toEqual({
       tone: 'warning',
       title: 'Linky 回传链路待校验',
-      summary: '先按订单号查一笔 Linky webhook，确认收益事件是否已经稳定进入 Fenxiao。',
+      summary: '先按订单号查一笔 Linky webhook，确认收益事件是否已经稳定进入 BANDEIRA。',
     })
   })
 
@@ -197,7 +202,7 @@ describe('buildEmptyStatePreset', () => {
   it('returns task-oriented copy for Linky webhook empty states', () => {
     expect(buildEmptyStatePreset('linky-webhook')).toEqual({
       title: '先查一笔 Linky webhook',
-      description: '建议先输入订单号；如果没有结果，再确认请求是否真的到达 Fenxiao。',
+      description: '建议先输入订单号；如果没有结果，再确认请求是否真的到达 BANDEIRA。',
       actionLabel: '推荐先按订单号查',
     })
   })
@@ -205,7 +210,7 @@ describe('buildEmptyStatePreset', () => {
   it('returns post-query copy when a query has already been executed', () => {
     expect(buildEmptyStatePreset('linky-webhook', true)).toEqual({
       title: '这次没查到 Linky webhook',
-      description: '换一个订单号、用户或请求状态再试；如果仍然为空，优先确认上游请求是否真的打到 Fenxiao。',
+      description: '换一个订单号、用户或请求状态再试；如果仍然为空，优先确认上游请求是否真的打到 BANDEIRA。',
       actionLabel: '建议切换订单号或状态',
     })
   })

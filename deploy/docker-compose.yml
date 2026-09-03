@@ -1,17 +1,26 @@
-version: '3.9'
 services:
   mysql:
     image: mysql:8.4
+    restart: unless-stopped
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
-    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping --host=127.0.0.1 --user=root --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   backend:
     build:
@@ -24,23 +33,63 @@ services:
       DB_PASSWORD: ${MYSQL_PASSWORD}
       PROFILE_CREATE_TOKEN: ${PROFILE_CREATE_TOKEN}
       INTERNAL_DISTRIBUTION_TOKEN: ${INTERNAL_DISTRIBUTION_TOKEN}
+      LINKY_SIGNING_SECRET: ${LINKY_SIGNING_SECRET:?LINKY_SIGNING_SECRET is required}
+      LINKY_REPLAY_WINDOW_SECONDS: ${LINKY_REPLAY_WINDOW_SECONDS:-900}
+      REWARD_ENGINE_ENABLED: ${REWARD_ENGINE_ENABLED:-false}
+      REWARD_ENGINE_VERSION: ${REWARD_ENGINE_VERSION:-BANDEIRA_V1_DIRECT_ONLY}
+      LIFECYCLE_SHADOW_ONLY: ${LIFECYCLE_SHADOW_ONLY:-true}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:?ADMIN_SESSION_SECRET is required}
+      ADMIN_SESSION_TTL_MINUTES: ${ADMIN_SESSION_TTL_MINUTES:-720}
+      ADMIN_REMEMBERED_IDLE_DAYS: ${ADMIN_REMEMBERED_IDLE_DAYS:-7}
+      ADMIN_LOGIN_WINDOW_MINUTES: ${ADMIN_LOGIN_WINDOW_MINUTES:-10}
+      ADMIN_LOGIN_MAX_ATTEMPTS: ${ADMIN_LOGIN_MAX_ATTEMPTS:-5}
+      ADMIN_ACCOUNT_LOCK_MINUTES: ${ADMIN_ACCOUNT_LOCK_MINUTES:-30}
+      ADMIN_PASSWORD_MAX_AGE_DAYS: ${ADMIN_PASSWORD_MAX_AGE_DAYS:-90}
+      ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
+      ADMIN_BOOTSTRAP_DISPLAY_NAME: ${ADMIN_BOOTSTRAP_DISPLAY_NAME:-Super Admin}
+      ADMIN_BOOTSTRAP_FORCE_PASSWORD_CHANGE: ${ADMIN_BOOTSTRAP_FORCE_PASSWORD_CHANGE:-true}
       WEB_ALLOWED_ORIGINS: ${WEB_ALLOWED_ORIGINS}
       SERVER_PORT: ${SERVER_PORT:-8080}
+    restart: unless-stopped
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   frontend:
     image: nginx:1.27-alpine
+    restart: unless-stopped
     volumes:
       - ../frontend/dist:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     ports:
-      - "8088:80"
+      - "127.0.0.1:8088:80"
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   mysql-data:

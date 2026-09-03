@@ -21,8 +21,6 @@ import java.util.Locale;
 @Transactional
 public class OwnershipAdminService {
 
-    private static final long SYSTEM_ADMIN_OPERATOR_ID = 0L;
-    private static final String OPERATOR_ROLE = "ADMIN_SESSION";
     private static final String MODULE_NAME = "ownership";
     private static final String TARGET_TYPE = "user_product_ownership";
 
@@ -57,7 +55,12 @@ public class OwnershipAdminService {
         return toResponse(userId, ownerships);
     }
 
-    public OwnershipDetailResponse correctOwnership(Long userId, String productCode, String note, String requestIp) {
+    public OwnershipDetailResponse correctOwnership(Long userId,
+                                                    String productCode,
+                                                    String note,
+                                                    String requestIp,
+                                                    Long operatorId,
+                                                    String operatorRole) {
         List<UserProductOwnership> ownerships = userProductOwnershipRepository.findByUserIdOrderByIdDesc(userId);
         if (ownerships.isEmpty()) {
             throw new IllegalArgumentException("ownership not found");
@@ -83,8 +86,8 @@ public class OwnershipAdminService {
         List<UserProductOwnership> refreshed = userProductOwnershipRepository.findByUserIdOrderByIdDesc(userId);
         LocalDateTime now = LocalDateTime.now(clock);
         operationAuditLogRepository.save(OperationAuditLog.create(
-                SYSTEM_ADMIN_OPERATOR_ID,
-                OPERATOR_ROLE,
+                operatorId,
+                operatorRole,
                 MODULE_NAME,
                 TARGET_TYPE,
                 activeOwnership.getId(),

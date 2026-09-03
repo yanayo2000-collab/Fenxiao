@@ -32,6 +32,35 @@ export type AdminSectionLink = {
   href: string
 }
 
+export type NamedFilterView<T> = {
+  id: string
+  name: string
+  query: T
+  createdAt: string
+}
+
+export function saveNamedFilterView<T>(
+  views: NamedFilterView<T>[],
+  name: string,
+  query: T,
+  now = new Date(),
+  maxViews = 8,
+): NamedFilterView<T>[] {
+  const normalizedName = name.trim()
+  if (!normalizedName) throw new Error('筛选视图名称不能为空')
+  const retained = views.filter((view) => view.name.toLocaleLowerCase() !== normalizedName.toLocaleLowerCase())
+  return [{
+    id: `${now.getTime()}-${normalizedName.toLocaleLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').replace(/^-|-$/g, '') || 'view'}`,
+    name: normalizedName,
+    query: structuredClone(query),
+    createdAt: now.toISOString(),
+  }, ...retained].slice(0, maxViews)
+}
+
+export function deleteNamedFilterView<T>(views: NamedFilterView<T>[], id: string): NamedFilterView<T>[] {
+  return views.filter((view) => view.id !== id)
+}
+
 export function buildAdminTaskCards(input: {
   adminLoggedIn: boolean
   overviewLoaded: boolean
@@ -112,8 +141,8 @@ export function buildAdminWorkspaceShortcuts(input: {
   ]
 }
 
-export function buildAdminSectionLinks(): AdminSectionLink[] {
-  return [
+export function buildAdminSectionLinks(role?: string): AdminSectionLink[] {
+  const links = [
     {
       label: '分销概览',
       description: '总览。',
@@ -135,11 +164,31 @@ export function buildAdminSectionLinks(): AdminSectionLink[] {
       href: '#admin-rewards',
     },
     {
+      label: '账号中心',
+      description: '员工、密码和设备安全。',
+      href: '#admin-accounts',
+    },
+    {
       label: '配置',
       description: '接入、公会和产品配置。',
       href: '#admin-settings',
     },
   ]
+  if (!role) return links
+
+  const normalizedRole = role.toLowerCase()
+  if (normalizedRole === 'super_admin' || normalizedRole === 'admin') return links
+
+  const roleSections: Record<string, string[]> = {
+    finance: ['#admin-overview', '#admin-rewards', '#admin-accounts'],
+    operations: ['#admin-overview', '#admin-channel-entries', '#admin-bindings', '#admin-accounts'],
+    operator: ['#admin-overview', '#admin-channel-entries', '#admin-bindings', '#admin-accounts'],
+    customer_support: ['#admin-overview', '#admin-bindings', '#admin-accounts'],
+    mentor: ['#admin-overview', '#admin-bindings', '#admin-accounts'],
+    team_leader: ['#admin-overview', '#admin-bindings', '#admin-accounts'],
+  }
+  const visibleSections = roleSections[normalizedRole] ?? ['#admin-overview', '#admin-accounts']
+  return links.filter((item) => visibleSections.includes(item.href))
 }
 
 export function buildLinkyDiagnosticSnapshot(input: {
@@ -154,7 +203,7 @@ export function buildLinkyDiagnosticSnapshot(input: {
     return {
       tone: 'warning',
       title: 'Linky 回传链路待校验',
-      summary: '先按订单号查一笔 Linky webhook，确认收益事件是否已经稳定进入 Fenxiao。',
+      summary: '先按订单号查一笔 Linky webhook，确认收益事件是否已经稳定进入 BANDEIRA。',
     }
   }
   if (blockedCount > 0 || input.replayedCount > 0) {
@@ -179,12 +228,12 @@ export function buildEmptyStatePreset(kind: 'linky-webhook' | 'linky-replay' | '
       return hasQueried
         ? {
             title: '这次没查到 Linky webhook',
-            description: '换一个订单号、用户或请求状态再试；如果仍然为空，优先确认上游请求是否真的打到 Fenxiao。',
+            description: '换一个订单号、用户或请求状态再试；如果仍然为空，优先确认上游请求是否真的打到 BANDEIRA。',
             actionLabel: '建议切换订单号或状态',
           }
         : {
             title: '先查一笔 Linky webhook',
-            description: '建议先输入订单号；如果没有结果，再确认请求是否真的到达 Fenxiao。',
+            description: '建议先输入订单号；如果没有结果，再确认请求是否真的到达 BANDEIRA。',
             actionLabel: '推荐先按订单号查',
           }
     case 'linky-replay':
@@ -221,7 +270,7 @@ export function buildEmptyStatePreset(kind: 'linky-webhook' | 'linky-replay' | '
         : {
             title: '先筛一轮奖励记录',
             description: '建议先按受益用户或状态查一页，确认奖励是否被冻结、可用或风险挂起。',
-            actionLabel: '推荐先查 AVAILABLE / RISK_HOLD',
+            actionLabel: '可按用户或状态筛选',
           }
   }
 }

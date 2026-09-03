@@ -37,7 +37,7 @@ public class RiskEvent extends BaseEntity {
     private RiskStatus riskStatus;
 
     @Lob
-    @Column(name = "detail_json")
+    @Column(name = "detail_json", columnDefinition = "LONGTEXT")
     private String detailJson;
 
     @Column(name = "detected_at", nullable = false)

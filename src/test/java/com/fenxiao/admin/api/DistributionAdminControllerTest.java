@@ -346,6 +346,10 @@ class DistributionAdminControllerTest {
                 .andExpect(jsonPath("$.guildName").value("Permata"))
                 .andExpect(jsonPath("$.guildCheckStatus").value("MATCHED_OURS"))
                 .andExpect(jsonPath("$.registrationEligibility").value("ELIGIBLE"));
+
+        Long operatorAccountId = adminAccountRepository.findByUsername("default_admin").orElseThrow().getId();
+        org.assertj.core.api.Assertions.assertThat(linkyAccountBindingRepository.findByLinkyAccount("12345678").orElseThrow().getCheckedBy())
+                .isEqualTo(operatorAccountId);
     }
 
     @Test
@@ -365,6 +369,10 @@ class DistributionAdminControllerTest {
                 .andExpect(jsonPath("$.failures[0].linkyAccount").value("failed-admin-linky"))
                 .andExpect(jsonPath("$.failures[0].guildCheckStatus").value("REFRESH_FAILED"))
                 .andExpect(jsonPath("$.failures[0].remark").value("guild backend timeout"));
+
+        Long operatorAccountId = adminAccountRepository.findByUsername("default_admin").orElseThrow().getId();
+        org.assertj.core.api.Assertions.assertThat(linkyAccountBindingRepository.findByLinkyAccount("failed-admin-linky").orElseThrow().getCheckedBy())
+                .isEqualTo(operatorAccountId);
     }
 
     @Test
@@ -430,14 +438,14 @@ class DistributionAdminControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.requestNo").value(requestNo))
-                .andExpect(jsonPath("$.requestStatus").value("PAID_OUT"));
+                .andExpect(jsonPath("$.requestStatus").value("PAYMENT_PENDING"));
 
         org.assertj.core.api.Assertions.assertThat(operationAuditLogRepository.findAll())
-                .filteredOn(log -> "withdraw_request".equals(log.getModuleName()) && "APPROVE".equals(log.getActionName()))
+                .filteredOn(log -> "withdraw_request".equals(log.getModuleName()) && "APPROVE_FOR_PAYMENT".equals(log.getActionName()))
                 .anySatisfy(log -> {
                     Long operatorAccountId = adminAccountRepository.findByUsername("default_admin").orElseThrow().getId();
                     org.assertj.core.api.Assertions.assertThat(log.getOperatorId()).isEqualTo(operatorAccountId);
-                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("super_admin");
+                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("SUPER_ADMIN");
                     org.assertj.core.api.Assertions.assertThat(log.getRemark()).isEqualTo("manual payout done");
                 });
     }
@@ -479,7 +487,7 @@ class DistributionAdminControllerTest {
                 .anySatisfy(log -> {
                     Long operatorAccountId = adminAccountRepository.findByUsername("default_admin").orElseThrow().getId();
                     org.assertj.core.api.Assertions.assertThat(log.getOperatorId()).isEqualTo(operatorAccountId);
-                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("super_admin");
+                    org.assertj.core.api.Assertions.assertThat(log.getOperatorRole()).isEqualTo("SUPER_ADMIN");
                     org.assertj.core.api.Assertions.assertThat(log.getRemark()).isEqualTo("bank account mismatch");
                 });
     }
@@ -528,4 +536,3 @@ class DistributionAdminControllerTest {
         return record;
     }
 }
-

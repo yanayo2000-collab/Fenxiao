@@ -35,7 +35,7 @@ class LocalRewardRuleSeederTest {
 
         seeder.seedDefaults();
 
-        verify(repository, times(3)).save(any(RewardRule.class));
+        verify(repository, times(1)).save(any(RewardRule.class));
     }
 
     @Test
@@ -43,10 +43,6 @@ class LocalRewardRuleSeederTest {
         RewardRuleRepository repository = mock(RewardRuleRepository.class);
         when(repository.findEffectiveRule(eq("ID"), eq("NORMAL_USER"), eq(1), eq("ACTIVE"), any(LocalDateTime.class)))
                 .thenReturn(Optional.of(RewardRule.create("ID", "NORMAL_USER", 1, new BigDecimal("0.10"), 7, 1L)));
-        when(repository.findEffectiveRule(eq("ID"), eq("NORMAL_USER"), eq(2), eq("ACTIVE"), any(LocalDateTime.class)))
-                .thenReturn(Optional.of(RewardRule.create("ID", "NORMAL_USER", 2, new BigDecimal("0.02"), 7, 1L)));
-        when(repository.findEffectiveRule(eq("ID"), eq("NORMAL_USER"), eq(3), eq("ACTIVE"), any(LocalDateTime.class)))
-                .thenReturn(Optional.of(RewardRule.create("ID", "NORMAL_USER", 3, new BigDecimal("0.005"), 7, 1L)));
 
         LocalRewardRuleSeeder seeder = new LocalRewardRuleSeeder(repository, FIXED_CLOCK);
 
@@ -69,9 +65,7 @@ class LocalRewardRuleSeederTest {
         assertThat(seededRules)
                 .extracting(RewardRule::getRewardLevel, RewardRule::getRewardRate, RewardRule::getFreezeDays)
                 .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple(1, new BigDecimal("0.10"), 7),
-                        org.assertj.core.groups.Tuple.tuple(2, new BigDecimal("0.02"), 7),
-                        org.assertj.core.groups.Tuple.tuple(3, new BigDecimal("0.005"), 7)
+                        org.assertj.core.groups.Tuple.tuple(1, new BigDecimal("0.10"), 7)
                 );
     }
 }

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run BANDEIRA MySQL backup daily
+
+[Timer]
+OnCalendar=*-*-* 02:45:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=fenxiao-mysql-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -5,6 +5,12 @@ public record AdminSessionResponse(
         String expiresAt,
         String username,
         String displayName,
-        String role
+        String role,
+        boolean mustChangePassword,
+        boolean rememberMe,
+        String passwordExpiresAt,
+        String platformScope,
+        String guildScope,
+        String regionScope
 ) {
 }

@@ -261,6 +261,35 @@ class DistributionMvpAdminControllerTest {
     }
 
     @Test
+    void shouldBatchHandlePendingRiskEvents() throws Exception {
+        seedRules();
+        String rootCode = distributionBindingService.createProfile(13011L, "ID", "id", null).getInviteCode();
+        distributionBindingService.createProfile(13012L, "ID", "id", rootCode);
+        UserDistributionProfile sourceUser = userDistributionProfileRepository.findById(13012L).orElseThrow();
+        sourceUser.markAsRiskUser();
+        userDistributionProfileRepository.save(sourceUser);
+        rewardCalculationService.processIncomeEvent("evt-risk-batch-1", 13012L, new BigDecimal("90.00"), "USD", LocalDateTime.now());
+        Long riskEventId = riskEventRepository.findAdminRiskEvents(13012L, null, null, null, org.springframework.data.domain.PageRequest.of(0, 1))
+                .getContent().getFirst().getId();
+
+        mockMvc.perform(post("/admin/distribution/risk-events/batch-actions")
+                        .header("X-Admin-Session", loginAsAdmin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "riskEventIds": [%d],
+                                  "action": "HANDLE",
+                                  "note": "batch reviewed"
+                                }
+                                """.formatted(riskEventId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(1))
+                .andExpect(jsonPath("$.failureCount").value(0))
+                .andExpect(jsonPath("$.items[0].targetId").value(String.valueOf(riskEventId)))
+                .andExpect(jsonPath("$.items[0].status").value("HANDLED"));
+    }
+
+    @Test
     void shouldPutRiskRewardsOnHoldForRiskUser() throws Exception {
         seedRules();
         String rootCode = distributionBindingService.createProfile(12001L, "ID", "id", null).getInviteCode();

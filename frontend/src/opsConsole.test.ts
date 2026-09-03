@@ -5,7 +5,32 @@ import {
   buildAdminWorkspaceShortcuts,
   buildEmptyStatePreset,
   buildLinkyDiagnosticSnapshot,
+  deleteNamedFilterView,
+  saveNamedFilterView,
 } from './opsConsole'
+
+describe('named filter views', () => {
+  it('saves a trimmed immutable query and replaces a same-name view', () => {
+    const query = { status: 'PENDING', page: '4' }
+    const first = saveNamedFilterView([], ' 待处理风险 ', query, new Date('2026-08-25T00:00:00Z'))
+    query.status = 'IGNORED'
+    const replaced = saveNamedFilterView(first, '待处理风险', { status: 'HANDLED', page: '0' }, new Date('2026-08-25T01:00:00Z'))
+
+    expect(first[0].query.status).toBe('PENDING')
+    expect(replaced).toHaveLength(1)
+    expect(replaced[0]).toMatchObject({ name: '待处理风险', query: { status: 'HANDLED', page: '0' } })
+  })
+
+  it('keeps only the newest eight views and supports deletion', () => {
+    let views = [] as ReturnType<typeof saveNamedFilterView<{ status: string }>>
+    for (let index = 0; index < 9; index += 1) {
+      views = saveNamedFilterView(views, `视图 ${index}`, { status: String(index) }, new Date(1_700_000_000_000 + index))
+    }
+    expect(views).toHaveLength(8)
+    expect(views[0].name).toBe('视图 8')
+    expect(deleteNamedFilterView(views, views[0].id)).toHaveLength(7)
+  })
+})
 
 describe('buildAdminTaskCards', () => {
   it('highlights login, overview, invite entry, and main distribution flow before advanced operations are available', () => {
@@ -150,6 +175,18 @@ describe('buildAdminSectionLinks', () => {
         description: '接入、公会和产品配置。',
         href: '#admin-settings',
       },
+    ])
+  })
+
+  it('shows finance only the overview, payout workbench, and personal account center', () => {
+    expect(buildAdminSectionLinks('finance').map((item) => item.href)).toEqual([
+      '#admin-overview', '#admin-rewards', '#admin-accounts',
+    ])
+  })
+
+  it('keeps configuration and staff management out of customer support navigation', () => {
+    expect(buildAdminSectionLinks('customer_support').map((item) => item.href)).toEqual([
+      '#admin-overview', '#admin-bindings', '#admin-accounts',
     ])
   })
 })

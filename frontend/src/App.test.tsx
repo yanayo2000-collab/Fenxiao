@@ -286,7 +286,20 @@ describe('Earnings landing page', () => {
     expect(markup).toContain('提现申请详情')
     expect(markup).toContain('选择一笔申请')
     expect(markup).toContain('从左侧队列选择申请后，在这里完成审核和打款留痕。')
+    expect(markup).toContain('提现队列筛选')
+    expect(markup).toContain('按条件查询提现申请')
+    expect(markup).toContain('>重置<')
     expect(markup).not.toContain('审批备注')
+  })
+
+  it('restores the operator withdrawal queue filters between visits', () => {
+    window.location.hash = '#admin-rewards'
+    window.localStorage.setItem('fenxiao-admin-withdraw-query', JSON.stringify({ userId: '54001', status: 'PAYMENT_PENDING', page: '2', size: '10' }))
+
+    const markup = renderToStaticMarkup(<ConsoleApp initialViewMode="admin" initialAdminSession={adminTestSession} />)
+
+    expect(markup).toContain('value="54001"')
+    expect(markup).toContain('<option value="PAYMENT_PENDING" selected="">待打款</option>')
   })
 
   it('renders channel entry management instead of a static localhost link list', () => {

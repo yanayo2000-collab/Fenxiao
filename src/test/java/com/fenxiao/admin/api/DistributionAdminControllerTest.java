@@ -492,6 +492,38 @@ class DistributionAdminControllerTest {
                 });
     }
 
+    @Test
+    void shouldBatchApproveWithdrawRequestsAndReturnPerItemFailures() throws Exception {
+        String sessionToken = createAdminSessionToken("10.0.0.18");
+        UserDistributionProfile profile = distributionBindingService.createProfile(62018L, "ID", "id", null);
+        rewardRecordRepository.save(makeAvailableReward("income-62018-a", profile.getUserId(), 1, "1200.000000"));
+
+        String withdrawResponse = mockMvc.perform(post("/api/distribution/withdraw-requests/62018")
+                        .header("X-Distribution-Token", profile.getApiAccessToken())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String requestNo = withdrawResponse.replaceAll(".*\"requestNo\":\"([^\"]+)\".*", "$1");
+
+        mockMvc.perform(post("/admin/distribution/withdraw-requests/batch-actions")
+                        .header("X-Admin-Session", sessionToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "requestNos": ["%s", "WD-MISSING"],
+                                  "action": "APPROVE",
+                                  "remark": "batch finance review"
+                                }
+                                """.formatted(requestNo)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(1))
+                .andExpect(jsonPath("$.failureCount").value(1))
+                .andExpect(jsonPath("$.items[0].targetId").value(requestNo))
+                .andExpect(jsonPath("$.items[0].status").value("PAYMENT_PENDING"))
+                .andExpect(jsonPath("$.items[1].targetId").value("WD-MISSING"))
+                .andExpect(jsonPath("$.items[1].success").value(false));
+    }
+
     private void seedRewardRules() {
         LocalDateTime effectiveFrom = LocalDateTime.of(2020, 1, 1, 0, 0);
         rewardRuleRepository.save(RewardRule.create("ID", "NORMAL_USER", 1, new BigDecimal("0.10"), 7, 1L, effectiveFrom, null));

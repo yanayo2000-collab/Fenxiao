@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { approveAdminWithdrawRequest, approveWithdrawForPayment, correctAdminOwnership, createAdminSession, createExperiment, createWithdrawRequest, getAdminGuildConfigs, getAdminGuildWeeklyReport, getAdminOwnership, getAdminWithdrawRequests, getDistributionRewardSummary, getDistributionTeamWeeklyIncome, getExperimentDashboard, getWithdrawHistory, issuePhoneCode, phoneLogin, recordWithdrawPayment, refreshAdminLinkyEligibility, refreshAdminLinkyEligibilityBatch, rejectAdminWithdrawRequest, saveAdminGuildConfig } from './api'
+import { applyAdminRiskEventBatchAction, applyAdminWithdrawBatchAction, approveAdminWithdrawRequest, approveWithdrawForPayment, correctAdminOwnership, createAdminSession, createExperiment, createWithdrawRequest, getAdminGuildConfigs, getAdminGuildWeeklyReport, getAdminOwnership, getAdminWithdrawRequests, getDistributionRewardSummary, getDistributionTeamWeeklyIncome, getExperimentDashboard, getWithdrawHistory, issuePhoneCode, phoneLogin, recordWithdrawPayment, refreshAdminLinkyEligibility, refreshAdminLinkyEligibilityBatch, rejectAdminWithdrawRequest, reverseWithdrawPayment, saveAdminGuildConfig } from './api'
 
 describe('ownership admin api', () => {
   afterEach(() => {
@@ -147,6 +147,25 @@ describe('ownership admin api', () => {
     await recordWithdrawPayment('session-token', 'WR-001', { paymentChannel: 'PIX', paymentReference: 'PIX-001' }, true)
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/admin/distribution/withdrawal-workflow/WR-001/approve-for-payment', expect.objectContaining({ method: 'POST' }))
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/admin/distribution/withdrawal-workflow/WR-001/payment-success', expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('posts batch withdrawal and risk actions with explicit target lists', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ successCount: 2, failureCount: 0, items: [] }) })
+    vi.stubGlobal('fetch', fetchMock)
+    await applyAdminWithdrawBatchAction('session-token', { requestNos: ['WR-1', 'WR-2'], action: 'REJECT', remark: '身份不一致' })
+    await applyAdminRiskEventBatchAction('session-token', { riskEventIds: [11, 12], action: 'IGNORE', note: '已交叉核验' })
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/admin/distribution/withdraw-requests/batch-actions', expect.objectContaining({ method: 'POST', body: JSON.stringify({ requestNos: ['WR-1', 'WR-2'], action: 'REJECT', remark: '身份不一致' }) }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/admin/distribution/risk-events/batch-actions', expect.objectContaining({ method: 'POST', body: JSON.stringify({ riskEventIds: [11, 12], action: 'IGNORE', note: '已交叉核验' }) }))
+  })
+
+  it('uses the immutable withdrawal reversal endpoint instead of deleting payment history', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ requestNo: 'WR-001', status: 'REVERSED' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    await reverseWithdrawPayment('session-token', 'WR-001', { reason: '支付渠道撤回', currencyCode: 'DIAMOND' })
+    expect(fetchMock).toHaveBeenCalledWith('/admin/distribution/withdrawal-workflow/WR-001/reverse', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ reason: '支付渠道撤回', currencyCode: 'DIAMOND' }),
+    }))
   })
 
   it('creates and reads a fixed-denominator experiment', async () => {
